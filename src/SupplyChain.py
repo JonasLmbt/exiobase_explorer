@@ -1,12 +1,13 @@
-import pandas as pd # type: ignore 
-import matplotlib.pyplot as plt # type: ignore 
-import matplotlib.colors as mcolors # type: ignore 
-import mapclassify  # type: ignore # pip install mapclassify
+import pandas as pd 
+import matplotlib.pyplot as plt 
+import matplotlib.colors as mcolors 
+import mapclassify  
+import tkinter as tk
+from tkinter import ttk
 
 class SupplyChain:
     
-    def __init__(self, database, indices = None, **kwargs):
-        
+    def __init__(self, database, select = False, indices = None, **kwargs):
         # Parameter setzen
         self.database = database
         self.language = self.database.language
@@ -15,7 +16,10 @@ class SupplyChain:
         if indices is not None:
             self.indices = indices
             
-        else:
+        else:         
+            if select:
+                kwargs = {**self.get_multiindex_selection(self.database.Index.region_multiindex), **self.get_multiindex_selection(self.database.Index.sector_multiindex_per_region)}
+
             # Hierarchieliste für gesetzte Werte
             self.hierarchy_levels = {}
         
@@ -41,15 +45,92 @@ class SupplyChain:
                not any(self.hierarchy_levels[level] for level in self.database.Index.sector_classification):
                 self.regional = True
                 self.database.Impact.get_regional_impacts(region_indices=self.indices)
-                
-    
+
+    def get_multiindex_selection(self, index):
+        """
+        Funktion zur Darstellung eines MultiIndex in einer interaktiven Baumstruktur.
+        Gibt das ausgewählte Schema als Dictionary zurück.
+        
+        :param index: pd.MultiIndex - Der MultiIndex, der im TreeView angezeigt wird
+        :return: dict - Das ausgewählte Schema im Dictionary-Format
+        """
+        
+        # Tkinter Fenster erstellen
+        root = tk.Tk()
+        root.title("MultiIndex GUI")
+
+        # Fenstergröße anpassen (breiter machen)
+        root.geometry("600x400")  # Breiter machen, z.B. 600px Breite, 400px Höhe
+
+        # Treeview erstellen (größer machen) - Nur eine Textspalte
+        tree = ttk.Treeview(root, height=15, columns=("text"))  # Eine Spalte 'text'
+        tree.heading("#1", text="Bezeichnung")  # Überschrift für die Spalte
+        tree.column("#1", width=300)  # Breite der Textspalte einstellen
+        tree.pack(fill="both", expand=True)
+
+        # Label zum Anzeigen des Pfades als Dictionary
+        path_label = tk.Label(root, text="Auswahl als Dictionary: ", font=("Arial", 12))
+        path_label.pack(pady=10)
+
+        # Variable zum Speichern des Pfades
+        selected_path = {}
+
+        # Funktion, um die Baumstruktur aus dem MultiIndex zu erstellen
+        def create_treeview_from_index(parent, index, level=0, path=""):
+            if level < len(index.names):
+                unique_values = index.get_level_values(level).unique()
+                for value in unique_values:
+                    node_name = value
+                    node_id = f"{path}-{value}"
+                    new_parent = tree.insert(parent, 'end', node_id, text=node_name)
+                    subset = index[index.get_level_values(level) == value]
+                    create_treeview_from_index(new_parent, subset, level + 1, node_id)
+
+        # Baumstruktur aus dem MultiIndex erstellen
+        create_treeview_from_index('', index)
+
+        # Funktion zum Anzeigen des gesamten Pfades der ausgewählten Knoten als Dictionary
+        def show_selection(event):
+            selected_item = tree.selection()[0]
+            path = [tree.item(selected_item)['text']]
+            
+            # Sammle den Pfad von den Elternknoten
+            while tree.parent(selected_item):
+                parent_item = tree.parent(selected_item)
+                path.insert(0, tree.item(parent_item)['text'])
+                selected_item = parent_item
+            
+            # Erstelle das Dictionary mit dem letzten Wert der Auswahl
+            nonlocal selected_path
+            selected_path = {}
+
+            # Füge nur das letzte Element (die ausgewählte Ebene) in das Dictionary ein
+            selected_path[index.names[len(path) - 1]] = path[-1]
+
+            # Zeige das Dictionary mit der letzten Auswahl an
+            path_label.config(text="Auswahl als Dictionary: " + str(selected_path))
+
+
+        # Ereignisbindung zum Auswählen von Knoten
+        tree.bind("<<TreeviewSelect>>", show_selection)
+
+        # Funktion zum Speichern der Auswahl und Schließen des Fensters
+        def on_close():
+            root.destroy()  # Verwende destroy(), um das Fenster zu schließen
+
+        # Ereignis für das Schließen des Fensters
+        root.protocol("WM_DELETE_WINDOW", on_close)
+
+        root.mainloop()
+        
+        return selected_path
+
     def __repr__(self):
         """
         Returns a string representation of the SupplyChain object, useful for debugging or displaying in the program.    
         This representation is especially helpful when inspecting objects during debugging.
         """
         return f"SupplyChain(Number of Indices: {len(self.indices)}, Hierarchy levels: {self.hierarchy_levels})"
-
 
     def transform_unit(self, value, impact):
         """
@@ -83,7 +164,6 @@ class SupplyChain:
         # and then transforming the unit based on the calculated value.
         return self.transform_unit(value=self.database.Impact.total.loc[impact].iloc[:, self.indices].sum().sum().item(), impact=impact)
             
-
     def resource_extraction(self, impact):
         """
         Calculates the environmental impact of resource extraction for a given impact type.
@@ -130,8 +210,7 @@ class SupplyChain:
             return self.transform_unit(value=self.database.Impact.direct_suppliers.loc[impact].iloc[:, self.indices].sum().sum().item(), impact=impact)
         else:
             return self.transform_unit(value=self.database.Impact.direct_suppliers_regional.loc[impact].iloc[:, self.indices].sum().sum().item(), impact=impact)
-    
-    
+      
     def retail(self, impact):
         """
         Calculates the environmental impact directly at the production site (identity matrix) for a given impact type.
@@ -147,7 +226,6 @@ class SupplyChain:
             return self.transform_unit(value=self.database.Impact.retail.loc[impact].iloc[:, self.indices].sum().sum().item(), impact=impact)
         else:
             return self.transform_unit(value=self.database.Impact.retail_regional.loc[impact].iloc[:, self.indices].sum().sum().item(), impact=impact)
-
 
     def calculate_all(self, impacts, relative=True, decimal_places=2):
         """
@@ -208,9 +286,8 @@ class SupplyChain:
         df = pd.DataFrame(data, index=impacts, columns=columns)
     
         return df
-
-    
-    def plot_supply_chain(self, impacts, title=None, size=3, lines=True, line_width=1, line_color="gray", text_position="center"):
+ 
+    def plot_supply_chain(self, impacts, title=None, size=1, lines=True, line_width=1, line_color="gray", text_position="center"):
         """
         Visualizes the environmental impacts along a supply chain in a clear plot.
     
@@ -303,7 +380,6 @@ class SupplyChain:
         plt.tight_layout()
         plt.show()
 
-    
     def plot_subcontractors(self, color="Blues", title=None, relative=True):
         
         values = list(self.database.L.iloc[:, self.indices].groupby(level=self.database.Index.region_classification[-1], sort=False).sum().sum(axis=1).values)
@@ -317,7 +393,6 @@ class SupplyChain:
 
         #return df
 
-
     def plot_region_data(self, df, column=None, color_map="Blues", relative=False, title=""):
         """
         Plots a choropleth map of the given dataframe's column.
@@ -328,7 +403,7 @@ class SupplyChain:
             color_map (str): The color map to use for shading.
             relative (bool): If True, convert values to percentages of the total sum.
         """ 
-        world = self.database.Index.create_map()
+        world = self.database.Index.get_map()
         column = column if column is not None else df.columns[0]
         df = df.drop(index="MT", errors="ignore")  # Falls "MT" nicht existiert, keinen Fehler werfen
         
@@ -371,10 +446,12 @@ class SupplyChain:
     
         # Titel setzen
         ax.set_title(title)
-    
+
+        # Entfernen des weißen Randes
+        plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
         plt.show()
 
-    
     def get_title(self, **kwargs):
         """
         Generates a dynamic title based on the provided hierarchy levels and their translations.

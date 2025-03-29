@@ -1,13 +1,15 @@
 import os
+import shutil
 import io
 import json
 import zipfile
 import time
+import pandas as pd 
+import numpy as np 
+import geopandas as gpd 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-import pandas as pd # type: ignore 
-import numpy as np # type: ignore
-import geopandas as gpd # type: ignore
+
 
 class Index:
     """
@@ -84,7 +86,6 @@ class Index:
         self.general_dict = {'Supply Chain Analysis': 'Supply Chain Analysis', 'Total': 'Total', 'Unit': 'Unit', 'Color': 'Color', 'Retail': 'Retail',
                         'Direct Suppliers': 'Direct Suppliers', 'Preliminary Products': 'Preliminary Products', 'Resource Extraction': 'Resource Extraction',
                             'Subcontractors': 'Subcontractors', 'World': 'World', 'of': 'of'}
-
 
     def read_excels(self):
         """
@@ -174,7 +175,6 @@ class Index:
         # Create a dictionary from the 'general_df' DataFrame, mapping 'exiobase' to 'translation'
         self.general_dict = dict(zip(self.general_df['exiobase'], self.general_df['translation']))
 
- 
     def create_multiindices(self):
         """
         Creates MultiIndex structures for sector, region, and impact matrices in the IOSystem. This method
@@ -226,7 +226,6 @@ class Index:
             names=self.sectors_df.columns.to_list()
         )
 
-    
     def update_multiindices(self):
         """
         Updates the MultiIndex structures for sector and impact matrices in the IOSystem. This method loads the
@@ -247,10 +246,11 @@ class Index:
         to manage the data. It is intended to ensure that all matrices in the IOSystem are correctly indexed and 
         labeled for further analysis.
         """
+
         # Load the latest Excel data and update sector and impact multiindices
         self.read_excels()
         self.create_multiindices()
-        self.create_map()
+        self.update_map()
 
         # Extract unique names for system-wide reference
         self.IOSystem.sectors = self.sectors_df.iloc[:, -1].unique().tolist()
@@ -295,8 +295,30 @@ class Index:
         # Lists to save the classification structure
         self.sector_classification = self.sectors_df.columns.tolist()
         self.region_classification = self.regions_df.columns.tolist()
-        self.impact_classification = self.impacts_df.columns.tolist()
+        self.impact_classification = self.impacts_df.columns.tolist()        
+
+    def add_excels(self, new=False):
+        if os.path.exists(self.IOSystem.config_dir) and not new:
+            logging.info("Copying config files from /config to the fast load database...\n")
+
+            config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "general.xlsx"]
+            
+            # Loop through each Excel file in the list
+            for file_name in config_files:
+                source_file = os.path.join(self.IOSystem.config_dir, file_name)
+                target_file = os.path.join(self.IOSystem.fast_db, file_name)
                 
+                 # Check if the source file exists
+                if os.path.exists(source_file):
+                    try:
+                        shutil.copy(source_file, target_file)
+                        logging.info(f"File {file_name} has been successfully copied to {self.IOSystem.fast_db}.")
+                    except Exception as e:
+                        logging.error(f"Error copying {file_name}: {e}")
+                else:
+                    logging.error(f"Error: {file_name} not found in the folder {self.IOSystem.config}.")
+        else:
+            self.create_excels(sheet_name="exiobase")
 
     def create_excels(self, sheet_name=None):
         """
@@ -372,8 +394,7 @@ class Index:
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
 
-    
-    def create_map(self, naturalearth_path="ne_110m_admin_0_countries.zip", force=False):
+    def update_map(self, force=False):
         """
         Creates or updates a GeoDataFrame for world regions, mapping Exiobase regions to geographical regions 
         based on the provided or default natural earth shapefile. This method loads the shapefile, applies the region 
@@ -395,20 +416,23 @@ class Index:
         - Adds a new column for regions based on the mapping and dissolves geometries by region to create a simplified world map.
         - Returns a copy of the resulting GeoDataFrame.
         """
-        if self.world is None or force:
-            self.world = world = gpd.read_file(naturalearth_path if naturalearth_path is not None else "https://naturalearth.s3.amazonaws.com/110m_cultural/ne_110m_admin_0_countries.zip")
-    
-            self.exiobase_to_map_dict = dict(zip(self.exiobase_to_map_df['NAME'], self.exiobase_to_map_df['region']))
-            
-            # Neue Spalte für Regionen basierend auf dem Mapping
-            self.world["region"] = self.world["NAME"].map(self.exiobase_to_map_dict)
-            
-            self.world = self.world[["region", "geometry"]]
-            
-            self.world = self.world.dissolve(by="region") 
+        self.world = world = gpd.read_file(os.path.join(self.IOSystem.data_dir, "ne_110m_admin_0_countries.zip"))
 
+        self.exiobase_to_map_dict = dict(zip(self.exiobase_to_map_df['NAME'], self.exiobase_to_map_df['region']))
+
+        self.world["region"] = self.world["NAME"].map(self.exiobase_to_map_dict)
+        
+        self.world = self.world[["region", "geometry"]]
+        
+        self.world = self.world.dissolve(by="region") 
+
+    def get_map(self):
+        """
+        Returns the geopandas world-map with exiobase regions as indices.
+        """
         return self.world.copy()
     
+
 class Impact:
     """
     The Impact class handles the loading and storage of impact matrices within an 
@@ -446,7 +470,6 @@ class Impact:
         self.color = None
         self.unit_transform = None
         self.region_indices = None
-
 
     def load(self):
         """
@@ -501,7 +524,6 @@ class Impact:
             logging.error(f"Error loading impact matrices: {str(e)}")
             raise RuntimeError("Failed to load impact matrices. Consider recreating the fast-load database (force=true).") from e
 
-
     def get_color(self, impact):
         """
         Retrieves the color associated with a specific impact from the IOSystem's extension data.
@@ -532,7 +554,6 @@ class Impact:
             # Handle cases where the data structure is unexpected
             return "#ffffff"
 
-    
     def get_regional_impacts(self, region_indices):
         """ 
         Adjusts the environmental impact calculations to ensure that all sectors 
@@ -552,10 +573,12 @@ class Impact:
             (e.g., resource extraction, preliminary products, or direct suppliers) to retail, 
             ensuring that all domestically produced impacts remain within the regional analysis.
         """  
-    
+
         if region_indices != self.region_indices:
             self.region_indices = region_indices
-        
+
+            logging.info("Calculating regional impact matrices...\n")
+
             # Convert key matrices to NumPy arrays for efficient calculations
             S = self.S.to_numpy()  # Environmental impact factor matrix
             Y = self.IOSystem.Y.to_numpy()  # Final demand matrix
@@ -608,16 +631,14 @@ class Impact:
             self.preliminary_products_regional = pd.DataFrame(preliminary_products_impact)
     
             # Step 4: Update labels for DataFrames
-            self.IOSystem.Index.update_multiindices()        
+            self.IOSystem.Index.update_multiindices()   
+
+            logging.info("Calculations successful.\n")     
 
 
 class IOSystem:
-    """
-    This class manages the paths and parameters for loading compressed and fast-load databases
-    as well as processing raw material indices for various sectors.
-    """
 
-    def __init__(self, compressed_path, fast_path=None, year=2022, language="exiobase", compressed_db=None, fast_db=None, raw_material_indices_per_sector=None):
+    def __init__(self, year=2022, language="exiobase", compressed_path=None, fast_path=None, compressed_db=None, fast_db=None, raw_material_indices_per_sector=None):
         """
         Initializes the IOSystem with paths and parameters for the database.
         
@@ -636,17 +657,20 @@ class IOSystem:
         # Language of the database
         self.language = language
 
-        # Impact und Index Class
+        # Impact and Index Class
         self.Impact = Impact(self)
         self.Index = Index(self)
         self.regions_exiobase = None
         self.start_time = None
         
         # Paths to the various data folders
-        self.compressed_folder = compressed_path  # Path to the folder with compressed ZIP files
-        self.compressed_db = compressed_db if compressed_db is not None else os.path.join(self.compressed_folder, f'IOT_{self.year}_pxp.zip')  # Default path to the compressed database
-        self.fast_folder = fast_path if fast_path is not None else os.path.join(self.compressed_folder, 'Fast Load Databases')  # Path to the folder for fast-load databases
-        self.fast_db = fast_db if fast_db is not None else os.path.join(self.fast_folder, f'Fast_IOT_{self.year}_pxp')  # Path to the fast-load database
+        self.current_dir = os.path.dirname(__file__)  
+        self.config_dir = os.path.normpath(os.path.join(self.current_dir, '..', 'config'))
+        self.data_dir = os.path.normpath(os.path.join(self.current_dir, '..', 'data'))
+        self.compressed_folder = os.path.normpath(compressed_path) if compressed_path is not None else os.path.normpath(os.path.join(self.current_dir, '..', 'exiobase'))  # Path to the folder with compressed ZIP files
+        self.compressed_db = os.path.normpath(compressed_db) if compressed_db is not None else os.path.normpath(os.path.join(self.compressed_folder, f'IOT_{year}_pxp.zip'))  # Default path to the compressed database
+        self.fast_folder = os.path.normpath(fast_path) if fast_path is not None else os.path.normpath(os.path.join(self.compressed_folder, 'fast load databases')) # Path to the folder for fast-load databases
+        self.fast_db = os.path.normpath(fast_db) if fast_db is not None else os.path.normpath(os.path.join(self.fast_folder, f'Fast_IOT_{year}_pxp'))  # Path to the fast-load database
         
         # Raw material indices per sector (default values)
         self.raw_material_indices_per_sector = raw_material_indices_per_sector if raw_material_indices_per_sector is not None else [
@@ -671,8 +695,7 @@ class IOSystem:
         for i in range(9800):  # For all 9800 indices
             if i not in self.raw_material_indices:
                 self.not_raw_material_indices.append(i)  # Indices that do not correspond to raw materials
-
-        
+    
     def load(self, force=False, return_time=True, attempt=1): 
         """
         The method performs the following actions:
@@ -705,7 +728,7 @@ class IOSystem:
         
         if os.path.exists(self.fast_db) and not force:
             if attempt == 1:
-                print("Fast database was found - Loading...")
+                logging.info("Fast database was found - Loading...")
             
             # Load the matrices and convert them to DataFrames (without labels)
             self.A = pd.DataFrame(np.load(os.path.join(self.fast_db, 'A.npy')).astype(np.float32))  # Load 'A' matrix
@@ -721,20 +744,20 @@ class IOSystem:
             if self.start_time is not None:
                 end_time = time.time()  # Record the end time
                 elapsed_time = end_time - self.start_time  # Calculate elapsed time
-                print(f"\nDatabase has been loaded successfully in {round(float(elapsed_time), 2)} seconds.")
+                logging.info(f"Database has been loaded successfully in {round(float(elapsed_time), 2)} seconds.")
             else:
-                print("\nDatabase has been loaded successfully.")
+                logging.info("Database has been loaded successfully.")
+
+            return self
     
         else:
             # If the fast database doesn't exist or force is True, create it
-            print("Creating fast database...\nLanguage was set to exiobase.")
-            self.language = "exiobase"
+            logging.info("Creating fast database...\n")
             self.create_fast_load_database(force=force)  # Create the fast load database
             self.calc_all()  # Perform calculations on the database
-            self.Index.create_excels(sheet_name="exiobase")
+            self.Index.add_excels()
             self.load(attempt=attempt + 1, return_time=return_time)  # Call load again after the database is created
-
-        
+       
     def switch_language(self, language="exiobase"):
         """
         Switches the language for the system and updates the labels accordingly.
@@ -746,7 +769,6 @@ class IOSystem:
         self.language = language  # Set the new language
         self.Index.update_multiindices()  # Update the labels based on the new language
 
-        
     def extract_file_parameters(self, json_filename="file_parameters.json"):
         """
         Extracts parameters from all JSON files in the Zip archive (including subfolders) with the specified name
@@ -787,7 +809,6 @@ class IOSystem:
     
         return header_lines_dict, indices_lines_dict  # Return the dictionaries with extracted parameters
 
-    
     def create_fast_load_database(self, force=False):
         """
         Formats the fast load database and saves it in the specified directory.
@@ -800,8 +821,6 @@ class IOSystem:
         """
         
         necessary_files = ["D_cba.txt", "A.txt", "S.txt", "Y.txt"]  # List of required files to process
-        unit_files = ["unit.txt"]
-        necessary_other = []  # List of other necessary files to copy without changes
         ignored_subfolders = ["satellite"]  # Subfolders to ignore when extracting files
         
         # Retrieve the parameters from the Zip file
@@ -811,11 +830,11 @@ class IOSystem:
         if os.path.isfile(self.compressed_db) and self.compressed_db.endswith(".zip"):         
             try:
                 os.makedirs(self.fast_db, exist_ok=False)  # Create the target folder for fast load database
-                print(f"Folder '{self.fast_db}' was successfully created. \n")
+                logging.info(f"Folder '{self.fast_db}' was successfully created. \n")
             except FileExistsError:
                 # Handle folder existence
                 if force:
-                    print(f"Folder '{self.fast_db}' already exists. Its contents will be overwritten... (force-mode) \n")
+                    logging.info(f"Folder '{self.fast_db}' already exists. Its contents will be overwritten... (force-mode) \n")
                 else:
                     raise ValueError(f"Custom Error: Folder '{self.fast_db}' already exists! To overwrite: force=True")
             
@@ -829,13 +848,7 @@ class IOSystem:
                     base_name = os.path.basename(file_name)   # Extract the base file name
                     relative_file_path = os.path.join(self.fast_db, *path_parts[1:])  # Create the relative path for the file
                     
-                    # If the file is in necessary_other, copy it without changes
-                    if base_name in necessary_other:
-                        print(f"{file_name} was found and saved unchanged. \n")
-                        os.makedirs(os.path.dirname(relative_file_path), exist_ok=True)
-                        with zip_ref.open(file_name) as file_obj, open(relative_file_path, 'wb') as output_file:
-                            output_file.write(file_obj.read())
-                    
+                    # Read unit.txt-files
                     if base_name== "unit.txt":
                         parent_folder = normalized_path.split(os.sep)[1]
                         if parent_folder == "impacts":   
@@ -861,14 +874,13 @@ class IOSystem:
                             # Read the CSV content and convert it to numpy array
                             content = pd.read_csv(file_obj, index_col=list(range(indices_lines)), header=list(range(header_lines)), sep='\t')
                             np.save(output_file_path, content.values.astype(np.float32))  # Save as .npy
-                            print(f"{file_name} was found and converted. Saved at: \n {output_file_path} \n")
+                            logging.info(f"{file_name} was found and converted. Saved as: {os.path.basename(output_file_path)} \n")
                         del content  # Clean up the content variable to free memory
                         
 
         else:
             raise ValueError("The archive must be a ZIP file.")  
 
-    
     def calc_all(self):
         """
         Calculates missing matrices and saves them in a .npy file.
@@ -883,7 +895,7 @@ class IOSystem:
         I = np.eye(A.shape[0], dtype=np.float32)
         
         # Create the diagonalized Y matrix
-        print("Diagonalizing Y matrix...")
+        logging.info("Diagonalizing Y matrix...")
         if Y.shape != (9800, 9800):
             Y = Y.reshape(9800, 49, 7).sum(axis=2)
             n, num_blocks = Y.shape  # (9800, 49)
@@ -900,12 +912,12 @@ class IOSystem:
             Y = Y_diag
         
         # Calculate Leontief Inverse (L)
-        print("Calculating Leontief Inverse...")
+        logging.info("Calculating Leontief Inverse...")
         L = np.linalg.inv(I - A)
         
         # Calculate impact matrices
-        print("Calculating impact matrices...")
-        
+        logging.info("Calculating impact matrices...")
+
         # Retail impact matrix
         retail_impact = S @ Y
         
@@ -925,11 +937,11 @@ class IOSystem:
         preliminary_products_impact = S @ (df @ Y)         
         
         # Save the calculated matrices
-        print("Calculations successful. Matrices are being saved...\n")
+        logging.info("Calculations successful. Matrices are being saved...\n")
         np.save(os.path.join(self.fast_db, 'L.npy'), L)
         np.save(os.path.join(self.fast_db, 'Y.npy'), Y)
         np.save(os.path.join(self.fast_db, 'impacts', 'retail.npy'), retail_impact)
         np.save(os.path.join(self.fast_db, 'impacts', 'direct_suppliers.npy'), direct_suppliers_impact)
         np.save(os.path.join(self.fast_db, 'impacts', 'resource_extraction.npy'), resource_extraction_impact)
         np.save(os.path.join(self.fast_db, 'impacts', 'preliminary_products.npy'), preliminary_products_impact)
-        print("All matrices have been successfully saved.\n")
+        logging.info("All matrices have been successfully saved.\n")
