@@ -3,8 +3,6 @@ A Python tool for analyzing Exiobase data with various modules for IO systems, i
 
 ## Features
 - **IOSystem Module**: Loads and processes input-output data from Exiobase.
-- **Impact Module**: Computes environmental impacts and stores them as numpy arrays.
-- **Index Module**: Creates and manages indexes for data analysis.
 - **SupplyChain Module**: Models supply chains with hierarchical structures.
 
 ---
