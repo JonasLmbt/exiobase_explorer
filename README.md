@@ -34,8 +34,7 @@ Insert the downloaded Exiobase Databases into the corresponding folder /exiobase
 
 Create an instance and load data:
 
-    database = IOSystem(compressed_path=compressed_path, year=2022, language="english")
-    database.load()
+    database = IOSystem(year=2022, language="english").load()
 
 ---
 
