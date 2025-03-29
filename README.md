@@ -29,13 +29,13 @@ pip install -r requirements.txt
 
 To use the Exiobase Explorer:
 
-    Import the IOSystem class (or other modules) in your Python code:
+    # Import the IOSystem class (or other modules) in your Python code:
+    from tools.IOSystem import IOSystem
 
-from tools.IOSystem import IOSystem
+Insert the downloaded Exiobase Databases into the corresponding folder /exiobase
 
 Create an instance and load data:
 
-    compressed_path = 'path_to_exiobase_files'
     database = IOSystem(compressed_path=compressed_path, year=2022, language="english")
     database.load()
 
@@ -45,12 +45,7 @@ Create an instance and load data:
 IOSystem
 
 Handles the loading and processing of input-output data from Exiobase. It includes methods for managing databases and calculating IO matrices.
-Impact
 
-Performs environmental impact analysis using Exiobase data. The results are stored as numpy arrays and can be used for further analysis.
-Index
-
-Manages indexes used for data organization and analysis, ensuring efficient handling of large datasets.
 SupplyChain
 
 Models and analyzes supply chains using hierarchical structures, with functions for managing different sectors and economic divisions.
