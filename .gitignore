@@ -11,6 +11,7 @@ env/
 
 # Jupyter Notebook
 .ipynb_checkpoints/
+.ipynb
 
 # macOS
 .DS_Store
@@ -26,5 +27,6 @@ Thumbs.db
 # Logfiles
 *.log
 
-# Exiobase data files
-*.npy
+# Exiobase databases
+exiobase/*
+!exiobase/.gitkeep

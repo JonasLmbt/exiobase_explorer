@@ -1,5 +1,6 @@
-pandas==1.2.4
-numpy==1.19.5
-geopandas==0.9.0
-requests
+pandas
 matplotlib
+mapclassify
+tkinter
+numpy
+geopandas
