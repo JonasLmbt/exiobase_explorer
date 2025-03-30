@@ -42,9 +42,6 @@ class Index:
         Initializes the Index object.
         """
         self.IOSystem = IOSystem
-        
-        self.read_configs()
-        self.update_map()
 
     def read_configs(self):
         """
@@ -87,11 +84,11 @@ class Index:
                 'sectors_df': 200,
                 "raw_materials_df" : 200,
                 'regions_df': 49,
-                'exiobase_to_map_df': len(self.exiobase_to_map_dict),
+                'exiobase_to_map_df': 178,
                 'impacts_df': 126,
                 'impact_color_df': 126,
                 'units_df': 126,
-                'general_df': len(self.general_dict)
+                'general_df': 11
             }
             
             # Attempt to load each Excel file and assign it to the corresponding attribute
@@ -138,14 +135,16 @@ class Index:
 
         # Create a list with all raw material indices
         self.raw_material_indices = self.raw_materials_df[self.raw_materials_df['raw_material'] == True].index.tolist()
-        for i in range(1, 49): # For each of the 49 regions
-            for index in self.raw_material_indices:  
-                self.raw_material_indices.append(i * 200 + index)  
-
         self.not_raw_material_indices = self.raw_materials_df[self.raw_materials_df['raw_material'] == False].index.tolist()
-        for i in range(1, 49): # For each of the 49 regions
-            for index in self.not_raw_material_indices:  
-                self.not_raw_material_indices.append(i * 200 + index)  
+        expanded_raw_material_indices = []
+        expanded_not_raw_material_indices = []
+
+        for i in range(1, 49):  # for each region
+            expanded_raw_material_indices.extend([i * 200 + index for index in self.raw_material_indices])
+            expanded_not_raw_material_indices.extend([i * 200 + index for index in self.not_raw_material_indices])
+
+        self.raw_material_indices = expanded_raw_material_indices
+        self.not_raw_material_indices = expanded_not_raw_material_indices
 
     def create_multiindices(self):
         """
@@ -222,6 +221,7 @@ class Index:
         # Load the latest config data and update sector and impact multiindices
         self.read_configs()
         self.create_multiindices()
+        self.update_map()
 
         # Extract unique names for system-wide reference
         self.IOSystem.sectors = self.sectors_df.iloc[:, -1].unique().tolist()
@@ -269,27 +269,26 @@ class Index:
         self.impact_classification = self.impacts_df.columns.tolist()        
 
     def copy_configs(self, new=False):
-        if os.path.exists(self.IOSystem.config_dir) and not new:
-            logging.info("Copying config files from /config to the fast load database...\n")
+        logging.info("Copying config files from /config to the fast load database...\n")
 
-            config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "general.xlsx"]
+        config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "general.xlsx"]
+        
+        # Loop through each Excel file in the list
+        for file_name in config_files:
+            source_file = os.path.join(self.IOSystem.config_dir, file_name)
+            target_file = os.path.join(self.IOSystem.fast_db, file_name)
             
-            # Loop through each Excel file in the list
-            for file_name in config_files:
-                source_file = os.path.join(self.IOSystem.config_dir, file_name)
-                target_file = os.path.join(self.IOSystem.fast_db, file_name)
-                
-                 # Check if the source file exists
-                if os.path.exists(source_file):
-                    try:
-                        shutil.copy(source_file, target_file)
-                        logging.info(f"File {file_name} has been successfully copied to {self.IOSystem.fast_db}.")
-                    except Exception as e:
-                        logging.error(f"Error copying {file_name}: {e}")
-                else:
-                    logging.error(f"Error: {file_name} not found in the folder {self.IOSystem.config}.")
-        else:
-            self.write_configs(sheet_name="exiobase")
+                # Check if the source file exists
+            if os.path.exists(source_file):
+                try:
+                    shutil.copy(source_file, target_file)
+                    logging.info(f"File {file_name} has been successfully copied to {self.IOSystem.fast_db}.")
+                except Exception as e:
+                    logging.error(f"Error copying {file_name}: {e}")
+            else:
+                logging.error(f"Error: {file_name} not found in the folder {self.IOSystem.config}.")
+
+        print("/n")
 
     def write_configs(self, sheet_name):
         """
@@ -609,9 +608,9 @@ class IOSystem:
      
         # Paths to the various data folders
         self.current_dir = os.path.dirname(__file__)  
-        self.config_dir = os.path.normpath(os.path.join(self.current_dir, '..', "..", 'config'))
-        self.data_dir = os.path.normpath(os.path.join(self.current_dir, '..', '..', 'data'))
-        self.exiobase_dir = os.path.normpath(exiobase_dir) if exiobase_dir is not None else os.path.normpath(os.path.join(self.current_dir, '..', '..', 'exiobase'))  # Path to the folder with compressed ZIP files
+        self.config_dir = os.path.normpath(os.path.join(self.current_dir, '..', 'config'))
+        self.data_dir = os.path.normpath(os.path.join(self.current_dir, '..', 'data'))
+        self.exiobase_dir = os.path.normpath(exiobase_dir) if exiobase_dir is not None else os.path.normpath(os.path.join(self.current_dir, '..', 'exiobase'))  # Path to the folder with compressed ZIP files
         self.fast_dir = os.path.normpath(fast_dir) if fast_dir is not None else os.path.normpath(os.path.join(self.exiobase_dir, 'fast load databases')) # Path to the folder for fast-load databases
         
         self.exiobase_db = os.path.normpath(exiobase_db) if exiobase_db is not None else os.path.normpath(os.path.join(self.exiobase_dir, f'IOT_{year}_pxp.zip'))  # Default path to the compressed database
@@ -679,8 +678,9 @@ class IOSystem:
             # If the fast database doesn't exist or force is True, create it
             logging.info("Creating fast database...\n")
             self.create_fast_load_database(force=force)  # Create the fast load database
-            self.calc_all()  # Perform calculations on the database
             self.Index.copy_configs()
+            self.Index.read_configs()
+            self.calc_all()  # Perform calculations on the database
             self.load(attempt=attempt + 1) # Call load again after the database is created
        
     def switch_language(self, language="exiobase"):

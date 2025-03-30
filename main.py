@@ -1,5 +1,5 @@
-from exiobase_explorer.IOSystem import IOSystem
-from exiobase_explorer.SupplyChain import SupplyChain
+from src.IOSystem import IOSystem
+from src.SupplyChain import SupplyChain
 
 database = IOSystem(year=2022, language="german").load()
 
