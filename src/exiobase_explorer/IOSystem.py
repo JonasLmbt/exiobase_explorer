@@ -29,11 +29,11 @@ class Index:
                   environmental data, including matrices for analysis.
 
     Methods:
-        read_excels(): Reads sector, region, and impact data from Excel files 
+        read_configs(): Reads sector, region, and impact data from Excel files 
                        and constructs MultiIndex structures.
         update_multiindices(): Updates all matrices within the IOSystem to use 
                                the correct hierarchical indices.
-        create_excels(language=None): Generates and saves sector, region, impact, 
+        write_configs(language=None): Generates and saves sector, region, impact, 
                                       and unit classification data into Excel files.
     """
     
@@ -42,52 +42,11 @@ class Index:
         Initializes the Index object.
         """
         self.IOSystem = IOSystem
-        self.world = None
+        
+        self.read_configs()
+        self.update_map()
 
-        self.exiobase_to_map_dict = { # Can later be changed in excel
-            'Afghanistan': 'WA', 'Albania': 'WE', 'Algeria': 'WF', 'Angola': 'WF', 'Antarctica': None,
-            'Argentina': 'WL', 'Armenia': 'WA', 'Australia': 'AU', 'Austria': 'AT', 'Azerbaijan': 'WA',
-            'Bahamas': 'WL', 'Bangladesh': 'WA', 'Belarus': 'WE', 'Belgium': 'BE', 'Belize': 'WL',
-            'Benin': 'WF', 'Bhutan': 'WA', 'Bolivia': 'WL', 'Bosnia and Herz.': 'WE', 'Botswana': 'WF',
-            'Brazil': 'BR', 'Brunei': 'WA', 'Bulgaria': 'BG', 'Burkina Faso': 'WF', 'Burundi': 'WF',
-            'Cambodia': 'WA', 'Cameroon': 'WF', 'Canada': 'CA', 'Central African Rep.': 'WF', 'Chad': 'WF',
-            'Chile': 'WL', 'China': 'CN', 'Colombia': 'WL', 'Congo': 'WF', 'Costa Rica': 'WL',
-            'Croatia': 'HR', 'Cuba': 'WL', 'Cyprus': 'CY', 'Czechia': 'CZ', "Côte d'Ivoire": 'WF',
-            'Dem. Rep. Congo': 'WF', 'Denmark': 'DK', 'Djibouti': 'WF', 'Dominican Rep.': 'WL',
-            'Ecuador': 'WL', 'Egypt': 'WF', 'El Salvador': 'WL', 'Eq. Guinea': 'WF', 'Eritrea': 'WF',
-            'Estonia': 'EE', 'Ethiopia': 'WF', 'Falkland Is.': 'WL', 'Fiji': 'WA', 'Finland': 'FI',
-            'Fr. S. Antarctic Lands': 'WA', 'France': 'FR', 'Gabon': 'WF', 'Gambia': 'WF', 'Georgia': 'WA',
-            'Germany': 'DE', 'Ghana': 'WF', 'Greece': 'GR', 'Greenland': 'DK', 'Guatemala': 'WL',
-            'Guinea': 'WF', 'Guinea-Bissau': 'WF', 'Guyana': 'WL', 'Haiti': 'WL', 'Honduras': 'WL',
-            'Hungary': 'HU', 'Iceland': 'WE', 'India': 'IN', 'Indonesia': 'ID', 'Iran': 'WM',
-            'Iraq': 'WM', 'Ireland': 'IE', 'Israel': 'WM', 'Italy': 'IT', 'Jamaica': 'WL', 'Japan': 'JP',
-            'Jordan': 'WM', 'Kazakhstan': 'WA', 'Kenya': 'WF', 'Kosovo': 'WE', 'Kuwait': 'WM',
-            'Kyrgyzstan': 'WA', 'Laos': 'WA', 'Latvia': 'LV', 'Lebanon': 'WM', 'Lesotho': 'WF',
-            'Liberia': 'WF', 'Libya': 'WF', 'Lithuania': 'LT', 'Luxembourg': 'LU', 'Madagascar': 'WF',
-            'Malawi': 'WF', 'Malaysia': 'WA', 'Mali': 'WF', 'Malta': None, 'Mauritania': 'WF',
-            'Mexico': 'MX', 'Moldova': 'WE', 'Mongolia': 'WA', 'Montenegro': 'WE', 'Morocco': 'WF',
-            'Mozambique': 'WF', 'Myanmar': 'WA', 'N. Cyprus': 'CY', 'Namibia': 'WF', 'Nepal': 'WA',
-            'Netherlands': 'NL', 'New Caledonia': 'WA', 'New Zealand': 'WA', 'Nicaragua': 'WL',
-            'Niger': 'WF', 'Nigeria': 'WF', 'North Korea': 'WA', 'North Macedonia': 'WE', 'Norway': 'NO',
-            'Oman': 'WM', 'Pakistan': 'WA', 'Palestine': 'WM', 'Panama': 'WL', 'Papua New Guinea': 'WA',
-            'Paraguay': 'WL', 'Peru': 'WL', 'Philippines': 'WA', 'Poland': 'PL', 'Portugal': 'PT',
-            'Puerto Rico': 'WL', 'Qatar': 'WM', 'Romania': 'RO', 'Russia': 'RU', 'Rwanda': 'WF',
-            'S. Sudan': 'WF', 'Saudi Arabia': 'WM', 'Senegal': 'WF', 'Serbia': 'WE', 'Sierra Leone': 'WF',
-            'Slovakia': 'SK', 'Slovenia': 'SI', 'Solomon Is.': 'WA', 'Somalia': 'WF', 'Somaliland': 'WF',
-            'South Africa': 'ZA', 'South Korea': 'KR', 'Spain': 'ES', 'Sri Lanka': 'WA', 'Sudan': 'WF',
-            'Suriname': 'WL', 'Sweden': 'SE', 'Switzerland': 'CH', 'Syria': 'WM', 'Taiwan': 'TW',
-            'Tajikistan': 'WA', 'Tanzania': 'WF', 'Thailand': 'WA', 'Timor-Leste': 'WA', 'Togo': 'WF',
-            'Trinidad and Tobago': 'WL', 'Tunisia': 'WF', 'Turkey': 'TR', 'Turkmenistan': 'WA',
-            'Uganda': 'WF', 'Ukraine': 'WE', 'United Arab Emirates': 'WM', 'United Kingdom': 'GB',
-            'United States of America': 'US', 'Uruguay': 'WL', 'Uzbekistan': 'WA', 'Vanuatu': 'WA',
-            'Venezuela': 'WL', 'Vietnam': 'WA', 'W. Sahara': 'WF', 'Yemen': 'WM', 'Zambia': 'WF',
-            'Zimbabwe': 'WF', 'eSwatini': 'WF'}
-
-        self.general_dict = {'Supply Chain Analysis': 'Supply Chain Analysis', 'Total': 'Total', 'Unit': 'Unit', 'Color': 'Color', 'Retail': 'Retail',
-                        'Direct Suppliers': 'Direct Suppliers', 'Preliminary Products': 'Preliminary Products', 'Resource Extraction': 'Resource Extraction',
-                            'Subcontractors': 'Subcontractors', 'World': 'World', 'of': 'of'}
-
-    def read_excels(self):
+    def read_configs(self):
         """
         Reads and processes multiple Excel files, loading data into corresponding instance variables for later use in 
         the IOSystem. The method validates the structure and content of each Excel sheet, ensuring that the data 
@@ -113,7 +72,8 @@ class Index:
         try:
             # Mapping of attributes to file names and sheet names
             file_mapping = {
-                "sectors_df": ("sectors.xlsx", self.IOSystem.language),   
+                "sectors_df": ("sectors.xlsx", self.IOSystem.language),  
+                "raw_materials_df" : ("sectors.xlsx", "raw_material"),  
                 "regions_df": ("regions.xlsx", self.IOSystem.language),  
                 "exiobase_to_map_df": ("regions.xlsx", "map"), 
                 "impacts_df": ("impacts.xlsx", self.IOSystem.language),   
@@ -125,6 +85,7 @@ class Index:
             # Expected lengths for verification
             expected_lengths = {
                 'sectors_df': 200,
+                "raw_materials_df" : 200,
                 'regions_df': 49,
                 'exiobase_to_map_df': len(self.exiobase_to_map_dict),
                 'impacts_df': 126,
@@ -174,6 +135,17 @@ class Index:
 
         # Create a dictionary from the 'general_df' DataFrame, mapping 'exiobase' to 'translation'
         self.general_dict = dict(zip(self.general_df['exiobase'], self.general_df['translation']))
+
+        # Create a list with all raw material indices
+        self.raw_material_indices = self.raw_materials_df[self.raw_materials_df['raw_material'] == True].index.tolist()
+        for i in range(1, 49): # For each of the 49 regions
+            for index in self.raw_material_indices:  
+                self.raw_material_indices.append(i * 200 + index)  
+
+        self.not_raw_material_indices = self.raw_materials_df[self.raw_materials_df['raw_material'] == False].index.tolist()
+        for i in range(1, 49): # For each of the 49 regions
+            for index in self.not_raw_material_indices:  
+                self.not_raw_material_indices.append(i * 200 + index)  
 
     def create_multiindices(self):
         """
@@ -247,10 +219,9 @@ class Index:
         labeled for further analysis.
         """
 
-        # Load the latest Excel data and update sector and impact multiindices
-        self.read_excels()
+        # Load the latest config data and update sector and impact multiindices
+        self.read_configs()
         self.create_multiindices()
-        self.update_map()
 
         # Extract unique names for system-wide reference
         self.IOSystem.sectors = self.sectors_df.iloc[:, -1].unique().tolist()
@@ -297,7 +268,7 @@ class Index:
         self.region_classification = self.regions_df.columns.tolist()
         self.impact_classification = self.impacts_df.columns.tolist()        
 
-    def add_excels(self, new=False):
+    def copy_configs(self, new=False):
         if os.path.exists(self.IOSystem.config_dir) and not new:
             logging.info("Copying config files from /config to the fast load database...\n")
 
@@ -318,9 +289,9 @@ class Index:
                 else:
                     logging.error(f"Error: {file_name} not found in the folder {self.IOSystem.config}.")
         else:
-            self.create_excels(sheet_name="exiobase")
+            self.write_configs(sheet_name="exiobase")
 
-    def create_excels(self, sheet_name=None):
+    def write_configs(self, sheet_name):
         """
         Creates or updates Excel files for various datasets (sectors, regions, impacts, etc.) based on the provided 
         or default sheet name. This function will write the data to corresponding Excel files, either creating new ones 
@@ -345,30 +316,10 @@ class Index:
         - PermissionError: If any Excel file is open during the write process.
         - Exception: If any unexpected error occurs during the execution of the method.
         """
-        # Set sheet_name to the specified one, or use the default language if None
-        sheet_name = sheet_name if sheet_name is not None else self.IOSystem.language
-
-        # Create DataFrames for the main data
-        if sheet_name == "exiobase":  # Create DataFrames for exiobase
-            self.sectors_df = pd.DataFrame(self.IOSystem.sectors, columns=["sector"])
-            self.regions_df = pd.DataFrame(self.IOSystem.regions, columns=["region"])
-            self.impacts_df = pd.DataFrame(self.IOSystem.impacts, columns=["impact"])
-            self.impact_color_df = pd.DataFrame(["#ffffff"] * len(self.IOSystem.impacts), columns=["color"])
-            self.units_df = pd.DataFrame({
-                "impact": self.IOSystem.impacts,
-                "exiobase unit": self.IOSystem.units, 
-                "divisor": [1] * len(self.IOSystem.impacts),
-                "decimal places": [3] * len(self.IOSystem.impacts),
-                "new unit": self.IOSystem.units
-            })
-
-        # Create DataFrames for the additional files
-        self.exiobase_to_map_df = pd.DataFrame(list(self.exiobase_to_map_dict.items()), columns=["NAME", "region"]).iloc[:, ::-1]
-        self.general_df = pd.DataFrame(list(self.general_dict.items()), columns=["exiobase", "translation"])
 
         # List of file paths and corresponding DataFrames
         file_data = {
-            "sectors.xlsx": [(self.sectors_df.iloc[:, ::-1], sheet_name)],
+            "sectors.xlsx": [(self.sectors_df.iloc[:, ::-1], sheet_name), (self.raw_materials_df, "raw_material")],
             "regions.xlsx": [(self.regions_df.iloc[:, ::-1], sheet_name), (self.exiobase_to_map_df, "map")],
             "impacts.xlsx": [(self.impacts_df.iloc[:, ::-1], sheet_name), (self.impact_color_df, "color")],
             "units.xlsx": [(self.units_df, sheet_name)],
@@ -592,15 +543,15 @@ class Impact:
     
             # Direct suppliers: Exclude raw material sectors 
             direct_suppliers = A.copy()
-            direct_suppliers[self.IOSystem.raw_material_indices, :] = 0
+            direct_suppliers[self.IOSystem.Index.raw_material_indices, :] = 0
     
             # Resource extraction: Only consider raw material sectors
             resource_extraction = L_minus_I.copy()
-            resource_extraction[self.IOSystem.not_raw_material_indices, :] = 0
+            resource_extraction[self.IOSystem.Index.not_raw_material_indices, :] = 0
     
             # Preliminary products: Exclude raw material sectors and remove direct suppliers
             preliminary_products = L_minus_I - A
-            preliminary_products[self.IOSystem.raw_material_indices, :] = 0
+            preliminary_products[self.IOSystem.Index.raw_material_indices, :] = 0
             
             # Step 2: Reassign impacts of selected region's sectors to retail
             retail = I.copy()
@@ -638,7 +589,7 @@ class Impact:
 
 class IOSystem:
 
-    def __init__(self, year=2022, language="exiobase", compressed_path=None, fast_path=None, compressed_db=None, fast_db=None, raw_material_indices_per_sector=None):
+    def __init__(self, year=2022, language="exiobase", exiobase_dir=None, fast_dir=None, exiobase_db=None, fast_db=None):
         """
         Initializes the IOSystem with paths and parameters for the database.
         
@@ -647,56 +598,32 @@ class IOSystem:
             fast_path: (Optional) The path to the folder for fast-load databases.
             year: (Optional) The year for the database to use (default: 2022).
             language: (Optional) The language of the database (default: "exiobase").
-            compressed_db: (Optional) The path to the compressed database file.
+            exiobase_db: (Optional) The path to the compressed database file.
             fast_db: (Optional) The path to the fast-load database.
-            raw_material_indices_per_sector: (Optional) A list of indices that define specific raw material sectors.
         """
         # Year as a string
         self.year = str(year)
         
         # Language of the database
         self.language = language
-
+     
+        # Paths to the various data folders
+        self.current_dir = os.path.dirname(__file__)  
+        self.config_dir = os.path.normpath(os.path.join(self.current_dir, '..', "..", 'config'))
+        self.data_dir = os.path.normpath(os.path.join(self.current_dir, '..', '..', 'data'))
+        self.exiobase_dir = os.path.normpath(exiobase_dir) if exiobase_dir is not None else os.path.normpath(os.path.join(self.current_dir, '..', '..', 'exiobase'))  # Path to the folder with compressed ZIP files
+        self.fast_dir = os.path.normpath(fast_dir) if fast_dir is not None else os.path.normpath(os.path.join(self.exiobase_dir, 'fast load databases')) # Path to the folder for fast-load databases
+        
+        self.exiobase_db = os.path.normpath(exiobase_db) if exiobase_db is not None else os.path.normpath(os.path.join(self.exiobase_dir, f'IOT_{year}_pxp.zip'))  # Default path to the compressed database
+        self.fast_db = os.path.normpath(fast_db) if fast_db is not None else os.path.normpath(os.path.join(self.fast_dir, f'Fast_IOT_{year}_pxp'))  # Path to the fast-load database
+        
         # Impact and Index Class
         self.Impact = Impact(self)
         self.Index = Index(self)
         self.regions_exiobase = None
         self.start_time = None
-        
-        # Paths to the various data folders
-        self.current_dir = os.path.dirname(__file__)  
-        self.config_dir = os.path.normpath(os.path.join(self.current_dir, '..', 'config'))
-        self.data_dir = os.path.normpath(os.path.join(self.current_dir, '..', 'data'))
-        self.compressed_folder = os.path.normpath(compressed_path) if compressed_path is not None else os.path.normpath(os.path.join(self.current_dir, '..', 'exiobase'))  # Path to the folder with compressed ZIP files
-        self.compressed_db = os.path.normpath(compressed_db) if compressed_db is not None else os.path.normpath(os.path.join(self.compressed_folder, f'IOT_{year}_pxp.zip'))  # Default path to the compressed database
-        self.fast_folder = os.path.normpath(fast_path) if fast_path is not None else os.path.normpath(os.path.join(self.compressed_folder, 'fast load databases')) # Path to the folder for fast-load databases
-        self.fast_db = os.path.normpath(fast_db) if fast_db is not None else os.path.normpath(os.path.join(self.fast_folder, f'Fast_IOT_{year}_pxp'))  # Path to the fast-load database
-        
-        # Raw material indices per sector (default values)
-        self.raw_material_indices_per_sector = raw_material_indices_per_sector if raw_material_indices_per_sector is not None else [
-            0, 1, 2, 3, 4, 5, 6, 7,  # Agricultural products
-            8, 9, 10, 11, 12, 13, 14,  # Animal products
-            15, 16,  # Manure treatment
-            17, 18,  # Forestry, fishing
-            19, 20, 21, 22, 23, 24, 25, 26,  # Coal, peat, lignite
-            27, 28, 29, 30, 31,  # Petroleum, natural gas, other hydrocarbons
-            32, 33, 34, 35, 36, 37, 38, 39,  # Metal ores and minerals
-            40, 41, 42,  # Stones, sand, chemical minerals
-            57]  # Wood
-        
-        # Calculate raw material indices
-        self.raw_material_indices = []
-        for j in range(49):  # For each of the 49 sectors
-            for i in self.raw_material_indices_per_sector:
-                self.raw_material_indices.append(j * 200 + i)  # Compute the raw material indices per sector
-
-        # Calculate indices that do not represent raw materials
-        self.not_raw_material_indices = []
-        for i in range(9800):  # For all 9800 indices
-            if i not in self.raw_material_indices:
-                self.not_raw_material_indices.append(i)  # Indices that do not correspond to raw materials
     
-    def load(self, force=False, return_time=True, attempt=1): 
+    def load(self, force=False, attempt=1):  
         """
         The method performs the following actions:
         - Checks if the fast database exists. If so, it loads the matrix files (`A`, `L`, `Y`, `I`) and initializes them as DataFrames.
@@ -738,16 +665,14 @@ class IOSystem:
             
             # Load the impact matrices using the Impact class
             self.Impact.load()
+
+            # Add the multi_indices
             self.Index.update_multiindices()
             
             # If return_time is True, calculate and print the elapsed time
-            if self.start_time is not None:
-                end_time = time.time()  # Record the end time
-                elapsed_time = end_time - self.start_time  # Calculate elapsed time
-                logging.info(f"Database has been loaded successfully in {round(float(elapsed_time), 2)} seconds.")
-            else:
-                logging.info("Database has been loaded successfully.")
-
+            end_time = time.time()  # Record the end time
+            elapsed_time = end_time - self.start_time  # Calculate elapsed time
+            logging.info(f"Database has been loaded successfully in {round(float(elapsed_time), 3)} seconds.")
             return self
     
         else:
@@ -755,8 +680,8 @@ class IOSystem:
             logging.info("Creating fast database...\n")
             self.create_fast_load_database(force=force)  # Create the fast load database
             self.calc_all()  # Perform calculations on the database
-            self.Index.add_excels()
-            self.load(attempt=attempt + 1, return_time=return_time)  # Call load again after the database is created
+            self.Index.copy_configs()
+            self.load(attempt=attempt + 1) # Call load again after the database is created
        
     def switch_language(self, language="exiobase"):
         """
@@ -789,7 +714,7 @@ class IOSystem:
         indices_lines_dict = {}  # Dictionary to store index column line counts for each file
         found_any = False  # Flag to track whether the JSON file was found
     
-        with zipfile.ZipFile(self.compressed_db, 'r') as zip_ref:  # Open the Zip archive
+        with zipfile.ZipFile(self.exiobase_db, 'r') as zip_ref:  # Open the Zip archive
             # Iterate through all files in the archive
             for file_name in zip_ref.namelist():
                 if os.path.basename(file_name) == json_filename:  # Check if the file is the target JSON file
@@ -826,8 +751,8 @@ class IOSystem:
         # Retrieve the parameters from the Zip file
         header_lines_dict, indices_lines_dict = self.extract_file_parameters()
         
-        # Check if self.compressed_db is a file and ends with ".zip"
-        if os.path.isfile(self.compressed_db) and self.compressed_db.endswith(".zip"):         
+        # Check if self.exiobase_db is a file and ends with ".zip"
+        if os.path.isfile(self.exiobase_db) and self.exiobase_db.endswith(".zip"):         
             try:
                 os.makedirs(self.fast_db, exist_ok=False)  # Create the target folder for fast load database
                 logging.info(f"Folder '{self.fast_db}' was successfully created. \n")
@@ -839,7 +764,7 @@ class IOSystem:
                     raise ValueError(f"Custom Error: Folder '{self.fast_db}' already exists! To overwrite: force=True")
             
             # Open the ZIP archive for extraction
-            with zipfile.ZipFile(self.compressed_db, 'r') as zip_ref:
+            with zipfile.ZipFile(self.exiobase_db, 'r') as zip_ref:
                 for file_name in zip_ref.namelist():
                     normalized_path = os.path.normpath(file_name)  # Normalize the file path
                     path_parts = normalized_path.split(os.sep)  # Split path into components
@@ -923,17 +848,17 @@ class IOSystem:
         
         # Direct suppliers impact matrix
         df = A.copy()
-        df[self.raw_material_indices, :] = 0
+        df[self.Index.raw_material_indices, :] = 0
         direct_suppliers_impact = S @ (df @ Y)  
         
         # Resources extraction impact matrix
         df = (L - I)
-        df[self.not_raw_material_indices, :] = 0
+        df[self.Index.not_raw_material_indices, :] = 0
         resource_extraction_impact = S @ (df @ Y)  
         
         # Production of preliminary products impact matrix
         df = (L - I - A)
-        df[self.raw_material_indices, :] = 0
+        df[self.Index.raw_material_indices, :] = 0
         preliminary_products_impact = S @ (df @ Y)         
         
         # Save the calculated matrices
