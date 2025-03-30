@@ -27,15 +27,15 @@ pip install -r requirements.txt
 
 To use the Exiobase Explorer:
 
-    # Write your code into main.py or create new programs in the exiobase_explorer folder. Then import the classes:
+    # Write your code into main.py or create new projects within the folder. Then import the classes:
     from src.IOSystem import IOSystem
     from src.SupplyChain import SupplyChain
 
-Download exiobases databases (don't change the name) and put them into the empty folder "exiobase".
+Download databases from exiobase on their website (don't change the name!) and put them into the empty folder "exiobase".
 
 Create an instance and load data:
 
-    database = IOSystem(year=2022, language="english").load()
+    database = IOSystem(year=2022, language="english").load() # Loading it for the first time might take up to a minute
 
 ---
 
