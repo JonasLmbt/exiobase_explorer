@@ -1,4 +1,7 @@
 # Exiobase Explorer 
+
+NOTE: This project is still in development 
+
 A Python tool for analyzing Exiobase data with various modules for IO systems, impact analysis, and supply chain management.
 
 ## Features
