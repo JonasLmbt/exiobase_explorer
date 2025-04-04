@@ -1,4 +1,7 @@
 # Exiobase Explorer 
+
+NOTE: This project is still in development 
+
 A Python tool for analyzing Exiobase data with various modules for IO systems, impact analysis, and supply chain management.
 
 ## Features
@@ -27,14 +30,15 @@ pip install -r requirements.txt
 
 To use the Exiobase Explorer:
 
-    # Import the IOSystem class (or other modules) in your Python code:
-    from tools.IOSystem import IOSystem
+    # Write your code into main.py or create new projects within the folder. Then import the classes:
+    from src.IOSystem import IOSystem
+    from src.SupplyChain import SupplyChain
 
-Insert the downloaded Exiobase Databases into the corresponding folder /exiobase
+Download databases from exiobase on their website (don't change the name!) and put them into the empty folder "exiobase".
 
 Create an instance and load data:
 
-    database = IOSystem(year=2022, language="english").load()
+    database = IOSystem(year=2022, language="english").load() # Loading it for the first time might take up to a minute
 
 ---
 
