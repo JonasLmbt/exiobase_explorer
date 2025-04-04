@@ -3,3 +3,4 @@ matplotlib
 mapclassify
 numpy
 geopandas
+openpyxl
