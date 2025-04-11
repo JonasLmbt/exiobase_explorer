@@ -38,7 +38,7 @@ Download databases from exiobase on their website (don't change the name!) and p
 
 Create an instance and load data:
 
-    database = IOSystem(year=2022, language="english").load() # Loading it for the first time might take up to a minute
+    database = IOSystem(year=2022, language="german").load() # Loading it for the first time might take up to a minute
 
 ---
 
