@@ -1,3 +1,4 @@
+import sys
 from src.IOSystem import IOSystem
 from src.SupplyChain import SupplyChain
 
@@ -5,7 +6,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QComboBox, QPushButton, QSplitter, QTreeWidget,
@@ -13,7 +13,9 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 
+# Load database
 database = IOSystem(year=2022, language="german").load()
+
 
 def multiindex_to_nested_dict(multiindex: pd.MultiIndex) -> dict:
     """Convert a MultiIndex to a nested dictionary for hierarchical QTreeWidget use."""
@@ -24,12 +26,20 @@ def multiindex_to_nested_dict(multiindex: pd.MultiIndex) -> dict:
             current = current.setdefault(key, {})
     return root
 
-sector_hierarchy = multiindex_to_nested_dict(database.Index.sector_multiindex_per_region)
-region_hierarchy = multiindex_to_nested_dict(database.Index.region_multiindex)
 
 class UserInterface(QMainWindow):
     def __init__(self):
         super().__init__()
+        # prepare hierarchies and level names from database indices
+        self.region_hierarchy = multiindex_to_nested_dict(
+            database.Index.region_multiindex
+        )
+        self.sector_hierarchy = multiindex_to_nested_dict(
+            database.Index.sector_multiindex_per_region
+        )
+        # capture level names from the MultiIndexes
+        self.region_level_names = list(database.Index.region_multiindex.names)
+        self.sector_level_names = list(database.Index.sector_multiindex_per_region.names)
         self.init_ui()
 
     def init_ui(self):
@@ -74,41 +84,36 @@ class UserInterface(QMainWindow):
         rs_layout.setSpacing(20)
         rs_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Helper: recurisve add for nested dict
-        def add_tree_items(parent, data):
+        # Helper: recursive add for nested dict with level tracking
+        def add_tree_items(parent, data, level=0):
             for key, val in data.items():
                 item = QTreeWidgetItem(parent)
                 item.setText(0, key)
+                item.setData(0, Qt.UserRole, level)
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
                 item.setCheckState(0, Qt.Unchecked)
                 if isinstance(val, dict) and val:
-                    add_tree_items(item, val)
+                    add_tree_items(item, val, level+1)
 
-        # Region Selection with QTreeWidget via nested dict
+        # Region Selection
         region_group = QGroupBox("Region Selection")
         region_layout = QVBoxLayout(region_group)
         self.region_tree = QTreeWidget()
         self.region_tree.setHeaderHidden(True)
-
-        # Nested dict for regions
-        add_tree_items(self.region_tree, region_hierarchy)
+        add_tree_items(self.region_tree, self.region_hierarchy)
         self.region_tree.itemChanged.connect(self.on_region_item_changed)
-
         region_layout.addWidget(self.region_tree)
         btn_clear_region = QPushButton("Clear Region Selection")
         btn_clear_region.clicked.connect(self.clear_region_selection)
         region_layout.addWidget(btn_clear_region)
 
-        # Sector Selection with hierarchical QTreeWidget
+        # Sector Selection
         sector_group = QGroupBox("Sector Selection")
         sector_layout = QVBoxLayout(sector_group)
         self.sector_tree = QTreeWidget()
         self.sector_tree.setHeaderHidden(True)
-
-        # Nested dict for sectors
-        add_tree_items(self.sector_tree, sector_hierarchy)
+        add_tree_items(self.sector_tree, self.sector_hierarchy)
         self.sector_tree.itemChanged.connect(self.on_sector_item_changed)
-
         sector_layout.addWidget(self.sector_tree)
         btn_clear_sector = QPushButton("Clear Sector Selection")
         btn_clear_sector.clicked.connect(self.clear_sector_selection)
@@ -188,38 +193,42 @@ class UserInterface(QMainWindow):
             self.propagate_down(parent, Qt.Unchecked)
         self.update_summary()
 
+    def _collect_highest_level(self, item, result):
+        """Collect only highest-level checked items."""
+        if item.checkState(0) == Qt.Checked:
+            level = item.data(0, Qt.UserRole)
+            name = item.text(0)
+            result.append((level, name))
+        else:
+            for i in range(item.childCount()):
+                self._collect_highest_level(item.child(i), result)
+
     def get_checked_regions(self):
         checked = []
         root = self.region_tree.invisibleRootItem()
         for i in range(root.childCount()):
-            cont = root.child(i)
-            self._collect_checked(cont, checked)
+            self._collect_highest_level(root.child(i), checked)
         return checked
 
     def get_checked_sectors(self):
         checked = []
         root = self.sector_tree.invisibleRootItem()
         for i in range(root.childCount()):
-            sect = root.child(i)
-            self._collect_checked(sect, checked)
+            self._collect_highest_level(root.child(i), checked)
         return checked
-
-    def _collect_checked(self, item, result_list):
-        # only leaf nodes
-        if item.childCount() == 0 and item.checkState(0) == Qt.Checked:
-            result_list.append(item.text(0))
-        for i in range(item.childCount()):
-            self._collect_checked(item.child(i), result_list)
 
     def apply_selection(self):
         lang = self.language_combo.currentText()
         yr = self.year_combo.currentText()
         regions = self.get_checked_regions()
         sectors = self.get_checked_sectors()
+        # build summary with dynamic level labels, omit generic group labels
+        region_strings = [f"{self.region_level_names[level]}: {name}" for level, name in regions]
+        sector_strings = [f"{self.sector_level_names[level]}: {name}" for level, name in sectors]
         self.selection_label.setText(
-            f"Selection applied!<br><b>Language:</b> {lang}, <b>Year:</b> {yr}<br>"
-            f"<b>Regions:</b> {', '.join(regions)}<br>"
-            f"<b>Sectors:</b> {', '.join(sectors)}"
+            f"Selection applied!<br><b>Language:</b> {lang}, <b>Year:</b> {yr}" +
+            ("<br>" + ", ".join(region_strings) if region_strings else "") +
+            ("<br>" + ", ".join(sector_strings) if sector_strings else "")
         )
         self.summary_group.setTitle("Selection Summary (saved)")
 
@@ -235,15 +244,18 @@ class UserInterface(QMainWindow):
         if not regions and not sectors:
             self.selection_label.setText("No selection made")
         else:
+            region_strings = [f"{self.region_level_names[level]}: {name}" for level, name in regions]
+            sector_strings = [f"{self.sector_level_names[level]}: {name}" for level, name in sectors]
             txt = ""
-            if regions:
-                txt += f"<b>Regions:</b> {', '.join(regions)}<br>"
-            if sectors:
-                txt += f"<b>Sectors:</b> {', '.join(sectors)}"
+            if region_strings:
+                txt += ", ".join(region_strings) + "<br>"
+            if sector_strings:
+                txt += ", ".join(sector_strings)
             self.selection_label.setText(txt)
 
     def _create_menu_bar(self):
         self.menuBar()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
