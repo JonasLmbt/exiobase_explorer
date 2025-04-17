@@ -4,6 +4,7 @@ import io
 import json
 import zipfile
 import time
+import itertools
 import pandas as pd 
 import numpy as np 
 import geopandas as gpd 
@@ -196,6 +197,12 @@ class Index:
             [self.sectors_df[column] for column in self.sectors_df.columns],
             names=self.sectors_df.columns.to_list()
         )
+
+        # Erstelle den neuen MultiIndex; die Namen werden als Tupel angegeben
+        self.impact_per_region_multiindex = pd.MultiIndex.from_tuples(
+            [(imp[0], reg[0], reg[1]) for imp, reg in itertools.product(self.impact_multiindex, self.region_multiindex)],
+            names=tuple(self.impact_multiindex.names)+tuple(self.region_multiindex.names))
+
 
     def update_multiindices(self):
         """
