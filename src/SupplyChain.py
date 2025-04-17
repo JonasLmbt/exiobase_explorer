@@ -5,6 +5,7 @@ import mapclassify
 import tkinter as tk
 from tkinter import ttk
 # import IOSystem (from src.IOSystem import IOSystem ???)
+from src.IOSystem import IOSystem
 
 class SupplyChain:
     
