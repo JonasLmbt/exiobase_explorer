@@ -4,3 +4,6 @@ mapclassify
 numpy
 geopandas
 openpyxl
+PyQt5 
+plotly 
+networkx
