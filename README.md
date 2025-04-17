@@ -13,16 +13,16 @@ A Python tool for analyzing Exiobase data with various modules for IO systems, i
 ## Installation
 
 ### 1️⃣ Clone the repository
-git clone https://github.com/Zorbas05/exiobase_explorer.git
-cd exiobase_explorer
+    git clone https://github.com/Zorbas05/exiobase_explorer.git
+    cd exiobase_explorer
 
 ### 2️⃣ Create a virtual environment (optional, but recommended)
 
-python -m venv venv
+    python -m venv venv
 
 ### 3️⃣ Install dependencies
 
-pip install -r requirements.txt
+    pip install -r requirements.txt
 
 ---
 
@@ -38,7 +38,7 @@ Download databases from exiobase on their website (don't change the name!) and p
 
 Create an instance and load data:
 
-    database = IOSystem(year=2022, language="english").load() # Loading it for the first time might take up to a minute
+    database = IOSystem(year=2022, language="german").load() # Loading it for the first time might take up to a minute
 
 ---
 
