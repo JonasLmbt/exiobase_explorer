@@ -147,6 +147,11 @@ class Index:
         self.raw_material_indices = expanded_raw_material_indices
         self.not_raw_material_indices = expanded_not_raw_material_indices
 
+        # Create a list with all possible languages
+        data = pd.ExcelFile(os.path.join(self.IOSystem.fast_db, file_name))
+        self.languages = data.sheet_names
+        del data
+
     def create_multiindices(self):
         """
         Creates MultiIndex structures for sector, region, and impact matrices in the IOSystem. This method
@@ -199,9 +204,9 @@ class Index:
         )
 
         # Erstelle den neuen MultiIndex; die Namen werden als Tupel angegeben
-        self.impact_per_region_multiindex = pd.MultiIndex.from_tuples(
-            [(imp[0], reg[0], reg[1]) for imp, reg in itertools.product(self.impact_multiindex, self.region_multiindex)],
-            names=tuple(self.impact_multiindex.names)+tuple(self.region_multiindex.names))
+        # self.impact_per_region_multiindex = pd.MultiIndex.from_tuples(
+        #    [(imp[0], reg[0], reg[1]) for imp, reg in itertools.product(self.impact_multiindex, self.region_multiindex)],
+        #    names=tuple(self.impact_multiindex.names)+tuple(self.region_multiindex.names))
 
 
     def update_multiindices(self):
@@ -237,7 +242,7 @@ class Index:
         self.IOSystem.units = self.units_df.iloc[:, -1].tolist()
 
         # Load 'regions_exiobase' data
-        regions_exiobase_df = pd.read_excel(os.path.join(self.IOSystem.fast_db, 'regions.xlsx'), sheet_name="exiobase")
+        regions_exiobase_df = pd.read_excel(os.path.join(self.IOSystem.fast_db, 'regions.xlsx'), sheet_name="Exiobase")
         self.IOSystem.regions_exiobase = regions_exiobase_df.iloc[:, -1].unique().tolist()
 
         # Update impact units DataFrame
@@ -595,7 +600,7 @@ class Impact:
 
 class IOSystem:
 
-    def __init__(self, year=2022, language="exiobase", exiobase_dir=None, fast_dir=None, exiobase_db=None, fast_db=None):
+    def __init__(self, year=2022, language="Exiobase", exiobase_dir=None, fast_dir=None, exiobase_db=None, fast_db=None):
         """
         Initializes the IOSystem with paths and parameters for the database.
         
@@ -690,7 +695,7 @@ class IOSystem:
             self.calc_all()  # Perform calculations on the database
             self.load(attempt=attempt + 1) # Call load again after the database is created
        
-    def switch_language(self, language="exiobase"):
+    def switch_language(self, language="Exiobase"):
         """
         Switches the language for the system and updates the labels accordingly.
         
@@ -700,6 +705,12 @@ class IOSystem:
         
         self.language = language  # Set the new language
         self.Index.update_multiindices()  # Update the labels based on the new language
+        logging.info(f"Language has been changed successfully to {self.language}")
+
+    def switch_year(self, year):
+        self.year = year
+        self.exiobase_db = os.path.normpath(os.path.join(self.exiobase_dir, f'IOT_{year}_pxp.zip'))  # Default path to the compressed database
+        self.fast_db = os.path.normpath(os.path.join(self.fast_dir, f'Fast_IOT_{year}_pxp'))  # Path to the fast-load database
 
     def extract_file_parameters(self, json_filename="file_parameters.json"):
         """

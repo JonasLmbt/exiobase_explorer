@@ -28,15 +28,14 @@ class SelectionTab(QWidget):
         self.sector_indices = []
         self.indices = []
         self.init_ui()
+    
+    def set_parent_ui(self, ui):
+        self.ui = ui
 
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(20)
-        # Add checkbox for showing indices
-        self.show_indices_checkbox = QCheckBox("Show Indices")
-        self.show_indices_checkbox.setChecked(True)  # Default is True
-        layout.addWidget(self.show_indices_checkbox)
-
+        
         region_sector_widget = QWidget()
         rs_layout = QHBoxLayout(region_sector_widget)
         rs_layout.setSpacing(20)
@@ -242,7 +241,7 @@ class SelectionTab(QWidget):
             txt += f"<br><i>Sector indices count:</i> {len(self.sector_indices)}<br><br>"
 
         # Handle indices display if checkbox is checked
-        if self.show_indices_checkbox.isChecked():
+        if self.ui.settings_tab.is_show_indices_active():
             if region_strings and sector_strings:
                 self.indices = []
                 for region in self.region_indices:
