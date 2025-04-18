@@ -1,13 +1,42 @@
 import sys
+from src.IOSystem import IOSystem
+from src.SupplyChain import SupplyChain
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QGroupBox, QLabel, QComboBox, QPushButton, QSplitter, QCheckBox, QScrollArea
+    QGroupBox, QLabel, QComboBox, QPushButton, QSplitter, QTreeWidget,
+    QTreeWidgetItem, QScrollArea, QSizePolicy
 )
 from PyQt5.QtCore import Qt
+
+# Load database
+database = IOSystem(year=2022, language="german").load()
+
+
+def multiindex_to_nested_dict(multiindex: pd.MultiIndex) -> dict:
+    root = {}
+    for keys in multiindex:
+        current = root
+        for key in keys:
+            current = current.setdefault(key, {})
+    return root
+
 
 class UserInterface(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.region_hierarchy = multiindex_to_nested_dict(
+            database.Index.region_multiindex
+        )
+        self.sector_hierarchy = multiindex_to_nested_dict(
+            database.Index.sector_multiindex_per_region
+        )
+        self.region_level_names = list(database.Index.region_multiindex.names)
+        self.sector_level_names = list(database.Index.sector_multiindex_per_region.names)
         self.init_ui()
 
     def init_ui(self):
@@ -23,6 +52,7 @@ class UserInterface(QMainWindow):
 
         self.tab_widget = QTabWidget(self)
         self.create_selection_tab()
+        self.create_additional_tab()
         central_layout.addWidget(self.tab_widget)
 
         self._create_menu_bar()
@@ -52,89 +82,74 @@ class UserInterface(QMainWindow):
         rs_layout.setSpacing(20)
         rs_layout.setContentsMargins(0, 0, 0, 0)
 
-        # === Region Selection ===
+        def add_tree_items(parent, data, level=0):
+            for key, val in data.items():
+                item = QTreeWidgetItem(parent)
+                item.setText(0, key)
+                item.setData(0, Qt.UserRole, level)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(0, Qt.Unchecked)
+                if isinstance(val, dict) and val:
+                    add_tree_items(item, val, level + 1)
+
+        # Region Tree
         region_group = QGroupBox("Region Selection")
         region_layout = QVBoxLayout(region_group)
-        region_layout.setContentsMargins(0, 0, 0, 0)
-        region_layout.setSpacing(8)
+        self.region_tree = QTreeWidget()
+        self.region_tree.setHeaderHidden(True)
+        self.region_tree.setSelectionMode(QTreeWidget.NoSelection)
+        add_tree_items(self.region_tree, self.region_hierarchy)
+        self.region_tree.itemChanged.connect(self.on_region_item_changed)
+        region_layout.addWidget(self.region_tree)
 
-        region_scroll = QScrollArea()
-        region_scroll.setWidgetResizable(True)
-        region_container = QWidget()
-        region_container_layout = QVBoxLayout(region_container)
-        region_container_layout.setContentsMargins(0, 0, 0, 0)
-        region_container_layout.setSpacing(8)
+        # Region Button Layout
+        region_button_row = QWidget()
+        region_button_layout = QHBoxLayout(region_button_row)
+        region_button_layout.setContentsMargins(0, 0, 0, 0)
+        region_button_layout.setSpacing(10)
 
-        regions = [
-            "Germany", "France", "Spain", "Italy", "Poland",
-            "Netherlands", "Belgium", "Portugal", "Greece", "Austria",
-            "Sweden", "Norway", "Finland", "Denmark", "Ireland",
-            "Switzerland", "Czech Republic", "Hungary", "Slovakia", "Slovenia",
-            "Croatia", "Bulgaria", "Romania", "Estonia", "Latvia",
-            "Lithuania", "Luxembourg", "United Kingdom", "USA", "China"
-        ]
-
-        self.region_checkboxes = []
-        for name in regions:
-            cb = QCheckBox(name)
-            self.region_checkboxes.append(cb)
-            region_container_layout.addWidget(cb)
-
-        region_scroll.setWidget(region_container)
-        region_layout.addWidget(region_scroll)
-
-        region_button_layout = QHBoxLayout()
-        btn_clear_region = QPushButton("Clear Region Selection")
-        btn_clear_region.clicked.connect(self.clear_region_selection)
         btn_select_all_region = QPushButton("Select All Regions")
+        btn_clear_region = QPushButton("Clear Region Selection")
         btn_select_all_region.clicked.connect(self.select_all_regions)
-        region_button_layout.addWidget(btn_clear_region)
-        region_button_layout.addWidget(btn_select_all_region)
-        region_layout.addLayout(region_button_layout)
+        btn_clear_region.clicked.connect(self.clear_region_selection)
 
-        # === Sector Selection ===
+        for btn in [btn_select_all_region, btn_clear_region]:
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            region_button_layout.addWidget(btn)
+
+        region_layout.addWidget(region_button_row)
+
+        # Sector Tree
         sector_group = QGroupBox("Sector Selection")
         sector_layout = QVBoxLayout(sector_group)
-        sector_layout.setContentsMargins(0, 0, 0, 0)
-        sector_layout.setSpacing(8)
+        self.sector_tree = QTreeWidget()
+        self.sector_tree.setHeaderHidden(True)
+        self.sector_tree.setSelectionMode(QTreeWidget.NoSelection)
+        add_tree_items(self.sector_tree, self.sector_hierarchy)
+        self.sector_tree.itemChanged.connect(self.on_sector_item_changed)
+        sector_layout.addWidget(self.sector_tree)
 
-        sector_scroll = QScrollArea()
-        sector_scroll.setWidgetResizable(True)
-        sector_container = QWidget()
-        sector_container_layout = QVBoxLayout(sector_container)
-        sector_container_layout.setContentsMargins(0, 0, 0, 0)
-        sector_container_layout.setSpacing(8)
+        # Sector Button Layout
+        sector_button_row = QWidget()
+        sector_button_layout = QHBoxLayout(sector_button_row)
+        sector_button_layout.setContentsMargins(0, 0, 0, 0)
+        sector_button_layout.setSpacing(10)
 
-        sectors = [
-            "Agriculture", "Forestry", "Fishing", "Mining", "Industry",
-            "Energy", "Construction", "Transport", "Retail", "Wholesale",
-            "Finance", "Insurance", "Real Estate", "Education", "Healthcare",
-            "Social Services", "Public Administration", "Defense", "Tourism", "Media",
-            "Telecommunications", "Technology", "Environmental Services", "Waste Management", "Scientific R&D"
-        ]
-
-        self.sector_checkboxes = []
-        for name in sectors:
-            cb = QCheckBox(name)
-            self.sector_checkboxes.append(cb)
-            sector_container_layout.addWidget(cb)
-
-        sector_scroll.setWidget(sector_container)
-        sector_layout.addWidget(sector_scroll)
-
-        sector_button_layout = QHBoxLayout()
-        btn_clear_sector = QPushButton("Clear Sector Selection")
-        btn_clear_sector.clicked.connect(self.clear_sector_selection)
         btn_select_all_sector = QPushButton("Select All Sectors")
+        btn_clear_sector = QPushButton("Clear Sector Selection")
         btn_select_all_sector.clicked.connect(self.select_all_sectors)
-        sector_button_layout.addWidget(btn_clear_sector)
-        sector_button_layout.addWidget(btn_select_all_sector)
-        sector_layout.addLayout(sector_button_layout)
+        btn_clear_sector.clicked.connect(self.clear_sector_selection)
+
+        for btn in [btn_select_all_sector, btn_clear_sector]:
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            sector_button_layout.addWidget(btn)
+
+        sector_layout.addWidget(sector_button_row)
 
         rs_layout.addWidget(region_group)
         rs_layout.addWidget(sector_group)
 
-        # === Bottom Widget (Summary + Buttons) ===
+        # === Bottom Widget ===
         bottom_widget = QWidget()
         bottom_layout = QVBoxLayout(bottom_widget)
         bottom_layout.setSpacing(10)
@@ -142,7 +157,7 @@ class UserInterface(QMainWindow):
 
         self.summary_group = QGroupBox("Selection Summary")
         summary_layout = QVBoxLayout(self.summary_group)
-        self.selection_label = QLabel("No selection made...")
+        self.selection_label = QLabel("No selection made")
         self.selection_label.setWordWrap(True)
         summary_scroll = QScrollArea()
         summary_scroll.setWidgetResizable(True)
@@ -169,77 +184,143 @@ class UserInterface(QMainWindow):
         selection_layout.addWidget(splitter)
         self.tab_widget.addTab(selection_tab, "Selection")
 
-    def clear_region_selection(self):
-        for cb in self.region_checkboxes:
-            cb.setChecked(False)
+    def create_additional_tab(self):
+        additional_tab = QWidget()
+        additional_layout = QVBoxLayout(additional_tab)
+
+        inner_tab_widget = QTabWidget()
+
+        # Matplotlib Integration in "Table" tab
+        table_tab = QWidget()
+        table_layout = QVBoxLayout(table_tab)
+
+        fig, ax = plt.subplots()
+        ax.plot([0, 1, 2, 3], [10, 1, 20, 3])
+        ax.set_title("Sample Plot")
+
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+        canvas = FigureCanvas(fig)
+        table_layout.addWidget(canvas)
+
+        inner_tab_widget.addTab(table_tab, "Table")
+        inner_tab_widget.addTab(QLabel("This is inner tab 2 content."), "World Map")
+
+        additional_layout.addWidget(inner_tab_widget)
+        self.tab_widget.addTab(additional_tab, "Visualization")
+
+    def propagate_down(self, item, state):
+        for i in range(item.childCount()):
+            child = item.child(i)
+            child.setCheckState(0, state)
+            self.propagate_down(child, state)
+
+    def on_region_item_changed(self, item, column):
+        state = item.checkState(column)
+        self.region_tree.blockSignals(True)
+        self.propagate_down(item, state)
+        self.region_tree.blockSignals(False)
         self.update_summary()
 
-    def select_all_regions(self):
-        for cb in self.region_checkboxes:
-            cb.setChecked(True)
+    def on_sector_item_changed(self, item, column):
+        state = item.checkState(column)
+        self.sector_tree.blockSignals(True)
+        self.propagate_down(item, state)
+        self.sector_tree.blockSignals(False)
+        self.update_summary()
+
+    def clear_region_selection(self):
+        root = self.region_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            parent = root.child(i)
+            parent.setCheckState(0, Qt.Unchecked)
+            self.propagate_down(parent, Qt.Unchecked)
         self.update_summary()
 
     def clear_sector_selection(self):
-        for cb in self.sector_checkboxes:
-            cb.setChecked(False)
+        root = self.sector_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            parent = root.child(i)
+            parent.setCheckState(0, Qt.Unchecked)
+            self.propagate_down(parent, Qt.Unchecked)
         self.update_summary()
 
-    def select_all_sectors(self):
-        for cb in self.sector_checkboxes:
-            cb.setChecked(True)
-        self.update_summary()
+    def _collect_highest_level(self, item, result):
+        if item.checkState(0) == Qt.Checked:
+            level = item.data(0, Qt.UserRole)
+            name = item.text(0)
+            result.append((level, name))
+        else:
+            for i in range(item.childCount()):
+                self._collect_highest_level(item.child(i), result)
 
-    def reset_selection(self):
-        self.clear_region_selection()
-        self.clear_sector_selection()
-        self.selection_label.setText("No selection made...")
-        self.summary_group.setTitle("Selection Summary")
+    def get_checked_regions(self):
+        checked = []
+        root = self.region_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            self._collect_highest_level(root.child(i), checked)
+        return checked
+
+    def get_checked_sectors(self):
+        checked = []
+        root = self.sector_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            self._collect_highest_level(root.child(i), checked)
+        return checked
 
     def apply_selection(self):
         lang = self.language_combo.currentText()
         yr = self.year_combo.currentText()
-        selected_regions = [cb.text() for cb in self.region_checkboxes if cb.isChecked()]
-        selected_sectors = [cb.text() for cb in self.sector_checkboxes if cb.isChecked()]
+        regions = self.get_checked_regions()
+        sectors = self.get_checked_sectors()
+        region_strings = [f"{self.region_level_names[level]}: {name}" for level, name in regions]
+        sector_strings = [f"{self.sector_level_names[level]}: {name}" for level, name in sectors]
 
-        all_regions_selected = len(selected_regions) == len(self.region_checkboxes)
-        all_sectors_selected = len(selected_sectors) == len(self.sector_checkboxes)
+        if not regions:
+            region_strings = ["The whole world will be considered."]
+        elif len(regions) == len(self.region_hierarchy):
+            region_strings = ["All regions selected, will consider the entire region set."]
 
-        if all_regions_selected:
-            selected_regions = ["(all regions – entire world)"]
-        elif not selected_regions:
-            selected_regions = ["(no regions selected – entire world)"]
+        if not sectors:
+            sector_strings = ["All sectors will be used."]
+        elif len(sectors) == len(self.sector_hierarchy):
+            sector_strings = ["All sectors selected, will consider the entire sector set."]
 
-        if all_sectors_selected:
-            selected_sectors = ["(all sectors)"]
-        elif not selected_sectors:
-            selected_sectors = ["(no sectors selected - all sectors)"]
-
-        self.selection_label.setText(
-            f"&nbsp;&nbsp;&nbsp;&nbsp;<b>Language:</b> {lang}, <b>Year:</b> {yr}<br>"
-            f"&nbsp;&nbsp;&nbsp;&nbsp;<b>Regions:</b> {', '.join(selected_regions)}<br>"
-            f"&nbsp;&nbsp;&nbsp;&nbsp;<b>Sectors:</b> {', '.join(selected_sectors)}"
+        summary_text = (
+            f"Language: {lang}\nYear: {yr}\n\n"
+            f"Regions:\n" + "\n".join(region_strings) + "\n\n"
+            f"Sectors:\n" + "\n".join(sector_strings)
         )
-        self.summary_group.setTitle("Selection Summary (saved)")
+        self.selection_label.setText(summary_text)
+
+    def reset_selection(self):
+        self.clear_region_selection()
+        self.clear_sector_selection()
+        self.language_combo.setCurrentIndex(0)
+        self.year_combo.setCurrentIndex(0)
+        self.selection_label.setText("No selection made")
 
     def update_summary(self):
-        selected_regions = [cb.text() for cb in self.region_checkboxes if cb.isChecked()]
-        selected_sectors = [cb.text() for cb in self.sector_checkboxes if cb.isChecked()]
+        self.apply_selection()
 
-        all_regions_selected = len(selected_regions) == len(self.region_checkboxes)
-        all_sectors_selected = len(selected_sectors) == len(self.sector_checkboxes)
+    def select_all_regions(self):
+        root = self.region_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            parent = root.child(i)
+            parent.setCheckState(0, Qt.Checked)
+            self.propagate_down(parent, Qt.Checked)
+        self.update_summary()
 
-        if (not selected_regions or all_regions_selected) and (not selected_sectors or all_sectors_selected):
-            self.selection_label.setText("No selection made...")
-        else:
-            txt = ""
-            if selected_regions and not all_regions_selected:
-                txt += f"<b>Regions:</b> {', '.join(selected_regions)}<br>"
-            if selected_sectors and not all_sectors_selected:
-                txt += f"<b>Sectors:</b> {', '.join(selected_sectors)}"
-            self.selection_label.setText(txt)
+    def select_all_sectors(self):
+        root = self.sector_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            parent = root.child(i)
+            parent.setCheckState(0, Qt.Checked)
+            self.propagate_down(parent, Qt.Checked)
+        self.update_summary()
 
     def _create_menu_bar(self):
-        self.menuBar()
+        pass
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
