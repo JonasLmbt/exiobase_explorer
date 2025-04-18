@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from src.SupplyChain import SupplyChain
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from PyQt5.QtWidgets import QSizePolicy
@@ -68,12 +69,31 @@ class TableTab(QWidget):
         impact_group.setMaximumHeight(100)
         layout.addWidget(impact_group)
 
-        # Add Matplotlib figure
-        fig, ax = plt.subplots()
-        ax.plot([0, 1, 2, 3], [10, 1, 20, 3])
-        ax.set_title("Sample Plot")
-        canvas = FigureCanvas(fig)
-        layout.addWidget(canvas)
+        self.canvas = None
+        self.plot_area = QVBoxLayout()
+        layout.addLayout(self.plot_area)
+
+        self.plot_button = QPushButton("Plot aktualisieren")
+        self.plot_button.clicked.connect(self.update_plot)
+        layout.addWidget(self.plot_button)
+
+        self.update_plot()  # Initial plot rendering
+
+        self.setLayout(layout)
+
+    def update_plot(self):
+        if self.canvas:
+            self.plot_area.removeWidget(self.canvas)
+            self.canvas.setParent(None)
+            self.canvas.deleteLater()  # Entfernt den alten Canvas vollständig
+
+        # Verwende die Funktion plot_supply_chain aus SupplyChain direkt
+        supply_chain = SupplyChain(self.database)
+        fig = supply_chain.plot_supply_chain(self.selected_impacts, size=1, lines=True, line_width=1, line_color="gray", text_position="center")
+        self.canvas = FigureCanvas(fig)
+        self.plot_area.addWidget(self.canvas)
+        self.canvas.draw()  # Stellt sicher, dass der Canvas aktualisiert wird
+
 
     def select_impacts(self):
         current_selection = self.saved_defaults.copy()
@@ -137,6 +157,7 @@ class TableTab(QWidget):
             self.saved_defaults = new_defaults
             self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
             self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
+            self.update_plot()  # Update plot after confirming selection
             dialog.accept()
 
         def reset_to_defaults():
@@ -149,6 +170,7 @@ class TableTab(QWidget):
             }
             self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
             self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
+            self.update_plot()  # Update plot after resetting defaults
             dialog.accept()
 
         buttons.accepted.connect(confirm)
