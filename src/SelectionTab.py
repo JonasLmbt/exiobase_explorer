@@ -35,7 +35,7 @@ class SelectionTab(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(20)
-        
+
         region_sector_widget = QWidget()
         rs_layout = QHBoxLayout(region_sector_widget)
         rs_layout.setSpacing(20)
@@ -240,14 +240,26 @@ class SelectionTab(QWidget):
             txt += ", ".join(sector_strings)
             txt += f"<br><i>Sector indices count:</i> {len(self.sector_indices)}<br><br>"
 
+        # Calculate indices
+        self.indices = []
+        if region_strings and sector_strings:
+            for region in self.region_indices:
+                for sector in self.sector_indices:
+                    self.indices.append(int(region) * len(self.database.sectors) + int(sector))
+        elif region_strings:
+            for region in self.region_indices:
+                for sector in range(len(self.database.sectors)): # All sectors
+                    self.indices.append(int(region) * len(self.database.sectors) + int(sector))
+        elif sector_strings:
+            for region in range(len(self.database.regions)): # All regions
+                for sector in self.sector_indices:
+                    self.indices.append(int(region) * len(self.database.sectors) + int(sector))
+        else: # World
+            self.indices = [index for index in range(9800)]
+
         # Handle indices display if checkbox is checked
         if self.ui.settings_tab.is_show_indices_active():
-            if region_strings and sector_strings:
-                self.indices = []
-                for region in self.region_indices:
-                    for sector in self.sector_indices:
-                        self.indices.append(int(region) * 200 + int(sector))
-                txt += f"<b>Indices ({len(self.indices)}):</b> {self.indices}<br><br>"
+            txt += f"<b>Indices ({len(self.indices)}):</b> {self.indices}<br><br>"
 
         self.selection_label.setText(txt)
         self.summary_group.setTitle("Selection Summary (saved)")
