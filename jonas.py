@@ -40,6 +40,8 @@ class UserInterface(QMainWindow):
         # capture level names from the MultiIndexes
         self.region_level_names = list(database.Index.region_multiindex.names)
         self.sector_level_names = list(database.Index.sector_multiindex_per_region.names)
+        self.region_indices = []  # will hold selected bottom-level indices
+        self.sector_indices = []
         self.init_ui()
 
     def init_ui(self):
@@ -222,14 +224,36 @@ class UserInterface(QMainWindow):
         yr = self.year_combo.currentText()
         regions = self.get_checked_regions()
         sectors = self.get_checked_sectors()
-        # build summary with dynamic level labels, omit generic group labels
+        # compute index lists for bottom-level elements
+        mi_r = database.Index.region_multiindex
+        mi_s = database.Index.sector_multiindex_per_region
+        region_idx = set()
+        for level, name in regions:
+            mask = mi_r.get_level_values(level) == name
+            region_idx.update(np.where(mask)[0])
+        sector_idx = set()
+        for level, name in sectors:
+            mask = mi_s.get_level_values(level) == name
+            sector_idx.update(np.where(mask)[0])
+        self.region_indices = sorted(region_idx)
+        self.sector_indices = sorted(sector_idx)
+        # build summary with dynamic level labels and counts
         region_strings = [f"{self.region_level_names[level]}: {name}" for level, name in regions]
         sector_strings = [f"{self.sector_level_names[level]}: {name}" for level, name in sectors]
-        self.selection_label.setText(
-            f"Selection applied!<br><b>Language:</b> {lang}, <b>Year:</b> {yr}" +
-            ("<br>" + ", ".join(region_strings) if region_strings else "") +
-            ("<br>" + ", ".join(sector_strings) if sector_strings else "")
-        )
+        txt = f"Selection applied!<br><b>Language:</b> {lang}, <b>Year:</b> {yr}"  
+        if region_strings:
+            txt += "<br>" + ", ".join(region_strings)
+            txt += f"<br><i>Region indices count:</i> {len(self.region_indices)}"
+        if sector_strings:
+            txt += "<br>" + ", ".join(sector_strings)
+            txt += f"<br><i>Sector indices count:</i> {len(self.sector_indices)}"
+        if region_strings and sector_strings:
+            self.indices = []
+            for region in self.region_indices:
+                for sector in self.sector_indices:
+                    self.indices.append(int(region)*200+int(sector))
+            txt += f"<br><b>Indices ({len(self.indices)}):</b> {self.indices}"
+        self.selection_label.setText(txt)
         self.summary_group.setTitle("Selection Summary (saved)")
 
     def reset_selection(self):
@@ -239,19 +263,8 @@ class UserInterface(QMainWindow):
         self.summary_group.setTitle("Selection Summary")
 
     def update_summary(self):
-        regions = self.get_checked_regions()
-        sectors = self.get_checked_sectors()
-        if not regions and not sectors:
-            self.selection_label.setText("No selection made")
-        else:
-            region_strings = [f"{self.region_level_names[level]}: {name}" for level, name in regions]
-            sector_strings = [f"{self.sector_level_names[level]}: {name}" for level, name in sectors]
-            txt = ""
-            if region_strings:
-                txt += ", ".join(region_strings) + "<br>"
-            if sector_strings:
-                txt += ", ".join(sector_strings)
-            self.selection_label.setText(txt)
+        # mirror apply_selection summary without saving
+        self.apply_selection()
 
     def _create_menu_bar(self):
         self.menuBar()
