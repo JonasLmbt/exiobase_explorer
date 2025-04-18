@@ -52,7 +52,11 @@ class TableTab(QWidget):
         
         # Set the default values for impacts (Dummy data as standard)
         self.saved_defaults = {
-            "Wertschöpfung": True,
+            "Treibhausgasemissionen": True, 
+            "Wasserverbrauch": True, 
+            "Landnutzung": True, 
+            "Wertschöpfung": True, 
+            "Arbeitszeit": True
         }
         self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
         
@@ -73,7 +77,7 @@ class TableTab(QWidget):
         self.plot_area = QVBoxLayout()
         layout.addLayout(self.plot_area)
 
-        self.plot_button = QPushButton("Plot aktualisieren")
+        self.plot_button = QPushButton("Update Plot")
         self.plot_button.clicked.connect(self.update_plot)
         layout.addWidget(self.plot_button)
 
@@ -168,10 +172,11 @@ class TableTab(QWidget):
 
         def reset_to_defaults():
             self.saved_defaults = {
-                "Wertschöpfung": True,
-                "Beschäftigung": True,
-                "Arbeitszeit": True,
-                "Treibhausgasemissionen": True
+                "Treibhausgasemissionen": True, 
+                "Wasserverbrauch": True, 
+                "Landnutzung": True, 
+                "Wertschöpfung": True, 
+                "Arbeitszeit": True
             }
             self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
             self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
