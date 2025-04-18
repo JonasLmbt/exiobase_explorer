@@ -4,8 +4,6 @@ import matplotlib.colors as mcolors
 import mapclassify  
 import tkinter as tk
 from tkinter import ttk
-from .IOSystem import IOSystem
-
 
 class SupplyChain:
     
