@@ -12,17 +12,19 @@ class SupplyChain:
         self.database = database
         self.language = self.database.language
         self.regional = False
+        self.inputByIndices = False
 
         if indices is not None:
             self.indices = indices
+            self.inputByIndices = True
             
         else:         
-            if select:
+            if select == True:
                 kwargs = {**self.get_multiindex_selection(self.database.Index.region_multiindex), **self.get_multiindex_selection(self.database.Index.sector_multiindex_per_region)}
 
             # Hierarchieliste für gesetzte Werte
             self.hierarchy_levels = {}
-        
+
             # Set attributes dynamically for region and sector classification
             for attr in self.database.Index.region_classification + self.database.Index.sector_classification:
                 value = kwargs.get(attr, None)
@@ -130,7 +132,10 @@ class SupplyChain:
         Returns a string representation of the SupplyChain object, useful for debugging or displaying in the program.    
         This representation is especially helpful when inspecting objects during debugging.
         """
-        return f"SupplyChain(Number of Indices: {len(self.indices)}, Hierarchy levels: {self.hierarchy_levels})"
+        if self.inputByIndices:
+            return f"SupplyChain(Number of Indices: {len(self.indices)}, input was given by indices)"
+        else:
+            return f"SupplyChain(Number of Indices: {len(self.indices)}, Hierarchy levels: {self.hierarchy_levels})"
 
     def transform_unit(self, value, impact):
         """
@@ -469,8 +474,10 @@ class SupplyChain:
         :return: A string title that reflects the provided hierarchy levels.
         """    
         # Erstellen des Titels basierend auf den angegebenen Hierarchieebenen
-        return "Title"
-        if self.hierarchy_levels:
+
+        if self.inputByIndices:
+            return f'{self.database.Index.general_dict["of a"]} {self.database.Index.general_dict["specific selection of sectors"]} ({self.database.year})'
+        else:
             title_parts = []
 
             # Iteriere über alle möglichen Hierarchieebenen, die in der Index-Klassifikation definiert sind
@@ -486,6 +493,4 @@ class SupplyChain:
                 return f'{self.database.Index.general_dict["of"]} {self.database.Index.general_dict["World"]}'
         
             # Rückgabe des zusammengefügten Titels
-            return f'{self.database.Index.general_dict["of"]} ' + " | ".join(title_parts)
-        else:
-            return "Title"
+            return f'{self.database.Index.general_dict["of"]} ' + " | ".join(title_parts) + f" ({self.database.year})"

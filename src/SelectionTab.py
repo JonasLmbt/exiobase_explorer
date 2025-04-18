@@ -27,7 +27,8 @@ class SelectionTab(QWidget):
         self.sector_level_names = list(database.Index.sector_multiindex_per_region.names)
         self.region_indices = []
         self.sector_indices = []
-        self.indices = []
+        self.indices = [index for index in range(9800)]
+        self.inputByIndices = True
         self.init_ui()
     
     def set_parent_ui(self, ui):
@@ -257,6 +258,22 @@ class SelectionTab(QWidget):
                     self.indices.append(int(region) * len(self.database.sectors) + int(sector))
         else: # World
             self.indices = [index for index in range(9800)]
+
+        # Check whether the selection is simple or specified
+        self.inputByIndices = True
+        if len(regions) <= 1 and len(sectors) <= 1:
+            self.inputByIndices = False
+            self.kwargs = {}
+            
+            if regions:
+                key = self.region_level_names[regions[0][0]]
+                value = regions[0][1]
+                self.kwargs[key] = value
+
+            if sectors:
+                key = self.sector_level_names[sectors[0][0]]
+                value = sectors[0][1]
+                self.kwargs[key] = value
 
         # Handle indices display if checkbox is checked
         if self.ui.settings_tab.is_show_indices_active():

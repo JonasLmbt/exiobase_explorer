@@ -5,8 +5,10 @@ import re
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QComboBox, QCheckBox,
-    QTextEdit
+    QTextEdit, QApplication
 )
+
+from PyQt5.QtCore import Qt
 
 class QTextEditLogger(logging.Handler):
     """Logging handler that emits logs to a QTextEdit widget."""
@@ -110,13 +112,14 @@ class SettingsTab(QWidget):
         self.ui.reload_tabs()
 
     def on_year_changed(self, text):
+        QApplication.setOverrideCursor(Qt.WaitCursor)
         """Handles year change event."""
+
         self.current_year = text
         self.database.switch_year(int(self.current_year))
         self.database.load()  # Load data for the selected year
 
-        # Reload tabs to reflect the year change
-        self.ui.reload_tabs()
+        QApplication.restoreOverrideCursor()
 
     def is_show_indices_active(self):
         """Returns whether 'Show Indices' checkbox is active."""

@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import QSizePolicy
 from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QPushButton, 
-    QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog
+    QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog, QApplication
 )
 from PyQt5.QtCore import Qt
 
@@ -82,8 +82,6 @@ class TableTab(QWidget):
         self.plot_button.clicked.connect(self.update_plot)
         layout.addWidget(self.plot_button)
 
-        self.update_plot()  # Initial plot rendering
-
         self.setLayout(layout)
 
     def set_parent_ui(self, ui):
@@ -91,19 +89,21 @@ class TableTab(QWidget):
         self.ui = ui
 
     def update_plot(self):
+        QApplication.setOverrideCursor(Qt.WaitCursor)
         if self.canvas:
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
-            self.canvas.deleteLater()  # Entfernt den alten Canvas vollständig
+            self.canvas.deleteLater()  
 
-        if self.ui.selection_tab.indices == []:
-            self.ui.selection_tab.indices = [index for index in range(9800)]
-
-        supplychain = SupplyChain(self.database, indices=self.ui.selection_tab.indices)
+        if self.ui.selection_tab.inputByIndices:
+            supplychain = SupplyChain(self.database, indices=self.ui.selection_tab.indices)
+        else:  
+            supplychain = SupplyChain(self.database, **self.ui.selection_tab.kwargs)
         fig = supplychain.plot_supply_chain(self.selected_impacts, size=1, lines=True, line_width=1, line_color="gray", text_position="center")
         self.canvas = FigureCanvas(fig)
         self.plot_area.addWidget(self.canvas)
         self.canvas.draw()  
+        QApplication.restoreOverrideCursor()
 
 
     def select_impacts(self):

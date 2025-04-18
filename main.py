@@ -16,8 +16,6 @@ class UserInterface(QMainWindow):
         self.database = IOSystem(year=2022, language="Deutsch").load()
         self.database.Index.copy_configs()
         self.general_dict = self.database.Index.general_dict
-        print(self.general_dict)
-        self.supplychain = SupplyChain(database=self.database)
         self.init_ui()
 
     def init_ui(self):
