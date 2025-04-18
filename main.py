@@ -41,7 +41,7 @@ class UserInterface(QMainWindow):
         self.tabs.addTab(self.selection_tab, self.general_dict["Selection"])
         self.tabs.addTab(self.visualisation_tab, self.general_dict["Visualisation"])
         self.tabs.addTab(self.settings_tab, self.general_dict["Settings"])
-
+    
         layout.addWidget(self.tabs)
         self._create_menu_bar()
         self.show()
@@ -61,13 +61,13 @@ class UserInterface(QMainWindow):
 
     def reload_visualisation_tab(self):
         self.tabs.removeTab(1)
-        self.visualisation_tab = VisualisationTab(self.database)
+        self.visualisation_tab = VisualisationTab(self.database, self)
         self.tabs.insertTab(1, self.visualisation_tab, self.general_dict["Visualisation"])
         self.set_parent()
 
     def reload_settings_tab(self):
         self.tabs.removeTab(2)
-        self.settings_tab = SettingsTab(self.database, self)
+        self.settings_tab = SettingsTab(self.database)
         self.tabs.insertTab(2, self.settings_tab, self.general_dict["Settings"])
         self.set_parent()
 

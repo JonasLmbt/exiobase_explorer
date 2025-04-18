@@ -20,6 +20,7 @@ class SelectionTab(QWidget):
     def __init__(self, database):
         super().__init__()
         self.database = database
+        self.general_dict = self.database.Index.general_dict
         self.region_hierarchy = multiindex_to_nested_dict(database.Index.region_multiindex)
         self.sector_hierarchy = multiindex_to_nested_dict(database.Index.sector_multiindex_per_region)
         self.region_level_names = list(database.Index.region_multiindex.names)
@@ -52,7 +53,7 @@ class SelectionTab(QWidget):
                     add_tree_items(item, val, level + 1)
 
         # Region tree
-        region_group = QGroupBox("Region Selection")
+        region_group = QGroupBox(self.general_dict["Region Selection"])
         region_layout = QVBoxLayout(region_group)
         self.region_tree = QTreeWidget()
         self.region_tree.setHeaderHidden(True)
@@ -62,8 +63,8 @@ class SelectionTab(QWidget):
         region_layout.addWidget(self.region_tree)
 
         region_button_layout = QHBoxLayout()
-        btn_clear_region = QPushButton("Clear Region Selection")
-        btn_select_all_regions = QPushButton("Select All Regions")
+        btn_clear_region = QPushButton(f"{self.general_dict['Clear']} {self.general_dict['Region Selection']}")
+        btn_select_all_regions = QPushButton(self.general_dict["Select All Regions"])
         btn_clear_region.clicked.connect(self.clear_region_selection)
         btn_select_all_regions.clicked.connect(self.select_all_regions)
         region_button_layout.addWidget(btn_clear_region)
@@ -71,7 +72,7 @@ class SelectionTab(QWidget):
         region_layout.addLayout(region_button_layout)
 
         # Sector tree
-        sector_group = QGroupBox("Sector Selection")
+        sector_group = QGroupBox(self.general_dict["Sector Selection"])
         sector_layout = QVBoxLayout(sector_group)
         self.sector_tree = QTreeWidget()
         self.sector_tree.setHeaderHidden(True)
@@ -81,8 +82,8 @@ class SelectionTab(QWidget):
         sector_layout.addWidget(self.sector_tree)
 
         sector_button_layout = QHBoxLayout()
-        btn_clear_sector = QPushButton("Clear Sector Selection")
-        btn_select_all_sectors = QPushButton("Select All Sectors")
+        btn_clear_sector = QPushButton(f"{self.general_dict['Clear']} {self.general_dict['Sector Selection']}")
+        btn_select_all_sectors = QPushButton(self.general_dict["Select All Sectors"])
         btn_clear_sector.clicked.connect(self.clear_sector_selection)
         btn_select_all_sectors.clicked.connect(self.select_all_sectors)
         sector_button_layout.addWidget(btn_clear_sector)
@@ -104,9 +105,9 @@ class SelectionTab(QWidget):
         bottom_layout.setSpacing(10)
         bottom_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.summary_group = QGroupBox("Selection Summary")
+        self.summary_group = QGroupBox(self.general_dict["Selection Summary"])
         summary_layout = QVBoxLayout(self.summary_group)
-        self.selection_label = QLabel("No selection made")
+        self.selection_label = QLabel(self.general_dict["No selection made"])
         self.selection_label.setWordWrap(True)
         summary_scroll = QScrollArea()
         summary_scroll.setWidgetResizable(True)
@@ -115,8 +116,8 @@ class SelectionTab(QWidget):
         bottom_layout.addWidget(self.summary_group)
 
         btn_layout = QHBoxLayout()
-        self.apply_button = QPushButton("Apply Selection")
-        self.reset_button = QPushButton("Reset All Selections")
+        self.apply_button = QPushButton(self.general_dict["Apply Selection"])
+        self.reset_button = QPushButton(self.general_dict["Reset All Selections"])
         self.apply_button.clicked.connect(self.apply_selection)
         self.reset_button.clicked.connect(self.reset_selection)
         btn_layout.addWidget(self.apply_button)
@@ -221,24 +222,24 @@ class SelectionTab(QWidget):
         txt = ""
         
         # Handle region selection summary
-        txt += "<b>Regions:</b><br>"
+        txt += f"<b>{self.general_dict['Regions']}:</b><br>"
         if len(self.region_indices) == 0:
-            txt += "No regions selected.<br><br>"
+            txt += f"{self.general_dict['No regions selected']}.<br><br>"
         elif len(self.region_indices) == len(mi_r):
-            txt += "All regions selected (Global view).<br><br>"
+            txt += f"{self.general_dict['All regions selected (Global view)']}.<br><br>"
         else:
             txt += ", ".join(region_strings)
-            txt += f"<br><i>Region indices count:</i> {len(self.region_indices)}<br><br>"
+            txt += f"<br><i>{self.general_dict['Region indices count']}:</i> {len(self.region_indices)}<br><br>"
 
         # Handle sector selection summary
-        txt += "<b>Sectors:</b><br>"
+        txt += f"<b>{self.general_dict['Sectors']}:</b><br>"
         if len(self.sector_indices) == 0:
-            txt += "No sectors selected.<br><br>"
+            txt += f"{self.general_dict['No sectors selected']}.<br><br>"
         elif len(self.sector_indices) == len(mi_s):
-            txt += "All sectors selected (Global view).<br><br>"
+            txt += f"{self.general_dict['All sectors selected (Global view)']}.<br><br>"
         else:
             txt += ", ".join(sector_strings)
-            txt += f"<br><i>Sector indices count:</i> {len(self.sector_indices)}<br><br>"
+            txt += f"<br><i>{self.general_dict['Sector indices count']}:</i> {len(self.sector_indices)}<br><br>"
 
         # Calculate indices
         self.indices = []
@@ -262,10 +263,10 @@ class SelectionTab(QWidget):
             txt += f"<b>Indices ({len(self.indices)}):</b> {self.indices}<br><br>"
 
         self.selection_label.setText(txt)
-        self.summary_group.setTitle("Selection Summary (saved)")
+        self.summary_group.setTitle(self.general_dict["Selection Summary"])
 
     def reset_selection(self):
         self.clear_region_selection()
         self.clear_sector_selection()
-        self.selection_label.setText("No selection made")
-        self.summary_group.setTitle("Selection Summary")
+        self.selection_label.setText(self.general_dict["No selection made"])
+        self.summary_group.setTitle(self.general_dict["Selection Summary"])

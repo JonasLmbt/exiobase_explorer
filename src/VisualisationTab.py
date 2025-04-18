@@ -23,7 +23,8 @@ class VisualisationTab(QWidget):
     def __init__(self, database, ui, parent=None):
         super().__init__(parent)
         self.ui = ui
-        self.database = database  # Sicherstellen, dass self.database gesetzt ist
+        self.database = database  
+        self.general_dict = self.database.Index.general_dict
         self._init_ui()  # UI wird nach der Initialisierung des Attributs aufgerufen
 
     def _init_ui(self):
@@ -33,9 +34,9 @@ class VisualisationTab(QWidget):
         self.inner_tab_widget = QTabWidget()
 
         # Add tabs to inner QTabWidget using new classes
-        self.inner_tab_widget.addTab(TableTab(self.database, ui=self.ui), "Table")
-        self.inner_tab_widget.addTab(WorldMapTab(), "World Map")
-        self.inner_tab_widget.addTab(BarChartTab(), "Bar Chart")
+        self.inner_tab_widget.addTab(TableTab(self.database, ui=self.ui), self.general_dict["Supply Chain Analysis"])
+        self.inner_tab_widget.addTab(WorldMapTab(), self.general_dict["World Map"])
+        self.inner_tab_widget.addTab(BarChartTab(), self.general_dict["Total"])
 
         layout.addWidget(self.inner_tab_widget)
     
@@ -45,28 +46,28 @@ class VisualisationTab(QWidget):
 class TableTab(QWidget):
     def __init__(self, database, ui, parent=None):
         super().__init__(parent)
-
         self.ui = ui
         self.database = database
+        self.general_dict = self.database.Index.general_dict
         self.impact_hierarchy = multiindex_to_nested_dict(database.Index.impact_multiindex)
         
         # Set the default values for impacts (Dummy data as standard)
         self.saved_defaults = {
-            "Treibhausgasemissionen": True, 
-            "Wasserverbrauch": True, 
-            "Landnutzung": True, 
-            "Wertschöpfung": True, 
-            "Arbeitszeit": True
+            self.database.impacts[3]: True, # Treibhausgasemissionen
+            self.database.impacts[32]: True, # Wasserverbrauch
+            self.database.impacts[125]: True, # Landnutzung
+            self.database.impacts[0]: True, # Wertschöpfung
+            self.database.impacts[2]: True # Arbeitszeit
         }
         self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
         
         layout = QVBoxLayout(self)
 
-        impact_group = QGroupBox("Select Impacts")
+        impact_group = QGroupBox(self.general_dict["Select Impacts"])
         impact_layout = QVBoxLayout(impact_group)
 
-        self.impact_button = QPushButton("Select Impacts")
-        self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
+        self.impact_button = QPushButton(self.general_dict["Select Impacts"])
+        self.impact_button.setText(f"{self.general_dict['Selected']} ({sum(self.saved_defaults.values())})")
         self.impact_button.clicked.connect(self.select_impacts)
         impact_layout.addWidget(self.impact_button)
 
@@ -77,7 +78,7 @@ class TableTab(QWidget):
         self.plot_area = QVBoxLayout()
         layout.addLayout(self.plot_area)
 
-        self.plot_button = QPushButton("Update Plot")
+        self.plot_button = QPushButton(self.general_dict["Update Plot"])
         self.plot_button.clicked.connect(self.update_plot)
         layout.addWidget(self.plot_button)
 
@@ -109,11 +110,11 @@ class TableTab(QWidget):
         current_selection = self.saved_defaults.copy()
         previous_defaults = self.saved_defaults.copy()
         dialog = QDialog(self)
-        dialog.setWindowTitle("Select Impacts")
+        dialog.setWindowTitle(self.general_dict["Select Impacts"])
         dialog.setMinimumSize(350, 300)
         layout = QVBoxLayout(dialog)
 
-        layout.addWidget(QLabel("Select Impacts:"))
+        layout.addWidget(QLabel(f"{self.general_dict['Select Impacts']}:"))
 
         def add_tree_items(parent, data, level=0):
             for key, val in data.items():
@@ -166,20 +167,20 @@ class TableTab(QWidget):
 
             self.saved_defaults = new_defaults
             self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
-            self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
+            self.impact_button.setText(f"{self.general_dict['Selected']} ({sum(self.saved_defaults.values())})")
             self.update_plot()  # Update plot after confirming selection
             dialog.accept()
 
         def reset_to_defaults():
             self.saved_defaults = {
-                "Treibhausgasemissionen": True, 
-                "Wasserverbrauch": True, 
-                "Landnutzung": True, 
-                "Wertschöpfung": True, 
-                "Arbeitszeit": True
+                self.database.impacts[3]: True, 
+                self.database.impacts[32]: True, 
+                self.database.impacts[125]: True, 
+                self.database.impacts[0]: True, 
+                self.database.impacts[2]: True
             }
             self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
-            self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
+            self.impact_button.setText(f"{self.general_dict['Selected']} ({sum(self.saved_defaults.values())})")
             self.update_plot()  # Update plot after resetting defaults
             dialog.accept()
 
@@ -188,7 +189,7 @@ class TableTab(QWidget):
 
         button_layout = QHBoxLayout()
 
-        reset_button = QPushButton("Reset to Defaults")
+        reset_button = QPushButton(self.general_dict["Reset to Defaults"])
         reset_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         reset_button.clicked.connect(reset_to_defaults)
         button_layout.addWidget(reset_button)
