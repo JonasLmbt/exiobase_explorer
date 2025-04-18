@@ -1,7 +1,7 @@
 from src.IOSystem import IOSystem
 from src.SupplyChain import SupplyChain
 
-database = IOSystem(year=2022, language="german").load()
+database = IOSystem(year=2022, language="Deutsch").load()
 
 supplychain = SupplyChain(database=database, select=True)
 print(supplychain)

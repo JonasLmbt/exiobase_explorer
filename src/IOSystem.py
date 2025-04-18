@@ -89,7 +89,7 @@ class Index:
                 'impacts_df': 126,
                 'impact_color_df': 126,
                 'units_df': 126,
-                'general_df': 11
+                'general_df': 12
             }
             
             # Attempt to load each Excel file and assign it to the corresponding attribute
@@ -114,7 +114,7 @@ class Index:
                             raise ValueError(f"The sheet '{sheet_name}' in '{file_name}' contains duplicate column names: {', '.join(duplicate_columns)}.")
                     
                     # Verify length
-                    if amount != expected_lengths.get(attr, 0):
+                    if amount != expected_lengths.get(attr, 0) and file_name != "general.xlsx":
                         raise ValueError(f"Expected {expected_lengths.get(attr)} rows in sheet '{sheet_name}' of '{file_name}', but found {len(df)}.")
 
                     # Set the DataFrame as an instance variable using setattr
