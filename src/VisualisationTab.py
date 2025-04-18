@@ -162,11 +162,11 @@ class TableTab(QWidget):
 
         def reset_to_defaults():
             self.saved_defaults = {
-                "Wertschöpfung": True,
-                "Beschäftigung": True,
-                "Arbeitszeit": True,
-                "Treibhausgasemissionen": True,
-                "Humantoxizität": True
+                "Treibhausgasemissionen": True, 
+                "Wasserverbrauch": True, 
+                "Landnutzung": True, 
+                "Wertschöpfung": True, 
+                "Arbeitszeit": True
             }
             self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
             self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
