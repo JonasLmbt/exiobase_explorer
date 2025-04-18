@@ -55,5 +55,3 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = UserInterface()
     sys.exit(app.exec_())
-
-# Test
