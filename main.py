@@ -16,6 +16,7 @@ class UserInterface(QMainWindow):
         self.database = IOSystem(year=2022, language="Deutsch").load()
         self.database.Index.copy_configs()
         self.general_dict = self.database.Index.general_dict
+        print(self.general_dict)
         self.supplychain = SupplyChain(database=self.database)
         self.init_ui()
 
@@ -41,7 +42,7 @@ class UserInterface(QMainWindow):
         self.tabs.addTab(self.selection_tab, self.general_dict["Selection"])
         self.tabs.addTab(self.visualisation_tab, self.general_dict["Visualisation"])
         self.tabs.addTab(self.settings_tab, self.general_dict["Settings"])
-    
+
         layout.addWidget(self.tabs)
         self._create_menu_bar()
         self.show()
