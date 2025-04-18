@@ -7,24 +7,17 @@ from src.SelectionTab import SelectionTab
 from src.SettingsTab import SettingsTab
 from src.VisualisationTab import VisualisationTab
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+
 
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QGroupBox, QLabel, QComboBox, QPushButton, QSplitter, QTreeWidget,
-    QTreeWidgetItem, QScrollArea, QTextEdit
+    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
 )
-from PyQt5.QtCore import Qt
 
 
 class UserInterface(QMainWindow):
     def __init__(self):
         super().__init__()
-        # load database without logging UI
-        self.database = IOSystem(year=2022, language="german").load()
+        self.database = IOSystem(year=2022, language="Deutsch").load()
         self.init_ui()
 
     def init_ui(self):
@@ -35,20 +28,44 @@ class UserInterface(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setContentsMargins(20,20,20,20)
         layout.setSpacing(20)
-        self.tab_widget = QTabWidget(self)
+
         # Add tabs as separate objects
         self.selection_tab = SelectionTab(self.database)
-        self.settings_tab = SettingsTab()
-        self.visualisation_tab = VisualisationTab()
-        self.tab_widget.addTab(self.selection_tab, "Selection")
-        self.tab_widget.addTab(self.settings_tab, "Settings")
-        self.tab_widget.addTab(self.visualisation_tab, "Visualisation")
-        layout.addWidget(self.tab_widget)
+        self.visualisation_tab = VisualisationTab(self.database)
+        self.settings_tab = SettingsTab(self.database)
+
+        # Show tabs
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.selection_tab, "Selection")
+        self.tabs.addTab(self.visualisation_tab, "Visualisation")
+        self.tabs.addTab(self.settings_tab, "Settings")
+
+        # Connects tabs
+        self.settings_tab.set_parent_ui(self)
+        self.selection_tab.set_parent_ui(self)
+
+        layout.addWidget(self.tabs)
         self._create_menu_bar()
         self.show()
 
     def _create_menu_bar(self):
         self.menuBar()
+    
+    def reload_selection_tab(self):
+        logging.info("SelectionTab wird neu erstellt...")
+        # Entferne alten Tab (Index kann sich ändern, evtl. dynamisch abfragen!)
+        self.tabs.removeTab(0)
+        # Erstelle neuen SelectionTab
+        self.selection_tab = SelectionTab(self.database)
+        self.tabs.insertTab(0, self.selection_tab, "Selection")
+
+    def reload_visualisation_tab(self):
+        logging.info("VisualisationTab wird neu erstellt...")
+        # Entferne alten Tab (Index kann sich ändern, evtl. dynamisch abfragen!)
+        self.tabs.removeTab(1)
+        # Erstelle neuen SelectionTab
+        self.visualisation_tab = SelectionTab(self.database)
+        self.tabs.insertTab(1, self.visualisation_tab, "Selection")
 
 
 if __name__ == "__main__":

@@ -1,9 +1,10 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from PyQt5.QtWidgets import QSizePolicy
 
 from PyQt5.QtWidgets import (
-    QTabWidget, QWidget, QVBoxLayout, 
+    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QPushButton, 
     QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog
 )
@@ -52,6 +53,7 @@ class TableTab(QWidget):
             "Treibhausgasemissionen": True,
             "Humantoxizität": True
         }
+        self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
         
         layout = QVBoxLayout(self)
 
@@ -59,6 +61,7 @@ class TableTab(QWidget):
         impact_layout = QVBoxLayout(impact_group)
 
         self.impact_button = QPushButton("Select Impacts")
+        self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
         self.impact_button.clicked.connect(self.select_impacts)
         impact_layout.addWidget(self.impact_button)
 
@@ -73,6 +76,7 @@ class TableTab(QWidget):
         layout.addWidget(canvas)
 
     def select_impacts(self):
+        current_selection = self.saved_defaults.copy()
         previous_defaults = self.saved_defaults.copy()
         dialog = QDialog(self)
         dialog.setWindowTitle("Select Impacts")
@@ -87,7 +91,8 @@ class TableTab(QWidget):
                 item.setText(0, key)
                 item.setData(0, Qt.UserRole, level)
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-                item.setCheckState(0, Qt.Unchecked)
+                check_state = Qt.Checked if self.saved_defaults.get(key, False) else Qt.Unchecked
+                item.setCheckState(0, check_state)
                 if isinstance(val, dict) and val:
                     add_tree_items(item, val, level + 1)
                 elif isinstance(val, list):
@@ -99,14 +104,13 @@ class TableTab(QWidget):
                         impact_item.setCheckState(0, check_state)
 
         self.impact_tree = QTreeWidget()
-        self.impact_tree.setHeaderHidden(True)  # No header
-        add_tree_items(self.impact_tree, self.impact_hierarchy)
+        self.impact_tree.setHeaderHidden(True)
         self.impact_tree.setSelectionMode(QTreeWidget.NoSelection)
+        add_tree_items(self.impact_tree, self.impact_hierarchy)
 
         layout.addWidget(self.impact_tree)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        layout.addWidget(buttons)
 
         def get_all_children(parent):
             return [parent.child(i) for i in range(parent.childCount())]
@@ -120,13 +124,19 @@ class TableTab(QWidget):
             return items
 
         def confirm():
-            # Store the state of the checkboxes when Ok is pressed
-            self.saved_defaults = {
-                item.text(0): item.checkState(0) == Qt.Checked
-                for i in range(self.impact_tree.topLevelItemCount())
-                for item in get_all_items_recursively(self.impact_tree.topLevelItem(i))
-                if item.flags() & Qt.ItemIsUserCheckable
-            }
+            new_defaults = {}
+            def collect_items_recursively(item):
+                if item.flags() & Qt.ItemIsUserCheckable:
+                    new_defaults[item.text(0)] = item.checkState(0) == Qt.Checked
+                for i in range(item.childCount()):
+                    collect_items_recursively(item.child(i))
+
+            for i in range(self.impact_tree.topLevelItemCount()):
+                collect_items_recursively(self.impact_tree.topLevelItem(i))
+
+            self.saved_defaults = new_defaults
+            self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
+            self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
             dialog.accept()
 
         def reset_to_defaults():
@@ -137,15 +147,24 @@ class TableTab(QWidget):
                 "Treibhausgasemissionen": True,
                 "Humantoxizität": True
             }
-            dialog.close()
-            self.select_impacts()
+            self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
+            self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
+            dialog.accept()
 
         buttons.accepted.connect(confirm)
         buttons.rejected.connect(dialog.reject)
 
+        button_layout = QHBoxLayout()
+
         reset_button = QPushButton("Reset to Defaults")
+        reset_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         reset_button.clicked.connect(reset_to_defaults)
-        layout.addWidget(reset_button)
+        button_layout.addWidget(reset_button)
+
+        button_layout.addStretch()
+        button_layout.addWidget(buttons)
+
+        layout.addLayout(button_layout)
 
         dialog.exec_()
 

@@ -2,7 +2,7 @@ import logging
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QGroupBox, QLabel, QComboBox, 
+    QGroupBox, QLabel, QComboBox, QCheckBox,
     QTextEdit
 )
 
@@ -21,22 +21,27 @@ class QTextEditLogger(logging.Handler):
         self.widget.append(msg)
 
 class SettingsTab(QWidget):
-    def __init__(self):
+    def __init__(self, database):
+        self.database = database
         super().__init__()
         # set up logger
         self.log_handler = QTextEditLogger()
         logging.getLogger().addHandler(self.log_handler)
         logging.getLogger().setLevel(logging.INFO)
-        self.current_language = "English"
-        self.current_year = "2021"
+        self.get_languages()
+        self.get_years()
         self.init_ui()
 
+    def set_parent_ui(self, ui):
+        self.ui = ui
+
     def get_languages(self):
-        self.current_language = "exiobase"
-        pass
+        self.current_language = self.database.language
+        self.languages = self.database.Index.languages
 
     def get_years(self):
-        pass
+        self.current_year = str(self.database.year)
+        self.years = ["2022", "2021", "2020", "2019"]
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -47,14 +52,28 @@ class SettingsTab(QWidget):
         general_group = QGroupBox("General Settings")
         v = QVBoxLayout(general_group)
         h = QHBoxLayout()
+
+        # Language
         self.language_combo = QComboBox()
-        self.language_combo.addItems(["English", "Deutsch", "Français", "Español"])
-        self.year_combo = QComboBox()
-        self.year_combo.addItems(["2021", "2022", "2023", "2024"])
+        self.language_combo.addItems(self.languages)
+        self.language_combo.setCurrentText(self.current_language)
         h.addWidget(QLabel("Language:"))
         h.addWidget(self.language_combo)
+        
+        
+        # Year
+        self.year_combo = QComboBox()
+        self.year_combo.addItems(self.years)
+        self.year_combo.setCurrentText(self.current_year)
         h.addWidget(QLabel("Year:"))
         h.addWidget(self.year_combo)
+
+        # Show Indices
+        self.show_indices_checkbox = QCheckBox("Show Indices")
+        self.show_indices_checkbox.setChecked(True)  # Set to False later
+        h.addWidget(self.show_indices_checkbox)
+
+        # Console
         v.addLayout(h)
         v.addWidget(self.log_handler.widget)
 
@@ -67,8 +86,14 @@ class SettingsTab(QWidget):
 
     def on_language_changed(self, text):
         self.current_language = text
-        print(f"Language changed to {text}")
+        self.database.switch_language(self.current_language)
+        self.ui.reload_selection_tab()
 
     def on_year_changed(self, text):
         self.current_year = text
-        print(f"Year changed to {text}")
+        self.database.switch_year(int(self.current_year))
+        self.database.load()
+        self.ui.reload_selection_tab()
+
+    def is_show_indices_active(self):
+        return self.show_indices_checkbox.isChecked()
