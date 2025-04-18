@@ -59,6 +59,14 @@ class UserInterface(QMainWindow):
         self.selection_tab = SelectionTab(self.database)
         self.tabs.insertTab(0, self.selection_tab, "Selection")
 
+    def reload_visualisation_tab(self):
+        logging.info("VisualisationTab wird neu erstellt...")
+        # Entferne alten Tab (Index kann sich ändern, evtl. dynamisch abfragen!)
+        self.tabs.removeTab(1)
+        # Erstelle neuen SelectionTab
+        self.visualisation_tab = SelectionTab(self.database)
+        self.tabs.insertTab(1, self.visualisation_tab, "Selection")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
