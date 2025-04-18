@@ -48,11 +48,11 @@ class TableTab(QWidget):
         
         # Set the default values for impacts (Dummy data as standard)
         self.saved_defaults = {
-            "Wertschöpfung": True,
-            "Beschäftigung": True,
-            "Arbeitszeit": True,
-            "Treibhausgasemissionen": True,
-            "Humantoxizität": True
+            "Treibhausgasemissionen": True, 
+            "Wasserverbrauch": True, 
+            "Landnutzung": True, 
+            "Wertschöpfung": True, 
+            "Arbeitszeit": True
         }
         self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
         
@@ -73,7 +73,7 @@ class TableTab(QWidget):
         self.plot_area = QVBoxLayout()
         layout.addLayout(self.plot_area)
 
-        self.plot_button = QPushButton("Plot aktualisieren")
+        self.plot_button = QPushButton("Update Plot")
         self.plot_button.clicked.connect(self.update_plot)
         layout.addWidget(self.plot_button)
 
@@ -89,7 +89,7 @@ class TableTab(QWidget):
 
         # Verwende die Funktion plot_supply_chain aus SupplyChain direkt
         supply_chain = SupplyChain(self.database)
-        fig = supply_chain.plot_supply_chain(self.selected_impacts, size=1, lines=True, line_width=1, line_color="gray", text_position="center")
+        fig = supply_chain.plot_supply_chain(self.selected_impacts, plotting=False, size=1, lines=True, line_width=1, line_color="gray", text_position="center")
         self.canvas = FigureCanvas(fig)
         self.plot_area.addWidget(self.canvas)
         self.canvas.draw()  # Stellt sicher, dass der Canvas aktualisiert wird
