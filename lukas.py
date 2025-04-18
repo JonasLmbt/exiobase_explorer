@@ -29,7 +29,7 @@ class UserInterface(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle("Exiobase Explorer")
-        self.resize(800,450)
+        self.resize(800,600)
         central = QWidget(self)
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
@@ -41,8 +41,8 @@ class UserInterface(QMainWindow):
         self.settings_tab = SettingsTab()
         self.visualisation_tab = VisualisationTab()
         self.tab_widget.addTab(self.selection_tab, "Selection")
-        self.tab_widget.addTab(self.settings_tab, "Settings")
         self.tab_widget.addTab(self.visualisation_tab, "Visualisation")
+        self.tab_widget.addTab(self.settings_tab, "Settings")
         layout.addWidget(self.tab_widget)
         self._create_menu_bar()
         self.show()
