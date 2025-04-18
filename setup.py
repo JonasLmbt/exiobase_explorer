@@ -9,8 +9,3 @@ for filename in os.listdir(exiobase_dir):
     if match:
         dummy = IOSystem(year=int(match.group(1))).load()
         del dummy
-
-
-
-
-

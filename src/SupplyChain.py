@@ -287,15 +287,15 @@ class SupplyChain:
     
         return df
  
-    def plot_supply_chain(self, impacts, title=None, size=1, lines=True, line_width=1, line_color="gray", text_position="center"):
+    def plot_supply_chain(self, impacts, plotting=True, title=None, size=1, lines=True, line_width=1, line_color="gray", text_position="center"):
         """
         Visualizes the environmental impacts along a supply chain in a clear plot.
-    
+        
         This function creates a graphical representation of the environmental impacts at various stages of the supply chain 
         (e.g., resource extraction, production, direct suppliers, retail) for a range of environmental indicators (e.g., CO2 emissions, water use). 
         The relative environmental impacts are displayed as bubbles, with their size proportional to the respective share of the total impact.
         The plot allows for a quick visual analysis of the environmental impacts and provides a clear separation of the different supply chain stages.
-    
+        
         Parameters:
         - impacts: List of environmental impacts (e.g., CO2, water usage, etc.) to be plotted.
         - title: The title of the plot (default is "Supply Chain Analysis").
@@ -304,33 +304,35 @@ class SupplyChain:
         - line_width: The width of the lines separating the grid (default is 1).
         - line_color: The color of the grid lines (default is "gray").
         - text_position: The position of the text labels relative to the bubbles ("center", "top", or "bottom").
-    
+        
         Returns:
         - A plot displaying the environmental impacts in a supply chain, with bubbles sized according to the relative environmental impacts 
-          at each stage (resource extraction, production, direct suppliers, retail) for each environmental indicator.
+        at each stage (resource extraction, production, direct suppliers, retail) for each environmental indicator.
         """
-        LINE_WIDTH = line_width  
-        LINE_COLOR = line_color # "gray" by default
+        LINE_WIDTH = line_width  # Line width for grid lines
+        LINE_COLOR = line_color  # Color of the grid lines (default: gray)
+        
+        # Default title if none is provided
         title = title if title is not None else f'{self.database.Index.general_dict["Supply Chain Analysis"]} ' + self.get_title()
         
         # Get the relative environmental impact data as a DataFrame
         df_rel = self.calculate_all(impacts=impacts, relative=True, decimal_places=2)
-    
+
         # Column and row labels for the plot
         col_labels = [df_rel.columns[0], df_rel.columns[1], 
-                      df_rel.columns[2], df_rel.columns[3], df_rel.columns[4]]
+                    df_rel.columns[2], df_rel.columns[3], df_rel.columns[4]]
         row_labels = df_rel.index.tolist()  # Impact names (e.g., CO2, Water Usage)
-    
+
         # Create the figure and axis for the plot
         fig, ax = plt.subplots(figsize=(10, 6))
         fig.set_dpi(size * 100)
-    
+
         # Set the title of the plot
-        plt.title(title, fontsize=14, fontweight="bold", pad=20)
-    
+        ax.set_title(title, fontsize=14, fontweight="bold", pad=20)
+
         # Get the number of rows and columns for the grid
         n_rows, n_cols = len(row_labels), 5
-    
+
         # Set axis limits and labels
         ax.set_xlim(-0.5, n_cols - 0.5)
         ax.set_ylim(-0.5, n_rows - 0.5)
@@ -340,45 +342,49 @@ class SupplyChain:
         ax.set_yticklabels(row_labels, fontsize=10, fontweight="bold")
         ax.invert_yaxis()  # Invert y-axis so the first row is at the top
         ax.grid(False)
-    
+
         # Hide the spines (border lines)
         for spine in ax.spines.values():
             spine.set_visible(False)
-    
+
         # Bubble scale factor for visualizing relative impacts
         bubble_scale = 3000
-    
+
         # Draw the grid lines if 'lines' is True
         if lines:
             for i in range(n_rows + 1):  # Horizontal lines
                 ax.axhline(i - 0.5, color=LINE_COLOR, linewidth=LINE_WIDTH)
             for j in range(n_cols + 1):  # Vertical lines
                 ax.axvline(j - 0.5, color=LINE_COLOR, linewidth=LINE_WIDTH)
-    
+
             ax.axhline(n_rows - 0.5, color=LINE_COLOR, linewidth=LINE_WIDTH * 1.5)  # Bottom border line
             ax.axvline(n_cols - 0.5, color=LINE_COLOR, linewidth=LINE_WIDTH * 1.5)  # Right border line
-    
+
         # Plot the data for each row (impact)
         for i, impact_name in enumerate(row_labels):
             row_values = df_rel.loc[impact_name]
             color = df_rel.loc[impact_name, self.database.Index.general_dict["Color"]]
-    
+
             # Plot each stage of the supply chain (columns 0 to 3)
             for col in range(4):
                 val_rel = row_values.iloc[col]
                 size = val_rel * bubble_scale  # Size of the bubble based on relative impact
                 ax.scatter(col, i, s=size, color=color, alpha=0.7, edgecolors="black", linewidths=0.6)  # Scatter plot
                 ax.text(col, i, f"{val_rel * 100:.1f} %", va=text_position, ha="center", fontsize=9, color="black")  # Text inside bubbles
-    
+
             # Total impact (column 4)
             total_val = row_values[self.database.Index.general_dict["Total"]]
             einheit = row_values[self.database.Index.general_dict["Unit"]] if self.database.Index.general_dict["Unit"] in df_rel.columns else ""
             text_str = f"{total_val} \n {einheit}"
             ax.text(4, i, text_str, ha="center", va="center", fontsize=9, color="black", fontweight="bold")
-    
+
         # Adjust layout to avoid clipping and show the plot
-        plt.tight_layout()
-        plt.show()
+        fig.tight_layout()
+    
+        if plotting == True:
+            fig.show()
+        else:
+            return fig
 
     def plot_subcontractors(self, color="Blues", title=None, relative=True):
         
