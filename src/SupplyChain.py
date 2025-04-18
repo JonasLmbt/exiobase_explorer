@@ -287,7 +287,7 @@ class SupplyChain:
     
         return df
  
-    def plot_supply_chain(self, impacts, plotting=True, title=None, size=1, lines=True, line_width=1, line_color="gray", text_position="center"):
+    def plot_supply_chain(self, impacts, title=None, size=1, lines=True, line_width=1, line_color="gray", text_position="center"):
         """
         Visualizes the environmental impacts along a supply chain in a clear plot.
         
@@ -309,6 +309,13 @@ class SupplyChain:
         - A plot displaying the environmental impacts in a supply chain, with bubbles sized according to the relative environmental impacts 
         at each stage (resource extraction, production, direct suppliers, retail) for each environmental indicator.
         """
+
+        if not impacts:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.set_title("No impacts selected", fontsize=14, fontweight="bold", pad=20)
+            ax.axis('off')  # Deaktiviert die Achsen für einen leeren Plot
+            return fig
+
         LINE_WIDTH = line_width  # Line width for grid lines
         LINE_COLOR = line_color  # Color of the grid lines (default: gray)
         
@@ -380,11 +387,7 @@ class SupplyChain:
 
         # Adjust layout to avoid clipping and show the plot
         fig.tight_layout()
-    
-        if plotting == True:
-            fig.show()
-        else:
-            return fig
+        return fig
 
     def plot_subcontractors(self, color="Blues", title=None, relative=True):
         
@@ -466,19 +469,23 @@ class SupplyChain:
         :return: A string title that reflects the provided hierarchy levels.
         """    
         # Erstellen des Titels basierend auf den angegebenen Hierarchieebenen
-        title_parts = []
+        return "Title"
+        if self.hierarchy_levels:
+            title_parts = []
+
+            # Iteriere über alle möglichen Hierarchieebenen, die in der Index-Klassifikation definiert sind
+            for level in self.hierarchy_levels:
+                value = self.hierarchy_levels[level]
+                
+                # Falls der Wert nicht None ist, füge ihn dem Titel hinzu
+                if value is not None:
+                    title_parts.append(f"{level}: {value}")
         
-        # Iteriere über alle möglichen Hierarchieebenen, die in der Index-Klassifikation definiert sind
-        for level in self.hierarchy_levels:
-            value = self.hierarchy_levels[level]
-            
-            # Falls der Wert nicht None ist, füge ihn dem Titel hinzu
-            if value is not None:
-                title_parts.append(f"{level}: {value}")
-    
-        # Falls keine Teile im Titel sind, gib eine Standardeinstellung zurück
-        if not title_parts:
-            return f'{self.database.Index.general_dict["of"]} {self.database.Index.general_dict["World"]}'
-    
-        # Rückgabe des zusammengefügten Titels
-        return f'{self.database.Index.general_dict["of"]} ' + " | ".join(title_parts)
+            # Falls keine Teile im Titel sind, gib eine Standardeinstellung zurück
+            if not title_parts:
+                return f'{self.database.Index.general_dict["of"]} {self.database.Index.general_dict["World"]}'
+        
+            # Rückgabe des zusammengefügten Titels
+            return f'{self.database.Index.general_dict["of"]} ' + " | ".join(title_parts)
+        else:
+            return "Title"

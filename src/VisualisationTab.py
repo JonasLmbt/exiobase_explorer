@@ -20,8 +20,9 @@ def multiindex_to_nested_dict(multiindex: pd.MultiIndex) -> dict:
     return root
 
 class VisualisationTab(QWidget):
-    def __init__(self, database, parent=None):
+    def __init__(self, database, ui, parent=None):
         super().__init__(parent)
+        self.ui = ui
         self.database = database  # Sicherstellen, dass self.database gesetzt ist
         self._init_ui()  # UI wird nach der Initialisierung des Attributs aufgerufen
 
@@ -32,27 +33,26 @@ class VisualisationTab(QWidget):
         self.inner_tab_widget = QTabWidget()
 
         # Add tabs to inner QTabWidget using new classes
-        self.inner_tab_widget.addTab(TableTab(self.database), "Table")
+        self.inner_tab_widget.addTab(TableTab(self.database, ui=self.ui), "Table")
         self.inner_tab_widget.addTab(WorldMapTab(), "World Map")
         self.inner_tab_widget.addTab(BarChartTab(), "Bar Chart")
 
         layout.addWidget(self.inner_tab_widget)
+    
+
 
 
 class TableTab(QWidget):
-    def __init__(self, database, parent=None):
+    def __init__(self, database, ui, parent=None):
         super().__init__(parent)
 
+        self.ui = ui
         self.database = database
         self.impact_hierarchy = multiindex_to_nested_dict(database.Index.impact_multiindex)
         
         # Set the default values for impacts (Dummy data as standard)
         self.saved_defaults = {
             "Wertschöpfung": True,
-            "Beschäftigung": True,
-            "Arbeitszeit": True,
-            "Treibhausgasemissionen": True,
-            "Humantoxizität": True
         }
         self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
         
@@ -81,18 +81,24 @@ class TableTab(QWidget):
 
         self.setLayout(layout)
 
+    def set_parent_ui(self, ui):
+        """Set the parent UI (for refreshing other tabs)."""
+        self.ui = ui
+
     def update_plot(self):
         if self.canvas:
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
             self.canvas.deleteLater()  # Entfernt den alten Canvas vollständig
 
-        # Verwende die Funktion plot_supply_chain aus SupplyChain direkt
-        supply_chain = SupplyChain(self.database)
-        fig = supply_chain.plot_supply_chain(self.selected_impacts, size=1, lines=True, line_width=1, line_color="gray", text_position="center")
+        if self.ui.selection_tab.indices == []:
+            self.ui.selection_tab.indices = [index for index in range(9800)]
+
+        supplychain = SupplyChain(self.database, indices=self.ui.selection_tab.indices)
+        fig = supplychain.plot_supply_chain(self.selected_impacts, size=1, lines=True, line_width=1, line_color="gray", text_position="center")
         self.canvas = FigureCanvas(fig)
         self.plot_area.addWidget(self.canvas)
-        self.canvas.draw()  # Stellt sicher, dass der Canvas aktualisiert wird
+        self.canvas.draw()  
 
 
     def select_impacts(self):
@@ -165,8 +171,7 @@ class TableTab(QWidget):
                 "Wertschöpfung": True,
                 "Beschäftigung": True,
                 "Arbeitszeit": True,
-                "Treibhausgasemissionen": True,
-                "Humantoxizität": True
+                "Treibhausgasemissionen": True
             }
             self.selected_impacts = [k for k, v in self.saved_defaults.items() if v]
             self.impact_button.setText(f"Selected ({sum(self.saved_defaults.values())})")
