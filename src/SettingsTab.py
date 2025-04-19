@@ -50,59 +50,6 @@ class SettingsTab(QWidget):
     SettingsTab widget for displaying and adjusting application settings.
     This widget handles logging setup, fetching languages, years, and UI initialization.
     """
-
-    DARKMODE_STYLE = """
-        QWidget {
-            background-color: #2b2b2b;
-            color: #f0f0f0;
-        }
-
-        QTextEdit, QComboBox, QCheckBox {
-            background-color: #3c3f41;
-            color: #f0f0f0;
-            border: 1px solid #555;
-        }
-
-        QPushButton {
-            background-color: #555;
-            color: #fff;
-            border: 1px solid #777;
-            padding: 5px;
-        }
-        QPushButton:hover {
-            background-color: #666;
-        }
-
-        QTabWidget::pane {
-            border: 1px solid #444;
-            background: #2b2b2b;
-        }
-        QTabBar::tab {
-            background: #3c3f41;
-            color: #f0f0f0;
-            padding: 5px;
-            border: 1px solid #555;
-            border-bottom: none;
-        }
-        QTabBar::tab:selected {
-            background: #2b2b2b;
-            border: 1px solid #777;
-            border-bottom: none;
-        }
-
-        QGroupBox {
-            border: 1px solid #555;
-            margin-top: 20px;
-        }
-        QGroupBox:title {
-            subcontrol-origin: margin;
-            subcontrol-position: top left;
-            padding: 0 3px;
-            background-color: #2b2b2b;
-            color: #f0f0f0;
-        }
-        """
-
     def __init__(self, database, ui):
         """
         Initializes the SettingsTab widget.
@@ -219,6 +166,9 @@ class SettingsTab(QWidget):
         self.language_combo.currentTextChanged.connect(self.on_language_changed)  # Signal for language change
         self.year_combo.currentTextChanged.connect(self.on_year_changed)  # Signal for year change
 
+        # Lightmode
+        self.on_darkmode_changed(Qt.Unchecked, output=False)
+
     def on_language_changed(self, text):
         """
         Handler method for changing the language.
@@ -258,6 +208,7 @@ class SettingsTab(QWidget):
 
         # Update the current year
         self.current_year = text
+        logging.info(f"Switching to year {self.current_year}...")
 
         # Switch year in the database and reload data for the selected year
         self.database.switch_year(int(self.current_year))
@@ -270,8 +221,14 @@ class SettingsTab(QWidget):
         """Returns whether 'Show Indices' checkbox is active."""
         return self.show_indices_checkbox.isChecked()
 
-    def on_darkmode_changed(self, state):
+    def on_darkmode_changed(self, state, output=True):
+        QApplication.setOverrideCursor(Qt.WaitCursor)
         if state == Qt.Checked:
-            QApplication.instance().setStyleSheet(self.DARKMODE_STYLE)
+            if output:
+                logging.info(f"Enabled Darkmode.")
+            QApplication.instance().setStyleSheet(self.ui.DARKMODE_STYLE)
         else:
-            QApplication.instance().setStyleSheet("")  
+            if output:
+                logging.info(f"Disabled Darkmode.")
+            QApplication.instance().setStyleSheet(self.ui.LIGHTMODE_STYLE)  
+        QApplication.restoreOverrideCursor()
