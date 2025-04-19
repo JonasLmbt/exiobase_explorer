@@ -1,4 +1,5 @@
 import sys
+import os
 
 from src.IOSystem import IOSystem
 from src.SupplyChain import SupplyChain
@@ -9,6 +10,8 @@ from src.VisualisationTab import VisualisationTab
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
 )
+from PyQt5.QtGui import QIcon
+
 
 class UserInterface(QMainWindow):
     """
@@ -50,6 +53,9 @@ class UserInterface(QMainWindow):
         # Set the window title.
         self.setWindowTitle("Exiobase Explorer")
         
+        # Add window logo
+        self.setWindowIcon(QIcon(os.path.normpath(os.path.join(os.path.dirname(__file__), 'data', 'exiobase logo.png'))))
+
         # Resize the main window.
         self.resize(800, 450)
         
