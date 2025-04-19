@@ -163,6 +163,16 @@ class SupplyChainAnalysis(QWidget):
         self.canvas = None
         self.plot_area = QVBoxLayout()
         layout.addLayout(self.plot_area)
+        
+        # Add dummy plot to display initial message
+        fig_dummy = plt.figure()
+        ax_dummy = fig_dummy.add_subplot(111)
+        ax_dummy.text(0.5, 0.5, self.general_dict["Please select sectors and regions first"],
+                      horizontalalignment='center', verticalalignment='center',
+                      transform=ax_dummy.transAxes)
+        ax_dummy.axis('off')
+        self.canvas = FigureCanvas(fig_dummy)
+        self.plot_area.addWidget(self.canvas)
 
         self.plot_button = QPushButton(self.general_dict["Update Plot"])
         self.plot_button.clicked.connect(self.update_plot)  # Connect the button to the update plot method.
