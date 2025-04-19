@@ -34,8 +34,8 @@ class UserInterface(QMainWindow):
         # Load the database using IOSystem, with specified year and language.
         self.database = IOSystem(year=2022, language="Deutsch").load()
         
-        # Copy the configurations from the database index.
-        self.database.Index.copy_configs()
+        # Update the configurations
+        self.database.Index.copy_configs(output=False)
         
         # Store the general dictionary from the database index.
         self.general_dict = self.database.Index.general_dict
