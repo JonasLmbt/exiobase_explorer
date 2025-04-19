@@ -50,6 +50,59 @@ class SettingsTab(QWidget):
     SettingsTab widget for displaying and adjusting application settings.
     This widget handles logging setup, fetching languages, years, and UI initialization.
     """
+
+    DARKMODE_STYLE = """
+        QWidget {
+            background-color: #2b2b2b;
+            color: #f0f0f0;
+        }
+
+        QTextEdit, QComboBox, QCheckBox {
+            background-color: #3c3f41;
+            color: #f0f0f0;
+            border: 1px solid #555;
+        }
+
+        QPushButton {
+            background-color: #555;
+            color: #fff;
+            border: 1px solid #777;
+            padding: 5px;
+        }
+        QPushButton:hover {
+            background-color: #666;
+        }
+
+        QTabWidget::pane {
+            border: 1px solid #444;
+            background: #2b2b2b;
+        }
+        QTabBar::tab {
+            background: #3c3f41;
+            color: #f0f0f0;
+            padding: 5px;
+            border: 1px solid #555;
+            border-bottom: none;
+        }
+        QTabBar::tab:selected {
+            background: #2b2b2b;
+            border: 1px solid #777;
+            border-bottom: none;
+        }
+
+        QGroupBox {
+            border: 1px solid #555;
+            margin-top: 20px;
+        }
+        QGroupBox:title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0 3px;
+            background-color: #2b2b2b;
+            color: #f0f0f0;
+        }
+        """
+
     def __init__(self, database, ui):
         """
         Initializes the SettingsTab widget.
@@ -144,15 +197,20 @@ class SettingsTab(QWidget):
         self.layout.addWidget(self.lang_year_group)
 
         # Indices Options Group with a simple label
-        self.indices_group = QGroupBox(self.general_dict["Options"])
-        self.indices_layout = QHBoxLayout(self.indices_group)
-        self.indices_layout.setContentsMargins(10, 10, 10, 10)
+        self.options_group = QGroupBox(self.general_dict["Options"])
+        self.options_layout = QHBoxLayout(self.options_group)
+        self.options_layout.setContentsMargins(10, 10, 10, 10)
 
         self.show_indices_checkbox = QCheckBox(self.general_dict["Show Indices"])
         self.show_indices_checkbox.setChecked(True)
-        self.indices_layout.addWidget(self.show_indices_checkbox)
+        self.options_layout.addWidget(self.show_indices_checkbox)
 
-        self.layout.addWidget(self.indices_group)
+        self.darkmode_checkbox = QCheckBox("Darkmode")
+        self.darkmode_checkbox.setChecked(False)  
+        self.darkmode_checkbox.stateChanged.connect(self.on_darkmode_changed)
+        self.options_layout.addWidget(self.darkmode_checkbox)
+
+        self.layout.addWidget(self.options_group)
 
         # Console Output Section (log handler widget)
         self.layout.addWidget(self.log_handler.widget)
@@ -184,7 +242,7 @@ class SettingsTab(QWidget):
         self.language_label.setText(f"{self.general_dict['Language']}:")
         self.year_label.setText(f"{self.general_dict['Year']}:")
 
-        self.indices_group.setTitle(self.general_dict["Options"])
+        self.options_group.setTitle(self.general_dict["Options"])
         self.show_indices_checkbox.setText(self.general_dict["Show Indices"])
 
         self.ui.tabs.setTabText(3, self.general_dict["Settings"])
@@ -211,3 +269,9 @@ class SettingsTab(QWidget):
     def is_show_indices_active(self):
         """Returns whether 'Show Indices' checkbox is active."""
         return self.show_indices_checkbox.isChecked()
+
+    def on_darkmode_changed(self, state):
+        if state == Qt.Checked:
+            QApplication.instance().setStyleSheet(self.DARKMODE_STYLE)
+        else:
+            QApplication.instance().setStyleSheet("")  
