@@ -12,17 +12,19 @@ class SupplyChain:
         self.database = database
         self.language = self.database.language
         self.regional = False
+        self.inputByIndices = False
 
         if indices is not None:
             self.indices = indices
+            self.inputByIndices = True
             
         else:         
-            if select:
+            if select == True:
                 kwargs = {**self.get_multiindex_selection(self.database.Index.region_multiindex), **self.get_multiindex_selection(self.database.Index.sector_multiindex_per_region)}
 
             # Hierarchieliste für gesetzte Werte
             self.hierarchy_levels = {}
-        
+
             # Set attributes dynamically for region and sector classification
             for attr in self.database.Index.region_classification + self.database.Index.sector_classification:
                 value = kwargs.get(attr, None)
@@ -130,7 +132,10 @@ class SupplyChain:
         Returns a string representation of the SupplyChain object, useful for debugging or displaying in the program.    
         This representation is especially helpful when inspecting objects during debugging.
         """
-        return f"SupplyChain(Number of Indices: {len(self.indices)}, Hierarchy levels: {self.hierarchy_levels})"
+        if self.inputByIndices:
+            return f"SupplyChain(Number of Indices: {len(self.indices)}, input was given by indices)"
+        else:
+            return f"SupplyChain(Number of Indices: {len(self.indices)}, Hierarchy levels: {self.hierarchy_levels})"
 
     def transform_unit(self, value, impact):
         """
@@ -227,7 +232,7 @@ class SupplyChain:
         else:
             return self.transform_unit(value=self.database.Impact.retail_regional.loc[impact].iloc[:, self.indices].sum().sum().item(), impact=impact)
 
-    def calculate_all(self, impacts, relative=True, decimal_places=2):
+    def calculate_all(self, impacts, relative=True, decimal_places=2, row_length=35):
         """
         Calculates the environmental impacts across the supply chain and returns the results as a DataFrame.
     
@@ -281,7 +286,49 @@ class SupplyChain:
             self.database.Index.general_dict["Unit"], 
             self.database.Index.general_dict["Color"]
         ]
-    
+
+        def wrap_text(text, max_length=row_length):
+            """
+            Wraps a string so that no line exceeds `max_length` characters.
+            Line breaks are inserted preferably at spaces; if a single word 
+            is longer than `max_length`, it will be split at the limit.
+
+            Parameters:
+                text (str): The input string to wrap.
+                max_length (int): The maximum number of characters per line.
+
+            Returns:
+                str: The wrapped string with line breaks (\n).
+            """
+            words = text.split()  # Split the text into words
+            result = ""
+            line = ""
+
+            for word in words:
+                # If adding the next word keeps the line within the limit
+                if len(line) + len(word) + (1 if line else 0) <= max_length:
+                    line += (" " if line else "") + word  # Add word with space if needed
+                else:
+                    result += line + "\n"  # Add completed line to result
+                    line = word  # Start new line with the current word
+
+            # Add the last line if it's not empty
+            if line:
+                result += line
+
+            # Post-processing: force breaks if any line is still too long (e.g., from long words)
+            final_result = ""
+            for line in result.split("\n"):
+                while len(line) > max_length:
+                    final_result += line[:max_length] + "\n"  # Hard wrap at max_length
+                    line = line[max_length:]
+                final_result += line + "\n"
+
+            return final_result.rstrip()  # Remove trailing newline
+
+
+        impacts = [wrap_text(impact) for impact in impacts]
+
         # Create the DataFrame from the collected data
         df = pd.DataFrame(data, index=impacts, columns=columns)
     
@@ -469,8 +516,10 @@ class SupplyChain:
         :return: A string title that reflects the provided hierarchy levels.
         """    
         # Erstellen des Titels basierend auf den angegebenen Hierarchieebenen
-        return "Title"
-        if self.hierarchy_levels:
+
+        if self.inputByIndices:
+            return f'{self.database.Index.general_dict["of a"]} {self.database.Index.general_dict["specific selection of sectors"]} ({self.database.year})'
+        else:
             title_parts = []
 
             # Iteriere über alle möglichen Hierarchieebenen, die in der Index-Klassifikation definiert sind
@@ -486,6 +535,4 @@ class SupplyChain:
                 return f'{self.database.Index.general_dict["of"]} {self.database.Index.general_dict["World"]}'
         
             # Rückgabe des zusammengefügten Titels
-            return f'{self.database.Index.general_dict["of"]} ' + " | ".join(title_parts)
-        else:
-            return "Title"
+            return f'{self.database.Index.general_dict["of"]} ' + " | ".join(title_parts) + f" ({self.database.year})"

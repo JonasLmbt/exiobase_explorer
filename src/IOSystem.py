@@ -208,7 +208,6 @@ class Index:
         #    [(imp[0], reg[0], reg[1]) for imp, reg in itertools.product(self.impact_multiindex, self.region_multiindex)],
         #    names=tuple(self.impact_multiindex.names)+tuple(self.region_multiindex.names))
 
-
     def update_multiindices(self):
         """
         Updates the MultiIndex structures for sector and impact matrices in the IOSystem. This method loads the
@@ -280,8 +279,9 @@ class Index:
         self.region_classification = self.regions_df.columns.tolist()
         self.impact_classification = self.impacts_df.columns.tolist()        
 
-    def copy_configs(self, new=False):
-        logging.info("Copying config files from /config to the fast load database...\n")
+    def copy_configs(self, new=False, output=True):
+        if output:
+            logging.info("Copying config files from /config to the fast load database...\n")
 
         config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "general.xlsx"]
         
@@ -294,12 +294,12 @@ class Index:
             if os.path.exists(source_file):
                 try:
                     shutil.copy(source_file, target_file)
-                    logging.info(f"File {file_name} has been successfully copied to {self.IOSystem.fast_db}.")
+                    if output:
+                        logging.info(f"File {file_name} has been successfully copied to {self.IOSystem.fast_db}.")
                 except Exception as e:
                     logging.error(f"Error copying {file_name}: {e}")
             else:
                 logging.error(f"Error: {file_name} not found in the folder {self.IOSystem.config}.")
-
 
     def write_configs(self, sheet_name):
         """
