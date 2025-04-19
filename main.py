@@ -39,7 +39,121 @@ class UserInterface(QMainWindow):
         
         # Store the general dictionary from the database index.
         self.general_dict = self.database.Index.general_dict
-        
+
+        # Darkmode Style
+        self.DARKMODE_STYLE = """
+            QWidget {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+            }
+
+            QTextEdit, QComboBox, QCheckBox {
+                background-color: #353535;
+                color: #e0e0e0;
+                border: 1px solid #555;
+                border-radius: 4px;
+            }
+
+            QPushButton {
+                background-color: #4a4a4a;
+                color: #fff;
+                border: 1px solid #666;
+                border-radius: 4px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #5a5a5a;
+            }
+
+            QTabWidget::pane {
+                border: none;
+                background: #2a2a2a;
+                border-radius: 6px;
+            }
+            QTabBar::tab {
+                background: #404040;
+                color: #e0e0e0;
+                padding: 10px 20px;
+                border-radius: 4px;
+            }
+            QTabBar::tab:selected {
+                background: #555555;
+                color: #fff;
+            }
+
+            QGroupBox {
+                border: 1px solid #666;
+                border-radius: 6px;
+                margin-top: 20px;
+                padding: 12px;
+            }
+            QGroupBox:title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 10px;
+                background-color: #404040;
+                color: #e0e0e0;
+                font-weight: bold;
+            }
+        """
+
+        # Lightmode Style
+        self.LIGHTMODE_STYLE = """
+            QWidget {
+                background-color: #fafafa;
+                color: #333;
+            }
+
+            QTextEdit, QComboBox, QCheckBox {
+                background-color: #ffffff;
+                color: #333;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+
+            QPushButton {
+                background-color: #f0f0f0;
+                color: #333;
+                border: 1px solid #bbb;
+                border-radius: 4px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+
+            QTabWidget::pane {
+                border: none;
+                background: #fafafa;
+                border-radius: 6px;
+            }
+            QTabBar::tab {
+                background: #ffffff;
+                color: #333;
+                padding: 10px 20px;
+                border-radius: 4px;
+            }
+            QTabBar::tab:selected {
+                background: #e0e0e0;
+                color: #333;
+            }
+
+            QGroupBox {
+                border: 1px solid #ccc;
+                border-radius: 6px;
+                margin-top: 20px;
+                padding: 12px;
+            }
+            QGroupBox:title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 10px;
+                background-color: #ffffff;
+                color: #333;
+                font-weight: bold;
+            }
+        """
+
         # Initialize the user interface.
         self.init_ui()
 
