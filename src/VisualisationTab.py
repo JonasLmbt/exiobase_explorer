@@ -20,7 +20,7 @@ def multiindex_to_nested_dict(multiindex: pd.MultiIndex) -> dict:
     return root
 
 class VisualisationTab(QWidget):
-    def __init__(self, database, ui, parent=None):
+    def __init__(self, database, ui=None, parent=None):
         super().__init__(parent)
         self.ui = ui
         self.database = database  
@@ -34,17 +34,16 @@ class VisualisationTab(QWidget):
         self.inner_tab_widget = QTabWidget()
 
         # Add tabs to inner QTabWidget using new classes
-        self.inner_tab_widget.addTab(TableTab(self.database, ui=self.ui), self.general_dict["Supply Chain Analysis"])
+        table_tab = TableTab(self.database, ui=self.ui)
+        self.inner_tab_widget.addTab(table_tab, self.general_dict["Supply Chain Analysis"])
         self.inner_tab_widget.addTab(WorldMapTab(), self.general_dict["World Map"])
         self.inner_tab_widget.addTab(BarChartTab(), self.general_dict["Total"])
 
         layout.addWidget(self.inner_tab_widget)
     
 
-
-
 class TableTab(QWidget):
-    def __init__(self, database, ui, parent=None):
+    def __init__(self, database, ui=None, parent=None):
         super().__init__(parent)
         self.ui = ui
         self.database = database
@@ -91,20 +90,23 @@ class TableTab(QWidget):
         self.ui = ui
 
     def update_plot(self):
+        # Remove existing canvas if it exists
         if self.canvas:
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
-            self.canvas.deleteLater()  # Entfernt den alten Canvas vollständig
+            self.canvas.deleteLater()  # Fully remove the old canvas
 
-        if self.ui.selection_tab.indices == []:
-            self.ui.selection_tab.indices = [index for index in range(9800)]
+        # Determine indices for plotting based on UI selection, or default range
+        if self.ui and hasattr(self.ui, "selection_tab") and hasattr(self.ui.selection_tab, "indices"):
+            indices = self.ui.selection_tab.indices or [index for index in range(9800)]
+        else:
+            indices = [index for index in range(9800)]
 
-        supplychain = SupplyChain(self.database, indices=self.ui.selection_tab.indices)
+        supplychain = SupplyChain(self.database, indices=indices)
         fig = supplychain.plot_supply_chain(self.selected_impacts, size=1, lines=True, line_width=1, line_color="gray", text_position="center")
         self.canvas = FigureCanvas(fig)
         self.plot_area.addWidget(self.canvas)
         self.canvas.draw()  
-
 
     def select_impacts(self):
         current_selection = self.saved_defaults.copy()
