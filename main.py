@@ -102,7 +102,7 @@ class UserInterface(QMainWindow):
         self.tabs.removeTab(0)
         
         # Create a new instance of the selection tab.
-        self.selection_tab = SelectionTab(self.database)
+        self.selection_tab = SelectionTab(self.database, self)
         
         # Re-insert the new selection tab at index 0.
         self.tabs.insertTab(0, self.selection_tab, self.general_dict["Selection"])
@@ -134,7 +134,7 @@ class UserInterface(QMainWindow):
         self.tabs.removeTab(2)
         
         # Create a new instance of the settings tab.
-        self.settings_tab = SettingsTab(self.database)
+        self.settings_tab = SettingsTab(self.database, self)
         
         # Re-insert the new settings tab at index 2.
         self.tabs.insertTab(2, self.settings_tab, self.general_dict["Settings"])
