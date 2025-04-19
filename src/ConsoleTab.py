@@ -1,7 +1,7 @@
 import sys
 import code
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel
+    QWidget, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel, QApplication
 )
 from PyQt5.QtCore import Qt, QEvent
 from PyQt5.QtGui import QTextCursor
@@ -104,8 +104,9 @@ class ConsoleTab(QWidget):
 
         Captures and redirects stdout/stderr to the output widget and handles multiline input.
         """
+        QApplication.setOverrideCursor(Qt.WaitCursor)
         code_string = self.input.toPlainText()  # Get code from input
-        self.output.append(f">>> {code_string}")  # Display input code in output
+        self.output.append(f">>> {code_string}\t")  # Display input code in output
         self.input.clear()  # Clear input field
 
         try:
@@ -128,6 +129,8 @@ class ConsoleTab(QWidget):
             # Restore original stdout and stderr
             sys.stdout = old_stdout
             sys.stderr = old_stderr
+            
+        QApplication.restoreOverrideCursor()
 
 
 class StreamCatcher:
