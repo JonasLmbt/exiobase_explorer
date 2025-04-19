@@ -187,7 +187,7 @@ class SettingsTab(QWidget):
         self.indices_group.setTitle(self.general_dict["Options"])
         self.show_indices_checkbox.setText(self.general_dict["Show Indices"])
 
-        self.ui.tabs.setTabText(2, self.general_dict["Settings"])
+        self.ui.tabs.setTabText(3, self.general_dict["Settings"])
 
     def on_year_changed(self, text):
         """

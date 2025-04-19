@@ -6,6 +6,7 @@ from src.SupplyChain import SupplyChain
 from src.SelectionTab import SelectionTab
 from src.SettingsTab import SettingsTab
 from src.VisualisationTab import VisualisationTab
+from src.ConsoleTab import ConsoleTab
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
@@ -74,11 +75,13 @@ class UserInterface(QMainWindow):
         self.selection_tab = SelectionTab(self.database, self)
         self.visualisation_tab = VisualisationTab(self.database, self)
         self.settings_tab = SettingsTab(self.database, self)
+        self.console_tab = ConsoleTab(context={"self": self}, ui=self)
 
         # Create a tab widget and add the tabs.
         self.tabs = QTabWidget()
         self.tabs.addTab(self.selection_tab, self.general_dict["Selection"])
         self.tabs.addTab(self.visualisation_tab, self.general_dict["Visualisation"])
+        self.tabs.addTab(self.console_tab, self.general_dict["Console"])
         self.tabs.addTab(self.settings_tab, self.general_dict["Settings"])
 
         # Add the tab widget to the layout.
@@ -129,21 +132,21 @@ class UserInterface(QMainWindow):
         # Re-insert the new visualisation tab at index 1.
         self.tabs.insertTab(1, self.visualisation_tab, self.general_dict["Visualisation"])
 
-    def reload_settings_tab(self):
+    def reload_console_tab(self):
         """
-        Reloads the settings tab by removing the existing tab and inserting a new one.
+        Reloads the console tab by removing the existing tab and inserting a new one.
         
-        This method removes the current settings tab at index 2, creates a new instance
-        of the `SettingsTab`, and re-inserts it at the same position in the tab widget.
+        This method removes the current console tab at index 2, creates a new instance
+        of the `ConsoleTab`, and re-inserts it at the same position in the tab widget.
         """
         # Remove the existing settings tab (index 2).
         self.tabs.removeTab(2)
         
         # Create a new instance of the settings tab.
-        self.settings_tab = SettingsTab(self.database, self)
+        self.console_tab = ConsoleTab(context={"self": self}, ui=self)
         
         # Re-insert the new settings tab at index 2.
-        self.tabs.insertTab(2, self.settings_tab, self.general_dict["Settings"])
+        self.tabs.insertTab(2, self.console_tab, self.general_dict["Console"])
 
     def reload_tabs(self):
         """
@@ -158,6 +161,7 @@ class UserInterface(QMainWindow):
         # Reload each tab.
         self.reload_selection_tab()
         self.reload_visualisation_tab()
+        self.reload_console_tab()
 
 
 if __name__ == "__main__":
