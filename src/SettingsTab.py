@@ -118,42 +118,44 @@ class SettingsTab(QWidget):
         This method sets up the layout, UI components, and connects necessary signals.
         """
         # Main vertical layout for the settings tab
-        layout = QVBoxLayout(self)
-        layout.setSpacing(20)  # Set spacing between widgets
-        layout.setContentsMargins(20, 20, 20, 20)  # Set margins around the layout
+        self.layout = QVBoxLayout(self)
+        self.layout.setSpacing(20)  # Set spacing between widgets
+        self.layout.setContentsMargins(20, 20, 20, 20)  # Set margins around the layout
 
         # Language and Year Group
-        lang_year_group = QGroupBox(self.general_dict["General Settings"])
-        lang_year_layout = QHBoxLayout(lang_year_group)
-        lang_year_layout.setContentsMargins(10, 10, 10, 10)
+        self.lang_year_group = QGroupBox(self.general_dict["General Settings"])
+        self.lang_year_layout = QHBoxLayout(self.lang_year_group)
+        self.lang_year_layout.setContentsMargins(10, 10, 10, 10)
 
         self.language_combo = QComboBox()
         self.language_combo.addItems(self.languages)
         self.language_combo.setCurrentText(self.current_language)
-        lang_year_layout.addWidget(QLabel(f"{self.general_dict['Language']}:"))
-        lang_year_layout.addWidget(self.language_combo)
+        self.language_label = QLabel(f"{self.general_dict['Language']}:")
+        self.lang_year_layout.addWidget(self.language_label)
+        self.lang_year_layout.addWidget(self.language_combo)
 
         self.year_combo = QComboBox()
         self.year_combo.addItems(self.years)
         self.year_combo.setCurrentText(self.current_year)
-        lang_year_layout.addWidget(QLabel(f"{self.general_dict['Year']}:"))
-        lang_year_layout.addWidget(self.year_combo)
+        self.year_label = QLabel(f"{self.general_dict['Year']}:")
+        self.lang_year_layout.addWidget(self.year_label)
+        self.lang_year_layout.addWidget(self.year_combo)
 
-        layout.addWidget(lang_year_group)
+        self.layout.addWidget(self.lang_year_group)
 
         # Indices Options Group with a simple label
-        indices_group = QGroupBox(self.general_dict["Options"])
-        indices_layout = QHBoxLayout(indices_group)
-        indices_layout.setContentsMargins(10, 10, 10, 10)
+        self.indices_group = QGroupBox(self.general_dict["Options"])
+        self.indices_layout = QHBoxLayout(self.indices_group)
+        self.indices_layout.setContentsMargins(10, 10, 10, 10)
 
         self.show_indices_checkbox = QCheckBox(self.general_dict["Show Indices"])
         self.show_indices_checkbox.setChecked(True)
-        indices_layout.addWidget(self.show_indices_checkbox)
+        self.indices_layout.addWidget(self.show_indices_checkbox)
 
-        layout.addWidget(indices_group)
+        self.layout.addWidget(self.indices_group)
 
         # Console Output Section (log handler widget)
-        layout.addWidget(self.log_handler.widget)
+        self.layout.addWidget(self.log_handler.widget)
 
         # Connect signals to handler methods
         self.language_combo.currentTextChanged.connect(self.on_language_changed)  # Signal for language change
@@ -176,6 +178,16 @@ class SettingsTab(QWidget):
 
         # Reload the UI tabs to reflect the language changes
         self.ui.reload_tabs()
+
+        # Change the language of the Settings-Tab without reloading
+        self.lang_year_group.setTitle(self.general_dict["General Settings"])
+        self.language_label.setText(f"{self.general_dict['Language']}:")
+        self.year_label.setText(f"{self.general_dict['Year']}:")
+
+        self.indices_group.setTitle(self.general_dict["Options"])
+        self.show_indices_checkbox.setText(self.general_dict["Show Indices"])
+
+        self.ui.tabs.setTabText(2, self.general_dict["Settings"])
 
     def on_year_changed(self, text):
         """
