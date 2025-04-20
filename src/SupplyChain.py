@@ -145,7 +145,9 @@ class SupplyChain:
         if not impact_row_idx.empty:
             impact_row = self.database.Index.units_df.iloc[impact_row_idx[0]].tolist()
             unit = impact_row[4]
-            value = round(value / impact_row[2], impact_row[3])
+            value = value / impact_row[2]
+            if round(value, impact_row[3]) != 0:
+                value = round(value, impact_row[3])
         else:
             # Default or error handling if the impact is not found
             print(f"Impact '{impact}' not found in units_df, using default unit.")
@@ -370,7 +372,7 @@ class SupplyChain:
         title = title if title is not None else f'{self.database.Index.general_dict["Supply Chain Analysis"]} ' + self.get_title()
         
         # Get the relative environmental impact data as a DataFrame
-        df_rel = self.calculate_all(impacts=impacts, relative=True, decimal_places=2)
+        df_rel = self.calculate_all(impacts=impacts, relative=True, decimal_places=5)
 
         # Column and row labels for the plot
         col_labels = [df_rel.columns[0], df_rel.columns[1], 
