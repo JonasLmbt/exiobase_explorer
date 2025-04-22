@@ -6,13 +6,16 @@ import tkinter as tk
 from tkinter import ttk
 
 class SupplyChain:
-    
-    def __init__(self, database, select = False, indices = None, **kwargs):
+
+    def __init__(self, database, select=False, indices=None, **kwargs):
         # Parameter setzen
         self.database = database
         self.language = self.database.language
         self.regional = False
         self.inputByIndices = False
+
+        # 🛠 Hier sicher initialisieren:
+        self.hierarchy_levels = {}
 
         if indices is not None:
             self.indices = indices
@@ -20,18 +23,14 @@ class SupplyChain:
             
         else:         
             if select == True:
-                kwargs = {**self.get_multiindex_selection(self.database.Index.region_multiindex), **self.get_multiindex_selection(self.database.Index.sector_multiindex_per_region)}
+                kwargs = {**self.get_multiindex_selection(self.database.Index.region_multiindex), 
+                          **self.get_multiindex_selection(self.database.Index.sector_multiindex_per_region)}
 
-            # Hierarchieliste für gesetzte Werte
-            self.hierarchy_levels = {}
-
-            # Set attributes dynamically for region and sector classification
             for attr in self.database.Index.region_classification + self.database.Index.sector_classification:
                 value = kwargs.get(attr, None)
-                setattr(self, attr, value)  # Attribut setzen
-                self.hierarchy_levels[attr] = value  # Hierarchiewert speichern
+                setattr(self, attr, value)
+                self.hierarchy_levels[attr] = value
             
-            # Indices bestimmen
             df = self.database.I.copy()
             idx = pd.IndexSlice
         
@@ -39,10 +38,9 @@ class SupplyChain:
                 *(slice(None) if self.hierarchy_levels[level] is None else self.hierarchy_levels[level]
                   for level in self.database.Index.region_classification + self.database.Index.sector_classification)
             ], :]
-        
+
             self.indices = df.index.get_indexer(subset.index).tolist()
         
-            # Falls nur Regionen angegeben sind -> regionale Betrachtung
             if any(self.hierarchy_levels[level] for level in self.database.Index.region_classification) and \
                not any(self.hierarchy_levels[level] for level in self.database.Index.sector_classification):
                 self.regional = True
@@ -439,76 +437,61 @@ class SupplyChain:
         return fig
 
     def plot_subcontractors(self, color="Blues", title=None, relative=True):
-        
-        values = list(self.database.L.iloc[:, self.indices].groupby(level=self.database.Index.region_classification[-1], sort=False).sum().sum(axis=1).values)
-        if self.hierarchy_levels[self.database.Index.region_classification[-1]] is not None:
-            values[self.database.regions.index(self.hierarchy_levels[self.database.Index.region_classification[-1]])] = 0  # Exclude the user's region as it is too large
+        values = list(self.database.L.iloc[:, self.indices]
+                    .groupby(level=self.database.Index.region_classification[-1], sort=False)
+                    .sum()
+                    .sum(axis=1)
+                    .values)
+
+        key = self.database.Index.region_classification[-1]
+        if key in self.hierarchy_levels and self.hierarchy_levels[key] is not None:
+            values[self.database.regions.index(self.hierarchy_levels[key])] = 0
 
         df = pd.DataFrame(values, index=self.database.regions_exiobase)
         title = f'{self.database.Index.general_dict["Subcontractors"]} ' + self.get_title()
-        
-        self.plot_region_data(df=df, color_map=color, relative=relative, title=title)
 
-        #return df
+        # Rückgabe der Figure!
+        fig = self.plot_region_data(df=df, color_map=color, relative=relative, title=title)
+        return fig
+
 
     def plot_region_data(self, df, column=None, color_map="Blues", relative=False, title=""):
-        """
-        Plots a choropleth map of the given dataframe's column.
-    
-        Parameters:
-            df (pd.DataFrame): DataFrame with regions as index (Two-letter codes) and a numerical column.
-            column (str): The name of the column to be plotted.
-            color_map (str): The color map to use for shading.
-            relative (bool): If True, convert values to percentages of the total sum.
-        """ 
         world = self.database.Index.get_map()
-        column = column if column is not None else df.columns[0]
-        df = df.drop(index="MT", errors="ignore")  # Falls "MT" nicht existiert, keinen Fehler werfen
-        
-        # Werte anpassen, falls relative=True
-        values = df[column].copy()
+        column = column if column is not None else df.columns[0] if isinstance(df.columns, pd.Index) else df.name
+        df = df.drop(index="MT", errors="ignore")
+
+        values = df[column].copy() if column in df.columns else df.copy()
         if relative:
-            values = (values / values.sum()) * 100  # Prozentwerte berechnen
-    
-        # Sicherstellen, dass die Reihenfolge der Regionen übereinstimmt
+            values = (values / values.sum()) * 100
+
         world = world.loc[df.index]
-    
-        # Dem GeoDataFrame die Werte hinzufügen
         world["data"] = values
-    
-        # Klassifikation der Werte für eine sinnvolle Einteilung
+
         classifier = mapclassify.Quantiles(world["data"], k=5)
-    
-        # Plotten der Karte
+
         fig, ax = plt.subplots(1, 1, figsize=(15, 10))
         world.plot(column="data", cmap=color_map, legend=False, scheme="quantiles",
-                   classification_kwds={'k': 5}, ax=ax, edgecolor="gray", linewidth=0.6, alpha=0.9)
-    
-        # Verbesserte Legende mit Prozentwerten
+                classification_kwds={'k': 5}, ax=ax, edgecolor="gray", linewidth=0.6, alpha=0.9)
+
         norm = mcolors.Normalize(vmin=world["data"].min(), vmax=world["data"].max())
         sm = plt.cm.ScalarMappable(cmap=color_map, norm=norm)
-        sm._A = []  # Dummy-Daten für die Legende
+        sm._A = []
         cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
-        
-        # Achsen verstecken für eine saubere Darstellung
+
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_frame_on(False)
-        
-        # Prozentzeichen in der Legende, falls relative=True
+
         if relative:
             cbar.set_label(f"{column} (%)")
             cbar.ax.set_yticklabels([f"{int(tick)}%" for tick in cbar.get_ticks()])
         else:
             cbar.set_label(column)
-    
-        # Titel setzen
-        ax.set_title(title)
 
-        # Entfernen des weißen Randes
+        ax.set_title(title)
         plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        plt.show()
+        return fig  # ← Das ist neu!
 
     def get_title(self, **kwargs):
         """

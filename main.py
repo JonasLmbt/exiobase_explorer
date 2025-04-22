@@ -41,7 +41,7 @@ class UserInterface(QMainWindow):
         self.general_dict = self.database.Index.general_dict
 
         # Darkmode Style
-        self.DARKMODE_STYLE = """
+        self.DARKMODE_STYLE2 = """
             QWidget {
                 background-color: #2a2a2a;
                 color: #e0e0e0;
@@ -96,9 +96,41 @@ class UserInterface(QMainWindow):
                 font-weight: bold;
             }
         """
+        self.DARKMODE_STYLE = """
+            QWidget {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+            }
+            QTextEdit, QComboBox, QCheckBox {
+                background-color: #353535;
+                color: #e0e0e0;
+            }
+            QPushButton {
+                background-color: #4a4a4a;
+                color: #fff;
+            }
+            QPushButton:hover {
+                background-color: #5a5a5a;
+            }
+            QTabWidget::pane {
+                background: #2a2a2a;
+            }
+            QTabBar::tab {
+                background: #404040;
+                color: #e0e0e0;
+            }
+            QTabBar::tab:selected {
+                background: #555555;
+                color: #fff;
+            }
+            QGroupBox:title {
+                background-color: #404040;
+                color: #e0e0e0;
+            }
+        """
 
         # Lightmode Style
-        self.LIGHTMODE_STYLE = """
+        self.LIGHTMODE_STYLE2 = """
             QWidget {
                 background-color: #fafafa;
                 color: #333;
@@ -153,6 +185,7 @@ class UserInterface(QMainWindow):
                 font-weight: bold;
             }
         """
+        self.LIGHTMODE_STYLE = """"""
 
         # Initialize the user interface.
         self.init_ui()
