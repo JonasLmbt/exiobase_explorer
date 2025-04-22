@@ -1,7 +1,6 @@
 import pandas as pd 
 import matplotlib.pyplot as plt 
 import matplotlib.colors as mcolors 
-import mapclassify  
 import tkinter as tk
 from tkinter import ttk
 
@@ -144,8 +143,8 @@ class SupplyChain:
             impact_row = self.database.Index.units_df.iloc[impact_row_idx[0]].tolist()
             unit = impact_row[4]
             value = value / impact_row[2]
-            if round(value, impact_row[3]) != 0:
-                value = round(value, impact_row[3])
+            #if round(value, impact_row[3]) != 0:
+            #    value = round(value, impact_row[3])
         else:
             # Default or error handling if the impact is not found
             print(f"Impact '{impact}' not found in units_df, using default unit.")
@@ -434,6 +433,8 @@ class SupplyChain:
 
         # Adjust layout to avoid clipping and show the plot
         fig.tight_layout()
+
+        plt.close(fig)
         return fig
 
     def plot_subcontractors(self, color="Blues", title=None, relative=True, show_legend=False):
@@ -441,12 +442,26 @@ class SupplyChain:
                     .groupby(level=self.database.Index.region_classification[-1], sort=False)
                     .sum().sum(axis=1).values)
 
-        key = self.database.Index.region_classification[-1]
-        if key in self.hierarchy_levels and self.hierarchy_levels[key] is not None:
-            values[self.database.regions.index(self.hierarchy_levels[key])] = 0
+        if not self.inputByIndices:
+            key = self.database.Index.region_classification[-1]
+            if key in self.hierarchy_levels and self.hierarchy_levels[key] is not None:
+                values[self.database.regions.index(self.hierarchy_levels[key])] = 0
 
         df = pd.DataFrame(values, index=self.database.regions_exiobase)
         title = f'{self.database.Index.general_dict["Subcontractors"]} ' + self.get_title()
+
+        return self.plot_region_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend)
+    
+    def plot_regional_impact(self, impact, color="Blues", title=None, relative=True, show_legend=False):
+        values = self.database.Impact.total.loc[impact].iloc[:, self.indices].sum(axis=1).values.tolist()
+
+        if not self.inputByIndices:
+            key = self.database.Index.region_classification[-1]
+            if key in self.hierarchy_levels and self.hierarchy_levels[key] is not None:
+                values[self.database.regions.index(self.hierarchy_levels[key])] = 0
+
+        df = pd.DataFrame({'Impact': values}, index=self.database.regions_exiobase)
+        title = f'{self.database.Index.general_dict["Global"]} {impact} ' + self.get_title()
 
         return self.plot_region_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend)
 
@@ -502,6 +517,7 @@ class SupplyChain:
         ax.set_title(title)
         plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
+        plt.close(fig)
         return fig
 
     def get_title(self, **kwargs):

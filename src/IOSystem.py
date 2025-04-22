@@ -204,9 +204,10 @@ class Index:
         )
 
         # Erstelle den neuen MultiIndex; die Namen werden als Tupel angegeben
-        # self.impact_per_region_multiindex = pd.MultiIndex.from_tuples(
-        #    [(imp[0], reg[0], reg[1]) for imp, reg in itertools.product(self.impact_multiindex, self.region_multiindex)],
-        #    names=tuple(self.impact_multiindex.names)+tuple(self.region_multiindex.names))
+        self.impact_per_region_multiindex = pd.MultiIndex.from_tuples(
+            [imp + reg for imp, reg in itertools.product(self.impact_multiindex, self.region_multiindex)],
+            names=list(self.impact_multiindex.names) + list(self.region_multiindex.names)
+        )
 
     def update_multiindices(self):
         """
@@ -250,7 +251,8 @@ class Index:
         # Define matrices that need their MultiIndex updated (both sector and impact matrices)
         matrix_mappings = {
             "standard_matrices": ["A", "L", "Y", "I"],
-            "impact_matrices": ["S", "total", "retail", "direct_suppliers", "resource_extraction", "preliminary_products"],
+            "impact_matrices": ["S", "D_cba"],
+            "regional_impact_matrices": ["total", "retail", "direct_suppliers", "resource_extraction", "preliminary_products"],
             "regional_matrices": ["retail_regional", "direct_suppliers_regional", "resource_extraction_regional", "preliminary_products_regional"]
         }
 
@@ -265,6 +267,12 @@ class Index:
                 for matrix in matrices:
                     impact_matrix = getattr(self.IOSystem.Impact, matrix)
                     impact_matrix.index = self.impact_multiindex
+                    impact_matrix.columns = self.sector_multiindex
+
+            if matrix_group == "regional_impact_matrices":
+                for matrix in matrices:
+                    impact_matrix = getattr(self.IOSystem.Impact, matrix)
+                    impact_matrix.index = self.impact_per_region_multiindex
                     impact_matrix.columns = self.sector_multiindex
 
             # Update regional matrices' index and columns if region-specific matrices exist
@@ -295,7 +303,7 @@ class Index:
                 try:
                     shutil.copy(source_file, target_file)
                     if output:
-                        logging.info(f"File {file_name} has been successfully copied to {self.IOSystem.fast_db}.")
+                        logging.info(f"File {file_name} has been successfully copied to {self.IOSystem.fast_db}." + ("\n" if file_name == config_files[-1] else ""))
                 except Exception as e:
                     logging.error(f"Error copying {file_name}: {e}")
             else:
@@ -415,7 +423,8 @@ class Impact:
 
     Loaded Impact Matrices:
         - 'S.npy' → `S`: General impact matrix.
-        - 'D_cba.npy' → `total`: Total impact matrix.
+        - 'D_cba.npy' → `D_cba`: Total impact matrix.
+        - 'total.npy' → `total`: Total impact matrix.
         - 'retail.npy' → `retail`: Retail impact matrix.
         - 'direct_suppliers.npy' → `direct_suppliers`: Direct suppliers' impact matrix.
         - 'resource_extraction.npy' → `resource_extraction`: Resource extraction impact matrix.
@@ -451,7 +460,8 @@ class Impact:
             # Define file paths
             impact_files = {
                 "S": "S.npy",
-                "total": "D_cba.npy",
+                "D_cba": "D_cba.npy",
+                "total": "total.npy",
                 "retail": "retail.npy",
                 "direct_suppliers": "direct_suppliers.npy",
                 "resource_extraction": "resource_extraction.npy",
@@ -459,7 +469,15 @@ class Impact:
             }
 
             # Expected shape of the matrices
-            expected_shape = (126, 9800)
+            expected_shape = {
+                "S": (126, 9800),
+                "D_cba": (126, 9800),
+                "total": (6174, 9800),
+                "retail": (6174, 9800),
+                "direct_suppliers": (6174, 9800),
+                "resource_extraction": (6174, 9800),
+                "preliminary_products": (6174, 9800)
+            }
             
             # Load the impact matrices
             for attr, filename in impact_files.items():
@@ -468,7 +486,7 @@ class Impact:
                     array = np.load(file_path).astype(np.float32)
 
                     # Check if the loaded array has the correct shape
-                    if array.shape != expected_shape:
+                    if array.shape != expected_shape[attr]:
                         logging.error(f"Shape mismatch in {filename}: Expected {expected_shape}, but got {array.shape}")
                         raise ValueError(f"Incorrect shape for {filename}: Expected {expected_shape}, got {array.shape}")
 
@@ -659,27 +677,30 @@ class IOSystem:
         if attempt == 1:
             self.start_time = time.time()  # Record the start time if measuring the elapsed time
 
-        if attempt > 2:
+        if attempt >= 2:
             raise RuntimeError("Interrupted load-function to prevent recursive actions.")
             return  
         
         if os.path.exists(self.fast_db) and not force:
             if attempt == 1:
                 logging.info("Fast database was found - Loading...")
-            
-            # Load the matrices and convert them to DataFrames (without labels)
-            self.A = pd.DataFrame(np.load(os.path.join(self.fast_db, 'A.npy')).astype(np.float32))  # Load 'A' matrix
-            self.L = pd.DataFrame(np.load(os.path.join(self.fast_db, 'L.npy')).astype(np.float32))  # Load 'L' matrix
-            self.Y = pd.DataFrame(np.load(os.path.join(self.fast_db, 'Y.npy')).astype(np.float32))  # Load 'Y' matrix
-            self.I = pd.DataFrame(np.identity(9800, dtype=np.float32))  # Identity matrix (9800x9800)
-            
-            # Load the impact matrices using the Impact class
-            self.Impact.load()
+            try:
+                # Load the matrices and convert them to DataFrames (without labels)
+                self.A = pd.DataFrame(np.load(os.path.join(self.fast_db, 'A.npy')).astype(np.float32))  # Load 'A' matrix
+                self.L = pd.DataFrame(np.load(os.path.join(self.fast_db, 'L.npy')).astype(np.float32))  # Load 'L' matrix
+                self.Y = pd.DataFrame(np.load(os.path.join(self.fast_db, 'Y.npy')).astype(np.float32))  # Load 'Y' matrix
+                self.I = pd.DataFrame(np.identity(9800, dtype=np.float32))  # Identity matrix (9800x9800)
+                
+                # Load the impact matrices using the Impact class
+                self.Impact.load()
 
-            # Add the multi_indices
-            self.Index.update_multiindices()
-            
-            # If return_time is True, calculate and print the elapsed time
+                # Add the multi_indices
+                self.Index.update_multiindices()
+            except:
+                logging.info("There was a problem trying to load the database. Force-loading instead...")
+                self.load(force=True)
+
+            # Calculate and print the elapsed time
             end_time = time.time()  # Record the end time
             elapsed_time = end_time - self.start_time  # Calculate elapsed time
             logging.info(f"Database has been loaded successfully in {round(float(elapsed_time), 3)} seconds.")
@@ -839,9 +860,9 @@ class IOSystem:
         # Create the diagonalized Y matrix
         logging.info("Diagonalizing Y matrix...")
         if Y.shape != (9800, 9800):
-            Y = Y.reshape(9800, 49, 7).sum(axis=2)
-            n, num_blocks = Y.shape  # (9800, 49)
-            block_size = n // num_blocks  # 9800 / 49 = 200
+            Y = Y.reshape(9800, len(self.regions), 7).sum(axis=2)
+            n, num_blocks = Y.shape  # (9800, len(self.regions))
+            block_size = n // num_blocks  # 9800 / len(self.regions) = len(self.sectors)
             Y_diag = np.zeros((n, n), dtype=np.float32)
         
             for i in range(num_blocks):
@@ -860,28 +881,125 @@ class IOSystem:
         # Calculate impact matrices
         logging.info("Calculating impact matrices...")
 
+        # Total impact matrix
+        LY = L @ Y
+
+        # List to store environmental impacts for each region
+        all_region_impacts = []
+
+        for region in range(len(self.regions)):
+            # Determine the index range for the current region's sectors
+            start = region * len(self.sectors)
+            end = (region + 1) * len(self.sectors)
+
+            # Extract the production and environmental intensity data for this region
+            x_region = LY[start:end, :]       # Regional production (sectors of region x sectors)
+            s_region = S[:, start:end]        # Environmental intensities (impacts x sectors of region)
+
+            # Calculate environmental impacts for this region
+            E_region = s_region @ x_region    # Resulting shape: (impacts x sectors)
+
+            # Store the impact matrix for this region
+            all_region_impacts.append(E_region)
+
+        # Stack all regional impact matrices vertically
+        # Resulting shape: (impacts * regions, sectors)
+        total_impact = np.vstack(all_region_impacts)
+
+        # Initialize a new matrix to store the reordered impacts
+        total_impact_sorted = np.zeros_like(total_impact)
+
+        # Reorder rows from grouped-by-region to grouped-by-impact-category
+        for new_idx in range((len(S)*len(self.regions))):
+            # Calculate the original index before reordering
+            old_idx = (new_idx % len(self.regions)) * len(S) + (new_idx // len(self.regions))
+            total_impact_sorted[new_idx] = total_impact[old_idx]
+
+        # Replace the original matrix with the sorted version
+        total_impact = total_impact_sorted
+
         # Retail impact matrix
-        retail_impact = S @ Y
+        all_region_impacts = []
+        for region in range(len(self.regions)):
+            start = region * len(self.sectors)
+            end = (region + 1) * len(self.sectors)
+            x_region = Y[start:end, :]       # Regional production (sectors of region x sectors)
+            s_region = S[:, start:end]        # Environmental intensities (impacts x sectors of region)
+            E_region = s_region @ x_region    # Resulting shape: (impacts x sectors)
+            all_region_impacts.append(E_region)
+
+        retail_impact = np.vstack(all_region_impacts) # Resulting shape: (impacts * regions x sectors)
+        retail_impact_sorted = np.zeros_like(retail_impact)
+        for new_idx in range((len(S)*len(self.regions))):
+            old_idx = (new_idx % len(self.regions)) * len(S) + (new_idx // len(self.regions))
+            retail_impact_sorted[new_idx] = retail_impact[old_idx]
+        retail_impact = retail_impact_sorted
         
         # Direct suppliers impact matrix
         df = A.copy()
         df[self.Index.raw_material_indices, :] = 0
-        direct_suppliers_impact = S @ (df @ Y)  
+        df = df @ Y
+        all_region_impacts = []
+        for region in range(len(self.regions)):
+            start = region * len(self.sectors)
+            end = (region + 1) * len(self.sectors)
+            x_region = df[start:end, :]       # Regional production (sectors of region x sectors)
+            s_region = S[:, start:end]        # Environmental intensities (impacts x sectors of region)
+            E_region = s_region @ x_region    # Resulting shape: (impacts x sectors)
+            all_region_impacts.append(E_region)
+
+        direct_suppliers_impact = np.vstack(all_region_impacts) # Resulting shape: (impacts * regions x sectors)
+        direct_suppliers_impact_sorted = np.zeros_like(direct_suppliers_impact)
+        for new_idx in range((len(S)*len(self.regions))):
+            old_idx = (new_idx % len(self.regions)) * len(S) + (new_idx // len(self.regions))
+            direct_suppliers_impact_sorted[new_idx] = direct_suppliers_impact[old_idx]
+        direct_suppliers_impact = direct_suppliers_impact_sorted
         
         # Resources extraction impact matrix
         df = (L - I)
         df[self.Index.not_raw_material_indices, :] = 0
-        resource_extraction_impact = S @ (df @ Y)  
+        df = df @ Y
+        all_region_impacts = []
+        for region in range(len(self.regions)):
+            start = region * len(self.sectors)
+            end = (region + 1) * len(self.sectors)
+            x_region = df[start:end, :]       # Regional production (sectors of region x sectors)
+            s_region = S[:, start:end]        # Environmental intensities (impacts x sectors of region)
+            E_region = s_region @ x_region    # Resulting shape: (impacts x sectors)
+            all_region_impacts.append(E_region)
+
+        resource_extraction_impact = np.vstack(all_region_impacts) # Resulting shape: (impacts * regions x sectors)
+        resource_extraction_impact_sorted = np.zeros_like(resource_extraction_impact)
+        for new_idx in range((len(S)*len(self.regions))):
+            old_idx = (new_idx % len(self.regions)) * len(S) + (new_idx // len(self.regions))
+            resource_extraction_impact_sorted[new_idx] = resource_extraction_impact[old_idx]
+        resource_extraction_impact = resource_extraction_impact_sorted
         
         # Production of preliminary products impact matrix
         df = (L - I - A)
         df[self.Index.raw_material_indices, :] = 0
-        preliminary_products_impact = S @ (df @ Y)         
+        df = df @ Y
+        all_region_impacts = []
+        for region in range(len(self.regions)):
+            start = region * len(self.sectors)
+            end = (region + 1) * len(self.sectors)
+            x_region = df[start:end, :]       # Regional production (sectors of region x sectors)
+            s_region = S[:, start:end]        # Environmental intensities (impacts x sectors of region)
+            E_region = s_region @ x_region    # Resulting shape: (impacts x sectors)
+            all_region_impacts.append(E_region)
+
+        preliminary_products_impact = np.vstack(all_region_impacts) # Resulting shape: (impacts * regions x sectors)
+        preliminary_products_impact_sorted = np.zeros_like(preliminary_products_impact)
+        for new_idx in range((len(S)*len(self.regions))):
+            old_idx = (new_idx % len(self.regions)) * len(S) + (new_idx // len(self.regions))
+            preliminary_products_impact_sorted[new_idx] = preliminary_products_impact[old_idx]
+        preliminary_products_impact = preliminary_products_impact_sorted
         
         # Save the calculated matrices
         logging.info("Calculations successful. Matrices are being saved...\n")
         np.save(os.path.join(self.fast_db, 'L.npy'), L)
         np.save(os.path.join(self.fast_db, 'Y.npy'), Y)
+        np.save(os.path.join(self.fast_db, 'impacts', 'total.npy'), total_impact)
         np.save(os.path.join(self.fast_db, 'impacts', 'retail.npy'), retail_impact)
         np.save(os.path.join(self.fast_db, 'impacts', 'direct_suppliers.npy'), direct_suppliers_impact)
         np.save(os.path.join(self.fast_db, 'impacts', 'resource_extraction.npy'), resource_extraction_impact)
