@@ -436,12 +436,10 @@ class SupplyChain:
         fig.tight_layout()
         return fig
 
-    def plot_subcontractors(self, color="Blues", title=None, relative=True):
+    def plot_subcontractors(self, color="Blues", title=None, relative=True, show_legend=False):
         values = list(self.database.L.iloc[:, self.indices]
                     .groupby(level=self.database.Index.region_classification[-1], sort=False)
-                    .sum()
-                    .sum(axis=1)
-                    .values)
+                    .sum().sum(axis=1).values)
 
         key = self.database.Index.region_classification[-1]
         if key in self.hierarchy_levels and self.hierarchy_levels[key] is not None:
@@ -450,48 +448,61 @@ class SupplyChain:
         df = pd.DataFrame(values, index=self.database.regions_exiobase)
         title = f'{self.database.Index.general_dict["Subcontractors"]} ' + self.get_title()
 
-        # Rückgabe der Figure!
-        fig = self.plot_region_data(df=df, color_map=color, relative=relative, title=title)
-        return fig
+        return self.plot_region_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend)
 
+    def plot_region_data(self, df, column=None, color_map="Blues", relative=False, title="", show_legend=False):
+        """
+        Plots a choropleth map of the given dataframe's column.
 
-    def plot_region_data(self, df, column=None, color_map="Blues", relative=False, title=""):
+        Parameters:
+            df (pd.DataFrame): DataFrame with regions as index (Two-letter codes) and a numerical column.
+            column (str): The name of the column to be plotted.
+            color_map (str): The color map to use for shading.
+            relative (bool): If True, convert values to percentages of the total sum.
+            title (str): Title of the plot.
+            show_legend (bool): Whether to display the color bar legend.
+        """ 
         world = self.database.Index.get_map()
-        column = column if column is not None else df.columns[0] if isinstance(df.columns, pd.Index) else df.name
-        df = df.drop(index="MT", errors="ignore")
-
-        values = df[column].copy() if column in df.columns else df.copy()
+        column = column if column is not None else df.columns[0]
+        df = df.drop(index="MT", errors="ignore")  # Falls "MT" nicht existiert, keinen Fehler werfen
+        
+        # Werte ggf. als Prozent
+        values = df[column].copy()
         if relative:
             values = (values / values.sum()) * 100
-
+        
+        # Reihenfolge sichern
         world = world.loc[df.index]
         world["data"] = values
 
-        classifier = mapclassify.Quantiles(world["data"], k=5)
-
+        # Plot
         fig, ax = plt.subplots(1, 1, figsize=(15, 10))
         world.plot(column="data", cmap=color_map, legend=False, scheme="quantiles",
                 classification_kwds={'k': 5}, ax=ax, edgecolor="gray", linewidth=0.6, alpha=0.9)
 
-        norm = mcolors.Normalize(vmin=world["data"].min(), vmax=world["data"].max())
-        sm = plt.cm.ScalarMappable(cmap=color_map, norm=norm)
-        sm._A = []
-        cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
+        # Nur Legende, wenn aktiviert
+        if show_legend:
+            norm = mcolors.Normalize(vmin=world["data"].min(), vmax=world["data"].max())
+            sm = plt.cm.ScalarMappable(cmap=color_map, norm=norm)
+            sm._A = []
+            cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
 
+            if relative:
+                cbar.set_label(f"{column} (%)")
+                cbar.ax.set_yticklabels([f"{int(tick)}%" for tick in cbar.get_ticks()])
+            else:
+                cbar.set_label(column)
+
+        # Achsen & Rahmen ausblenden
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_frame_on(False)
 
-        if relative:
-            cbar.set_label(f"{column} (%)")
-            cbar.ax.set_yticklabels([f"{int(tick)}%" for tick in cbar.get_ticks()])
-        else:
-            cbar.set_label(column)
-
+        # Titel
         ax.set_title(title)
         plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        return fig  # ← Das ist neu!
+        return fig
 
     def get_title(self, **kwargs):
         """
