@@ -80,7 +80,7 @@ class VisualisationTab(QWidget):
 
         # Add sub-tabs to the inner tab widget using new classes.
         self.inner_tab_widget.addTab(SupplyChainAnalysis(self.database, ui=self.ui), self.general_dict["Supply Chain Analysis"])
-        self.inner_tab_widget.addTab(WorldMapTab(), self.general_dict["World Map"])
+        self.inner_tab_widget.addTab(WorldMapTab(self.database, ui=self.ui), self.general_dict["World Map"])
         self.inner_tab_widget.addTab(BarChartTab(), self.general_dict["Total"])
 
         # Add the inner tab widget to the main layout of the visualisation tab.
@@ -335,10 +335,58 @@ class SupplyChainAnalysis(QWidget):
 
 
 class WorldMapTab(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, database, ui, parent=None):
         super().__init__(parent)
+        self.database = database
+        self.ui = ui
+
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("This is inner tab 2 content."))
+
+        # Initialer Dummy-Plot
+        self.fig = plt.figure()
+        self.ax = self.fig.add_subplot(111)
+        self.ax.text(0.5, 0.5, "World Map will be displayed here.",
+                     horizontalalignment='center', verticalalignment='center',
+                     transform=self.ax.transAxes)
+        self.ax.axis('off')
+
+        self.canvas = FigureCanvas(self.fig)
+        layout.addWidget(self.canvas)
+
+        # Button zum Aktualisieren der Karte
+        self.plot_button = QPushButton("Update Map")
+        self.plot_button.clicked.connect(self.update_map)
+        layout.addWidget(self.plot_button)
+
+        self.setLayout(layout)
+
+    def update_map(self):
+        """
+        Updates the world map visualization based on the current selection.
+        """
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+
+        # Vorherige Canvas entfernen, um Ressourcen freizugeben
+        if self.canvas:
+            self.layout().removeWidget(self.canvas)
+            self.canvas.setParent(None)
+            self.canvas.deleteLater()
+
+        # Neue SupplyChain-Instanz basierend auf Benutzerwahl
+        if self.ui.selection_tab.inputByIndices:
+            supplychain = SupplyChain(self.database, indices=self.ui.selection_tab.indices)
+        else:
+            supplychain = SupplyChain(self.database, **self.ui.selection_tab.kwargs)
+
+        # Neue Figur mit Subcontractors-Plot erzeugen
+        fig = supplychain.plot_subcontractors(color="Blues", title="Subcontractors", relative=True)
+
+        # Neue Canvas einfügen
+        self.canvas = FigureCanvas(fig)
+        self.layout().insertWidget(0, self.canvas)
+        self.canvas.draw()
+
+        QApplication.restoreOverrideCursor()
 
 
 class BarChartTab(QWidget):
