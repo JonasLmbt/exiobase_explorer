@@ -50,7 +50,7 @@ class SettingsTab(QWidget):
     SettingsTab widget for displaying and adjusting application settings.
     This widget handles logging setup, fetching languages, years, and UI initialization.
     """
-    def __init__(self, database, ui):
+    def __init__(self, ui):
         """
         Initializes the SettingsTab widget.
 
@@ -60,8 +60,8 @@ class SettingsTab(QWidget):
         super().__init__()
         
         # Store references to the database and UI for later use
-        self.database = database
         self.ui = ui
+        self.database = self.ui.database
         
         # Access the general dictionary from the database for UI labels and text
         self.general_dict = self.database.Index.general_dict

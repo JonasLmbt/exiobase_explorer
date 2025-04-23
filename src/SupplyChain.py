@@ -333,7 +333,7 @@ class SupplyChain:
     
         return df
  
-    def plot_supply_chain(self, impacts, title=None, size=1, lines=True, line_width=1, line_color="gray", text_position="center"):
+    def plot_supplychain_diagram(self, impacts, title=None, size=1, lines=True, line_width=1, line_color="gray", text_position="center"):
         """
         Visualizes the environmental impacts along a supply chain in a clear plot.
         
@@ -437,35 +437,30 @@ class SupplyChain:
         plt.close(fig)
         return fig
 
-    def plot_subcontractors(self, color="Blues", title=None, relative=True, show_legend=False):
+    def plot_worldmap_by_subcontractors(self, color="Blues", title=None, relative=True, show_legend=False):
         values = list(self.database.L.iloc[:, self.indices]
                     .groupby(level=self.database.Index.region_classification[-1], sort=False)
                     .sum().sum(axis=1).values)
 
-        if not self.inputByIndices:
-            key = self.database.Index.region_classification[-1]
-            if key in self.hierarchy_levels and self.hierarchy_levels[key] is not None:
-                values[self.database.regions.index(self.hierarchy_levels[key])] = 0
+        # if not self.inputByIndices:
+        #     key = self.database.Index.region_classification[-1]
+        #     if key in self.hierarchy_levels and self.hierarchy_levels[key] is not None:
+        #         values[self.database.regions.index(self.hierarchy_levels[key])] = 0
 
         df = pd.DataFrame(values, index=self.database.regions_exiobase)
-        title = f'{self.database.Index.general_dict["Subcontractors"]} ' + self.get_title()
+        title = title if title is not None else f'{self.database.Index.general_dict["Subcontractors"]} ' + self.get_title()
 
-        return self.plot_region_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend)
+        return self.plot_worldmap_by_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend)
     
-    def plot_regional_impact(self, impact, color="Blues", title=None, relative=True, show_legend=False):
+    def plot_worldmap_by_impact(self, impact, color="Blues", title=None, relative=True, show_legend=False):
         values = self.database.Impact.total.loc[impact].iloc[:, self.indices].sum(axis=1).values.tolist()
 
-        if not self.inputByIndices:
-            key = self.database.Index.region_classification[-1]
-            if key in self.hierarchy_levels and self.hierarchy_levels[key] is not None:
-                values[self.database.regions.index(self.hierarchy_levels[key])] = 0
-
         df = pd.DataFrame({'Impact': values}, index=self.database.regions_exiobase)
-        title = f'{self.database.Index.general_dict["Global"]} {impact} ' + self.get_title()
+        title = title if title is not None else f'{self.database.Index.general_dict["Global"]} {impact} ' + self.get_title()
 
-        return self.plot_region_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend)
+        return self.plot_worldmap_by_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend)
 
-    def plot_region_data(self, df, column=None, color_map="Blues", relative=False, title="", show_legend=False):
+    def plot_worldmap_by_data(self, df, column=None, color_map="Blues", relative=False, title="", show_legend=False):
         """
         Plots a choropleth map of the given dataframe's column.
 

@@ -40,6 +40,9 @@ class UserInterface(QMainWindow):
         # Store the general dictionary from the database index.
         self.general_dict = self.database.Index.general_dict
 
+        # Create the SupplyChain Object
+        self.supplychain = SupplyChain(database=self.database)
+
         # Darkmode Style
         self.DARKMODE_STYLE2 = """
             QWidget {
@@ -219,9 +222,9 @@ class UserInterface(QMainWindow):
         layout.setSpacing(20)
 
         # Create tabs as separate objects.
-        self.selection_tab = SelectionTab(self.database, self)
-        self.visualisation_tab = VisualisationTab(self.database, self)
-        self.settings_tab = SettingsTab(self.database, self)
+        self.selection_tab = SelectionTab(self)
+        self.visualisation_tab = VisualisationTab(self)
+        self.settings_tab = SettingsTab(self)
         self.console_tab = ConsoleTab(context={"self": self}, ui=self)
 
         # Create a tab widget and add the tabs.
@@ -258,7 +261,7 @@ class UserInterface(QMainWindow):
         self.tabs.removeTab(0)
         
         # Create a new instance of the selection tab.
-        self.selection_tab = SelectionTab(self.database, self)
+        self.selection_tab = SelectionTab(self)
         
         # Re-insert the new selection tab at index 0.
         self.tabs.insertTab(0, self.selection_tab, self.general_dict["Selection"])
@@ -274,7 +277,7 @@ class UserInterface(QMainWindow):
         self.tabs.removeTab(1)
         
         # Create a new instance of the visualisation tab.
-        self.visualisation_tab = VisualisationTab(self.database, self)
+        self.visualisation_tab = VisualisationTab(self)
         
         # Re-insert the new visualisation tab at index 1.
         self.tabs.insertTab(1, self.visualisation_tab, self.general_dict["Visualisation"])
@@ -310,6 +313,14 @@ class UserInterface(QMainWindow):
         self.reload_visualisation_tab()
         self.reload_console_tab()
 
+    def update_supplychain(self):
+        # Determine the input method based on the user's selection in the interface.
+        if self.selection_tab.inputByIndices:
+            # Create a SupplyChain object using indices from the selection tab.
+            self.supplychain = SupplyChain(self.database, indices=self.selection_tab.indices)
+        else:
+            # Create a SupplyChain object using the keyword arguments from the selection tab.
+            self.supplychain = SupplyChain(self.database, **self.selection_tab.kwargs)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
