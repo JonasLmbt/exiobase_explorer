@@ -327,68 +327,131 @@ class SupplyChainAnalysis(QWidget):
 
 
 class MapConfigTab(QWidget):
+    """
+    A tab for configuring the map visualization in the application.
+
+    Attributes:
+        ui (UserInterface): Reference to the main UI object.
+        database (IOSystem): The database instance containing data for maps.
+        general_dict (dict): Dictionary of localized UI labels and texts.
+        name (str): The current selection name for the map (defaults to 'Subcontractors').
+        tab_widget (QTabWidget or None): Parent tab widget if provided.
+    """
     def __init__(self, ui, name=None, parent=None):
+        """
+        Initialize the MapConfigTab.
+
+        Args:
+            ui (UserInterface): Main UI reference for accessing shared state.
+            name (str, optional): Initial map selection name. Defaults to localized 'Subcontractors'.
+            parent (QWidget, optional): Parent widget, may be a QTabWidget to attach to. Defaults to None.
+        """
         super().__init__(parent)
+
+        # Store references to UI, database, and localized text dictionary
         self.ui = ui
         self.database = self.ui.database
         self.general_dict = self.database.Index.general_dict
+
+        # Determine initial map selection name
         self.name = name or self.general_dict["Subcontractors"]
 
+        # If parent is a QTabWidget, keep reference to rename tab dynamically
         self.tab_widget = parent if isinstance(parent, QTabWidget) else None
 
+        # Main layout for the tab
         layout = QVBoxLayout(self)
 
-        # 1) Dropdown zur Auswahl mit Separator
+        # 1) Dropdown selector for map categories or impacts
         self.selector = QComboBox()
+        # Add default option for subcontractors
         self.selector.addItem(self.general_dict["Subcontractors"])
+        # Insert a separator before listing all available impacts
         self.selector.insertSeparator(self.selector.count())
+        # Add all impact options from the database
         self.selector.addItems(self.database.impacts)
+        # Set the current text to the provided name
         self.selector.setCurrentText(self.name)
         layout.addWidget(self.selector)
 
-        # 2) Update-Button
+        # 2) Update button to refresh the map based on selection
         btn = QPushButton(self.general_dict["Update Map"])
-        btn.clicked.connect(self.update_map)
+        btn.clicked.connect(self.update_map)  # Connect button click to update handler
         layout.addWidget(btn)
 
-        # 3) Canvas-Placeholder
+        # 3) Placeholder for the map canvas; initially empty
         self.canvas = None
-        self._empty_canvas(layout)
+        self._empty_canvas(layout)  # Call method to insert an empty placeholder
 
-        # Änderung des Tab-Namens bei Auswahl
+        # Change the tab name dynamically when selection changes
         self.selector.currentTextChanged.connect(
             lambda text: self._update_tab_name(text)
         )
 
     def _empty_canvas(self, layout):
+        """
+        Draws an empty placeholder map canvas with a waiting message.
+
+        Args:
+            layout (QLayout): The layout to which the placeholder canvas will be added.
+        """
+        # Create a new matplotlib figure
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, self.general_dict["Waiting for update…"],
-                horizontalalignment='center', verticalalignment='center',
-                transform=ax.transAxes)
+
+        # Add centered waiting text to the plot
+        ax.text(
+            0.5, 0.5,
+            self.general_dict["Waiting for update…"],
+            horizontalalignment='center',
+            verticalalignment='center',
+            transform=ax.transAxes
+        )
+
+        # Hide axis lines and ticks for a clean placeholder
         ax.axis('off')
+
+        # Embed the figure into a FigureCanvas and add it to the layout
         self.canvas = FigureCanvas(fig)
         layout.addWidget(self.canvas)
 
     def update_map(self):
+        """
+        Updates the map canvas based on the selected impact or subcontractors.
+        Clears the existing canvas and replaces it with a new plot.
+        """
+        # Set the cursor to a waiting state during the update process
         QApplication.setOverrideCursor(Qt.WaitCursor)
+
+        # Remove the old canvas widget from the layout and memory
         parent_layout = self.layout()
         parent_layout.removeWidget(self.canvas)
         self.canvas.setParent(None)
         self.canvas.deleteLater()
 
+        # Determine which map to draw based on current selection
         choice = self.selector.currentText()
         if choice == self.general_dict["Subcontractors"]:
             fig = self.ui.supplychain.plot_worldmap_by_subcontractors(color="Blues", relative=True)
         else:
             fig = self.ui.supplychain.plot_worldmap_by_impact(choice)
 
+        # Create and display the new canvas with the selected map
         self.canvas = FigureCanvas(fig)
         parent_layout.addWidget(self.canvas)
         self.canvas.draw()
+
+        # Restore the cursor to its normal state
         QApplication.restoreOverrideCursor()
 
     def _update_tab_name(self, text):
+        """
+        Updates the name of the tab to reflect the current selection.
+
+        Args:
+            text (str): The new name to set as the tab label.
+        """
+        # Ensure the tab widget exists and update the label of the current tab
         if self.tab_widget:
             idx = self.tab_widget.indexOf(self)
             if idx != -1:
@@ -396,57 +459,107 @@ class MapConfigTab(QWidget):
 
 
 class WorldMapTab(QWidget):
+    """
+    A tab widget for managing multiple world map views using individual tabs.
+
+    Attributes:
+        ui (UserInterface): Reference to the main UI for access to shared data.
+        database (IOSystem): Reference to the application's data source.
+        map_tabs (QTabWidget): Tab widget to host multiple map configuration tabs.
+    """
     def __init__(self, ui, parent=None):
+        """
+        Initializes the world map tab interface with dynamic sub-tabs for maps.
+
+        Args:
+            ui (UserInterface): The main UI object providing shared state and access.
+            parent (QWidget, optional): Optional parent widget for hierarchy. Defaults to None.
+        """
         super().__init__(parent)
         self.ui = ui
         self.database = self.ui.database
 
+        # Create vertical layout for the entire tab
         layout = QVBoxLayout(self)
 
-        # 1) QTabWidget mit schließbaren Tabs
+        # 1) QTabWidget setup to manage map config tabs
         self.map_tabs = QTabWidget()
-        self.map_tabs.setTabsClosable(True)
+        self.map_tabs.setTabsClosable(True)  # Enable close buttons on tabs
         self.map_tabs.tabCloseRequested.connect(self.on_tab_close_requested)
         self.map_tabs.tabBarClicked.connect(self.on_tab_clicked)
-        # Apply white close button style 
+
+        # Apply custom styling to close buttons if needed (placeholder for stylesheet)
         self.map_tabs.setStyleSheet(f"""""")
 
-        # 2) Plus-Tab am Ende (wie Browser)
-        # Add initial content tab then plus-tab
-        self.add_map_tab()
-        self._add_plus_tab()
+        # 2) Add first map config tab and a "+" tab for creating new tabs
+        self.add_map_tab()      # Adds an initial configurable map tab
+        self._add_plus_tab()    # Adds a special "+" tab to open new tabs
 
+        # Add the tab widget to the layout
         layout.addWidget(self.map_tabs)
 
     def _add_plus_tab(self):
+        """
+        Adds a special "+" tab at the end of the tab bar that acts as a button to create new tabs.
+        This tab cannot be closed and is visually distinguished by its '+' label.
+        """
+        # Create an empty widget to serve as the "+" tab content (never shown)
         plus_widget = QWidget()
+
+        # Add it as a new tab labeled "+" and store its index
         idx = self.map_tabs.addTab(plus_widget, "+")
-        # disable close for plus-tab
-        self.map_tabs.tabBar()
+
+        # Disable the close button specifically for the "+" tab
         self.map_tabs.tabBar().setTabButton(idx, QTabBar.RightSide, None)
 
     def on_tab_clicked(self, index):
-        # Wenn der Plus-Tab angeklickt wird, neuen Map-Tab öffnen
+        """
+        Handles clicks on the tab bar.
+        If the '+' tab is clicked (last tab), a new map configuration tab is added.
+        
+        Args:
+            index (int): Index of the clicked tab.
+        """
+        # If the clicked tab is the '+' tab (last one), create a new MapConfigTab
         if index == self.map_tabs.count() - 1:
             self.add_map_tab()
 
     def on_tab_close_requested(self, index):
-        # Verhindert das Schließen des letzten Inhalts-Tabs
+        """
+        Handles the request to close a tab.
+        Prevents closing the last content tab or the '+' tab.
+
+        Args:
+            index (int): Index of the tab to be closed.
+        """
+        # Total number of actual content tabs (excluding the '+' tab)
         content_count = self.map_tabs.count() - 1
+
+        # Do not allow closing if there's only one content tab left
         if content_count <= 1:
             return
-        # Ensure not closing plus-tab
+
+        # Prevent closing the '+' tab at the end
         if index == self.map_tabs.count() - 1:
             return
+
+        # Remove the selected tab
         self.map_tabs.removeTab(index)
 
     def add_map_tab(self):
+        """
+        Adds a new MapConfigTab to the QTabWidget before the '+' tab.
+        Automatically switches focus to the newly added tab.
+        """
+        # Create a new map configuration tab, passing the UI and tab widget as parent
         new_tab = MapConfigTab(self.ui, parent=self.map_tabs)
-        # Insert before plus-tab
+
+        # Insert the new tab just before the '+' tab (always the last one)
         insert_at = self.map_tabs.count() - 1
         idx = self.map_tabs.insertTab(insert_at, new_tab, new_tab.name)
-        self.map_tabs.setCurrentIndex(idx)
 
+        # Set focus to the newly added tab
+        self.map_tabs.setCurrentIndex(idx)
 
 
 class BarChartTab(QWidget):
