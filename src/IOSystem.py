@@ -308,6 +308,8 @@ class Index:
                     logging.error(f"Error copying {file_name}: {e}")
             else:
                 logging.error(f"Error: {file_name} not found in the folder {self.IOSystem.config}.")
+        
+        self.read_configs()
 
     def write_configs(self, sheet_name):
         """
