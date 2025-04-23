@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-from src.SupplyChain import SupplyChain
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from PyQt5.QtWidgets import QSizePolicy
@@ -7,9 +6,10 @@ from PyQt5.QtWidgets import QSizePolicy
 from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QPushButton, 
-    QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog, QApplication
+    QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog, QApplication, QComboBox, QTabBar
 )
 from PyQt5.QtCore import Qt
+
 
 def multiindex_to_nested_dict(multiindex: pd.MultiIndex) -> dict:
     # Initialize an empty dictionary to store the nested structure.
@@ -41,7 +41,7 @@ class VisualisationTab(QWidget):
         general_dict (dict): A dictionary containing general configurations for the visualisation.
     """
     
-    def __init__(self, database, ui, parent=None):
+    def __init__(self, ui, parent=None):
         """
         Initializes the VisualisationTab with the given database and UI.
         
@@ -54,7 +54,7 @@ class VisualisationTab(QWidget):
         
         # Set the user interface and database for the visualisation tab.
         self.ui = ui
-        self.database = database
+        self.database = self.ui.database
         
         # Retrieve the general configuration dictionary from the database.
         self.general_dict = self.database.Index.general_dict
@@ -79,8 +79,8 @@ class VisualisationTab(QWidget):
         self.inner_tab_widget = QTabWidget()
 
         # Add sub-tabs to the inner tab widget using new classes.
-        self.inner_tab_widget.addTab(SupplyChainAnalysis(self.database, ui=self.ui), self.general_dict["Supply Chain Analysis"])
-        self.inner_tab_widget.addTab(WorldMapTab(self.database, ui=self.ui), self.general_dict["World Map"])
+        self.inner_tab_widget.addTab(SupplyChainAnalysis(ui=self.ui), self.general_dict["Supply Chain Analysis"])
+        self.inner_tab_widget.addTab(WorldMapTab(ui=self.ui), self.general_dict["World Map"])
         self.inner_tab_widget.addTab(BarChartTab(), self.general_dict["Total"])
 
         # Add the inner tab widget to the main layout of the visualisation tab.
@@ -109,7 +109,7 @@ class SupplyChainAnalysis(QWidget):
         plot_button (QPushButton): Button to update the plot.
     """
     
-    def __init__(self, database, ui, parent=None):
+    def __init__(self, ui, parent=None):
         """
         Initializes the SupplyChainAnalysis with the given database and UI.
         
@@ -122,13 +122,13 @@ class SupplyChainAnalysis(QWidget):
         
         # Set the user interface and database for the table tab.
         self.ui = ui
-        self.database = database
-        
+        self.database = self.ui.database
+
         # Retrieve the general configuration dictionary from the database.
         self.general_dict = self.database.Index.general_dict
         
         # Convert the MultiIndex of impacts to a nested dictionary.
-        self.impact_hierarchy = multiindex_to_nested_dict(database.Index.impact_multiindex)
+        self.impact_hierarchy = multiindex_to_nested_dict(self.database.Index.impact_multiindex)
         
         # Set the default values for impacts (Dummy data as standard).
         self.saved_defaults = {
@@ -201,17 +201,9 @@ class SupplyChainAnalysis(QWidget):
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
             self.canvas.deleteLater()  # Free memory by deleting the old canvas.
-
-        # Determine the input method based on the user's selection in the interface.
-        if self.ui.selection_tab.inputByIndices:
-            # Create a SupplyChain object using indices from the selection tab.
-            supplychain = SupplyChain(self.database, indices=self.ui.selection_tab.indices)
-        else:
-            # Create a SupplyChain object using the keyword arguments from the selection tab.
-            supplychain = SupplyChain(self.database, **self.ui.selection_tab.kwargs)
         
         # Generate the plot for the supply chain with the selected impacts.
-        fig = supplychain.plot_supply_chain(
+        fig = self.ui.supplychain.plot_supplychain_diagram(
             self.selected_impacts, size=1, lines=True, line_width=1, line_color="gray", text_position="center"
         )
         
@@ -334,59 +326,127 @@ class SupplyChainAnalysis(QWidget):
         dialog.exec_()
 
 
-class WorldMapTab(QWidget):
-    def __init__(self, database, ui, parent=None):
+class MapConfigTab(QWidget):
+    def __init__(self, ui, name=None, parent=None):
         super().__init__(parent)
-        self.database = database
         self.ui = ui
+        self.database = self.ui.database
+        self.general_dict = self.database.Index.general_dict
+        self.name = name or self.general_dict["Subcontractors"]
+
+        self.tab_widget = parent if isinstance(parent, QTabWidget) else None
 
         layout = QVBoxLayout(self)
 
-        # Initialer Dummy-Plot
-        self.fig = plt.figure()
-        self.ax = self.fig.add_subplot(111)
-        self.ax.text(0.5, 0.5, "World Map will be displayed here.",
-                     horizontalalignment='center', verticalalignment='center',
-                     transform=self.ax.transAxes)
-        self.ax.axis('off')
+        # 1) Dropdown zur Auswahl mit Separator
+        self.selector = QComboBox()
+        self.selector.addItem(self.general_dict["Subcontractors"])
+        self.selector.insertSeparator(self.selector.count())
+        self.selector.addItems(self.database.impacts)
+        self.selector.setCurrentText(self.name)
+        layout.addWidget(self.selector)
 
-        self.canvas = FigureCanvas(self.fig)
+        # 2) Update-Button
+        btn = QPushButton(self.general_dict["Update Map"])
+        btn.clicked.connect(self.update_map)
+        layout.addWidget(btn)
+
+        # 3) Canvas-Placeholder
+        self.canvas = None
+        self._empty_canvas(layout)
+
+        # Änderung des Tab-Namens bei Auswahl
+        self.selector.currentTextChanged.connect(
+            lambda text: self._update_tab_name(text)
+        )
+
+    def _empty_canvas(self, layout):
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, self.general_dict["Waiting for update…"],
+                horizontalalignment='center', verticalalignment='center',
+                transform=ax.transAxes)
+        ax.axis('off')
+        self.canvas = FigureCanvas(fig)
         layout.addWidget(self.canvas)
 
-        # Button zum Aktualisieren der Karte
-        self.plot_button = QPushButton("Update Map")
-        self.plot_button.clicked.connect(self.update_map)
-        layout.addWidget(self.plot_button)
-
-        self.setLayout(layout)
-
     def update_map(self):
-        """
-        Updates the world map visualization based on the current selection.
-        """
         QApplication.setOverrideCursor(Qt.WaitCursor)
+        parent_layout = self.layout()
+        parent_layout.removeWidget(self.canvas)
+        self.canvas.setParent(None)
+        self.canvas.deleteLater()
 
-        # Vorherige Canvas entfernen, um Ressourcen freizugeben
-        if self.canvas:
-            self.layout().removeWidget(self.canvas)
-            self.canvas.setParent(None)
-            self.canvas.deleteLater()
-
-        # Neue SupplyChain-Instanz basierend auf Benutzerwahl
-        if self.ui.selection_tab.inputByIndices:
-            supplychain = SupplyChain(self.database, indices=self.ui.selection_tab.indices)
+        choice = self.selector.currentText()
+        if choice == self.general_dict["Subcontractors"]:
+            fig = self.ui.supplychain.plot_worldmap_by_subcontractors(color="Blues", relative=True)
         else:
-            supplychain = SupplyChain(self.database, **self.ui.selection_tab.kwargs)
+            fig = self.ui.supplychain.plot_worldmap_by_impact(choice)
 
-        # Neue Figur mit Subcontractors-Plot erzeugen
-        fig = supplychain.plot_subcontractors(color="Blues", title="Subcontractors", relative=True)
-
-        # Neue Canvas einfügen
         self.canvas = FigureCanvas(fig)
-        self.layout().insertWidget(0, self.canvas)
+        parent_layout.addWidget(self.canvas)
         self.canvas.draw()
-
         QApplication.restoreOverrideCursor()
+
+    def _update_tab_name(self, text):
+        if self.tab_widget:
+            idx = self.tab_widget.indexOf(self)
+            if idx != -1:
+                self.tab_widget.setTabText(idx, text)
+
+
+class WorldMapTab(QWidget):
+    def __init__(self, ui, parent=None):
+        super().__init__(parent)
+        self.ui = ui
+        self.database = self.ui.database
+
+        layout = QVBoxLayout(self)
+
+        # 1) QTabWidget mit schließbaren Tabs
+        self.map_tabs = QTabWidget()
+        self.map_tabs.setTabsClosable(True)
+        self.map_tabs.tabCloseRequested.connect(self.on_tab_close_requested)
+        self.map_tabs.tabBarClicked.connect(self.on_tab_clicked)
+        # Apply white close button style 
+        self.map_tabs.setStyleSheet(f"""""")
+
+        # 2) Plus-Tab am Ende (wie Browser)
+        # Add initial content tab then plus-tab
+        self.add_map_tab()
+        self._add_plus_tab()
+
+        layout.addWidget(self.map_tabs)
+
+    def _add_plus_tab(self):
+        plus_widget = QWidget()
+        idx = self.map_tabs.addTab(plus_widget, "+")
+        # disable close for plus-tab
+        self.map_tabs.tabBar()
+        self.map_tabs.tabBar().setTabButton(idx, QTabBar.RightSide, None)
+
+    def on_tab_clicked(self, index):
+        # Wenn der Plus-Tab angeklickt wird, neuen Map-Tab öffnen
+        if index == self.map_tabs.count() - 1:
+            self.add_map_tab()
+
+    def on_tab_close_requested(self, index):
+        # Verhindert das Schließen des letzten Inhalts-Tabs
+        content_count = self.map_tabs.count() - 1
+        if content_count <= 1:
+            return
+        # Ensure not closing plus-tab
+        if index == self.map_tabs.count() - 1:
+            return
+        self.map_tabs.removeTab(index)
+
+    def add_map_tab(self):
+        new_tab = MapConfigTab(self.ui, parent=self.map_tabs)
+        # Insert before plus-tab
+        insert_at = self.map_tabs.count() - 1
+        idx = self.map_tabs.insertTab(insert_at, new_tab, new_tab.name)
+        self.map_tabs.setCurrentIndex(idx)
+
 
 
 class BarChartTab(QWidget):

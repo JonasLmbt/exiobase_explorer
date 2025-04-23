@@ -46,7 +46,7 @@ class SelectionTab(QWidget):
         inputByIndices (bool): Flag to determine if selection is done by indices or criteria.
     """
 
-    def __init__(self, database, ui):
+    def __init__(self, ui):
         """
         Initializes the SelectionTab with the given database and UI instance.
         
@@ -57,19 +57,19 @@ class SelectionTab(QWidget):
         super().__init__()
 
         # Store references to the database and UI.
-        self.database = database
         self.ui = ui
+        self.database = self.ui.database
 
         # Retrieve general dictionary for UI texts.
         self.general_dict = self.database.Index.general_dict
 
         # Convert the multiindices for regions and sectors into nested dictionaries.
-        self.region_hierarchy = multiindex_to_nested_dict(database.Index.region_multiindex)
-        self.sector_hierarchy = multiindex_to_nested_dict(database.Index.sector_multiindex_per_region)
+        self.region_hierarchy = multiindex_to_nested_dict(self.database.Index.region_multiindex)
+        self.sector_hierarchy = multiindex_to_nested_dict(self.database.Index.sector_multiindex_per_region)
 
         # Get level names for regions and sectors.
-        self.region_level_names = list(database.Index.region_multiindex.names)
-        self.sector_level_names = list(database.Index.sector_multiindex_per_region.names)
+        self.region_level_names = list(self.database.Index.region_multiindex.names)
+        self.sector_level_names = list(self.database.Index.sector_multiindex_per_region.names)
 
         # Initialize indices lists (empty initially).
         self.region_indices = []
@@ -79,7 +79,7 @@ class SelectionTab(QWidget):
         self.indices = [index for index in range(9800)]
 
         # By default, selection is done using indices.
-        self.inputByIndices = True
+        self.inputByIndices = False
 
         # Initialize the user interface components.
         self.init_ui()
@@ -518,6 +518,9 @@ class SelectionTab(QWidget):
         # Update the label and group title with the selection summary
         self.selection_label.setText(txt)
         self.summary_group.setTitle(self.general_dict["Selection Summary"])
+
+        # Update the supplychain-Object
+        self.ui.update_supplychain()
 
     def reset_selection(self):
         """
