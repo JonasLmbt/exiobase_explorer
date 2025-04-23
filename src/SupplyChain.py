@@ -539,7 +539,7 @@ class SupplyChain:
         
             # Falls keine Teile im Titel sind, gib eine Standardeinstellung zurück
             if not title_parts:
-                return f'{self.database.Index.general_dict["of"]} {self.database.Index.general_dict["World"]}'
+                return self.database.Index.general_dict["of the World"]
         
             # Rückgabe des zusammengefügten Titels
             return f'{self.database.Index.general_dict["of"]} ' + " | ".join(title_parts) + f" ({self.database.year})"
