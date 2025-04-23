@@ -1,13 +1,13 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from PyQt5.QtWidgets import QSizePolicy
 
 from PyQt5.QtWidgets import (
-    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QGroupBox, QLabel, QPushButton, 
+    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QToolButton,
+    QGroupBox, QLabel, QPushButton, QSizePolicy, QMessageBox,
     QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog, QApplication, QComboBox, QTabBar
 )
+from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
 
 
@@ -79,15 +79,15 @@ class VisualisationTab(QWidget):
         self.inner_tab_widget = QTabWidget()
 
         # Add sub-tabs to the inner tab widget using new classes.
-        self.inner_tab_widget.addTab(SupplyChainAnalysis(ui=self.ui), self.general_dict["Supply Chain Analysis"])
+        self.inner_tab_widget.addTab(DiagramTab(ui=self.ui), self.general_dict["Diagram"])
         self.inner_tab_widget.addTab(WorldMapTab(ui=self.ui), self.general_dict["World Map"])
-        self.inner_tab_widget.addTab(BarChartTab(), self.general_dict["Total"])
+        #self.inner_tab_widget.addTab(BarChartTab(), self.general_dict["Total"])
 
         # Add the inner tab widget to the main layout of the visualisation tab.
         layout.addWidget(self.inner_tab_widget)
 
     
-class SupplyChainAnalysis(QWidget):
+class DiagramTab(QWidget):
     """
     A class to represent the supply chain analysis in the visualisation section.
 
@@ -111,10 +111,9 @@ class SupplyChainAnalysis(QWidget):
     
     def __init__(self, ui, parent=None):
         """
-        Initializes the SupplyChainAnalysis with the given database and UI.
+        Initializes the DiagramTab with the given database and UI.
         
         Args:
-            database (IOSystem): The database object containing the data.
             ui (UserInterface): The parent user interface object.
             parent (QWidget, optional): The parent widget for this tab. Defaults to None.
         """
@@ -154,6 +153,13 @@ class SupplyChainAnalysis(QWidget):
         self.impact_button.setText(f"{self.general_dict['Selected']} ({sum(self.saved_defaults.values())})")
         self.impact_button.clicked.connect(self.select_impacts)  # Connect the button to the selection method.
         impact_layout.addWidget(self.impact_button)
+
+        # Info-Button with help text
+        info_button = QToolButton()
+        info_button.setIcon(QIcon.fromTheme("help-about"))
+        info_button.setToolTip("Mehr Informationen zur Nutzung dieses Tabs")
+        info_button.clicked.connect(self.show_info_dialog)
+        impact_layout.addWidget(info_button)
 
         # Set a maximum height for the impact selection group and add it to the layout.
         impact_group.setMaximumHeight(100)
