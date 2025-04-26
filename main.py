@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
 )
 from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import Qt
 
 
 class UserInterface(QMainWindow):
@@ -314,6 +315,9 @@ class UserInterface(QMainWindow):
         self.reload_console_tab()
 
     def update_supplychain(self):
+        # Set the cursor to a wait state (to indicate processing)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+
         # Determine the input method based on the user's selection in the interface.
         if self.selection_tab.inputByIndices:
             # Create a SupplyChain object using indices from the selection tab.
@@ -321,6 +325,9 @@ class UserInterface(QMainWindow):
         else:
             # Create a SupplyChain object using the keyword arguments from the selection tab.
             self.supplychain = SupplyChain(self.database, **self.selection_tab.kwargs)
+
+        # Restore the cursor after processing is complete
+        QApplication.restoreOverrideCursor()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
