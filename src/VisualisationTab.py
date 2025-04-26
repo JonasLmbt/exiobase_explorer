@@ -3,7 +3,7 @@ import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from PyQt5.QtWidgets import (
-    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QToolButton,
+    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QMenu, QFileDialog,
     QGroupBox, QLabel, QPushButton, QSizePolicy, QMessageBox,
     QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog, QApplication, QComboBox, QTabBar
 )
@@ -154,13 +154,6 @@ class DiagramTab(QWidget):
         self.impact_button.clicked.connect(self.select_impacts)  # Connect the button to the selection method.
         impact_layout.addWidget(self.impact_button)
 
-        # Info-Button with help text
-        info_button = QToolButton()
-        info_button.setIcon(QIcon.fromTheme("help-about"))
-        info_button.setToolTip("Mehr Informationen zur Nutzung dieses Tabs")
-        info_button.clicked.connect(self.show_info_dialog)
-        impact_layout.addWidget(info_button)
-
         # Set a maximum height for the impact selection group and add it to the layout.
         impact_group.setMaximumHeight(100)
         layout.addWidget(impact_group)
@@ -178,6 +171,7 @@ class DiagramTab(QWidget):
                       transform=self.ax_dummy.transAxes)
         self.ax_dummy.axis('off')
         self.canvas = FigureCanvas(self.fig_dummy)
+        self._setup_canvas_context_menu() 
         self.plot_area.addWidget(self.canvas)
 
         self.plot_button = QPushButton(self.general_dict["Update Plot"])
@@ -215,6 +209,7 @@ class DiagramTab(QWidget):
         
         # Create a new canvas for the generated plot and add it to the plot area.
         self.canvas = FigureCanvas(fig)
+        self._setup_canvas_context_menu()  
         self.plot_area.addWidget(self.canvas)
         
         # Draw the canvas to display the plot.
@@ -331,6 +326,22 @@ class DiagramTab(QWidget):
 
         dialog.exec_()
 
+    def _setup_canvas_context_menu(self):
+        self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.canvas.customContextMenuRequested.connect(self._show_context_menu)
+
+    def _show_context_menu(self, pos):
+        menu = QMenu(self)
+        save_action = menu.addAction(self.general_dict["Save plot"])
+        action = menu.exec_(self.canvas.mapToGlobal(pos))
+        if action == save_action:
+            fname, _ = QFileDialog.getSaveFileName(
+                self, self.general_dict["Save plot"], "", self.general_dict["PNG-File (*.png)"]
+            )
+            if fname:
+                # Speichern
+                self.canvas.figure.savefig(fname)
+
 
 class MapConfigTab(QWidget):
     """
@@ -419,6 +430,7 @@ class MapConfigTab(QWidget):
 
         # Embed the figure into a FigureCanvas and add it to the layout
         self.canvas = FigureCanvas(fig)
+        self._setup_canvas_context_menu()
         layout.addWidget(self.canvas)
 
     def update_map(self):
@@ -444,6 +456,7 @@ class MapConfigTab(QWidget):
 
         # Create and display the new canvas with the selected map
         self.canvas = FigureCanvas(fig)
+        self._setup_canvas_context_menu()
         parent_layout.addWidget(self.canvas)
         self.canvas.draw()
 
@@ -462,6 +475,21 @@ class MapConfigTab(QWidget):
             idx = self.tab_widget.indexOf(self)
             if idx != -1:
                 self.tab_widget.setTabText(idx, text)
+
+    def _setup_canvas_context_menu(self):
+        self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.canvas.customContextMenuRequested.connect(self._show_context_menu)
+
+    def _show_context_menu(self, pos):
+        menu = QMenu(self)
+        save_action = menu.addAction(self.general_dict["Save plot"])
+        action = menu.exec_(self.canvas.mapToGlobal(pos))
+        if action == save_action:
+            fname, _ = QFileDialog.getSaveFileName(
+                self, self.general_dict["Save plot"], "", self.general_dict["PNG-File (*.png)"]
+            )
+            if fname:
+                self.canvas.figure.savefig(fname)
 
 
 class WorldMapTab(QWidget):

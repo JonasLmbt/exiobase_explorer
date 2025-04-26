@@ -211,8 +211,10 @@ class SettingsTab(QWidget):
         logging.info(f"Switching to year {self.current_year}...")
 
         # Switch year in the database and reload data for the selected year
-        self.database.switch_year(int(self.current_year))
-        self.database.load()  # Reload data for the selected year
+        self.ui.database.switch_year(int(self.current_year))
+        self.ui.database.load()  # Reload data for the selected year
+        self.ui.database.Index.copy_configs(output=False)
+        self.ui.update_supplychain()
 
         # Restore the cursor after processing is complete
         QApplication.restoreOverrideCursor()

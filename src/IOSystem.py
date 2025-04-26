@@ -289,7 +289,7 @@ class Index:
 
     def copy_configs(self, new=False, output=True):
         if output:
-            logging.info("Copying config files from /config to the fast load database...\n")
+            logging.info("Copying config files from /config to the fast load database...")
 
         config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "general.xlsx"]
         
@@ -303,7 +303,7 @@ class Index:
                 try:
                     shutil.copy(source_file, target_file)
                     if output:
-                        logging.info(f"File {file_name} has been successfully copied to {self.IOSystem.fast_db}." + ("\n" if file_name == config_files[-1] else ""))
+                        logging.info(f"File {file_name} has been successfully copied." + ("\n" if file_name == config_files[-1] else ""))
                 except Exception as e:
                     logging.error(f"Error copying {file_name}: {e}")
             else:
@@ -679,13 +679,12 @@ class IOSystem:
         if attempt == 1:
             self.start_time = time.time()  # Record the start time if measuring the elapsed time
 
-        if attempt >= 2:
-            raise RuntimeError("Interrupted load-function to prevent recursive actions.")
-            return  
+        if attempt > 2:
+            raise RuntimeError("Interrupted load-function to prevent recursive actions.") 
         
         if os.path.exists(self.fast_db) and not force:
             if attempt == 1:
-                logging.info("Fast database was found - Loading...")
+                logging.info(f"Fast database of the year {self.year} was found - Loading...")
             try:
                 # Load the matrices and convert them to DataFrames (without labels)
                 self.A = pd.DataFrame(np.load(os.path.join(self.fast_db, 'A.npy')).astype(np.float32))  # Load 'A' matrix
@@ -699,13 +698,13 @@ class IOSystem:
                 # Add the multi_indices
                 self.Index.update_multiindices()
             except:
-                logging.info("There was a problem trying to load the database. Force-loading instead...")
+                logging.info("There was a problem trying to load the database. Force-loading instead... \n")
                 self.load(force=True)
 
             # Calculate and print the elapsed time
             end_time = time.time()  # Record the end time
             elapsed_time = end_time - self.start_time  # Calculate elapsed time
-            logging.info(f"Database has been loaded successfully in {round(float(elapsed_time), 3)} seconds.")
+            logging.info(f"Database has been loaded successfully in {round(float(elapsed_time), 3)} seconds. \n")
             return self
     
         else:
