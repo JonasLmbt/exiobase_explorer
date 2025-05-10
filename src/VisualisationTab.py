@@ -3,12 +3,12 @@ import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from PyQt5.QtWidgets import (
-    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QMenu, QFileDialog,
+    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,  QMenu, QFileDialog,
     QGroupBox, QLabel, QPushButton, QSizePolicy, QMessageBox,
-    QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog, QApplication, QComboBox, QTabBar
+    QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog, QApplication, QComboBox, QTabBar, QToolTip
 )
-from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
+from shapely.geometry import Point
 
 
 def multiindex_to_nested_dict(multiindex: pd.MultiIndex) -> dict:
@@ -376,6 +376,11 @@ class MapConfigTab(QWidget):
         # If parent is a QTabWidget, keep reference to rename tab dynamically
         self.tab_widget = parent if isinstance(parent, QTabWidget) else None
 
+        # Statt GeoJSON: dein gemergtes GeoDataFrame übernehmen
+        self.world = self.database.Index.world
+        self.world = self.world.to_crs(epsg=4326)
+        self.world_sindex = self.world.sindex
+
         # Main layout for the tab
         layout = QVBoxLayout(self)
 
@@ -430,6 +435,7 @@ class MapConfigTab(QWidget):
 
         # Embed the figure into a FigureCanvas and add it to the layout
         self.canvas = FigureCanvas(fig)
+        self.canvas.mpl_connect('motion_notify_event', self._on_hover)
         self._setup_canvas_context_menu()
         layout.addWidget(self.canvas)
 
@@ -450,18 +456,97 @@ class MapConfigTab(QWidget):
         # Determine which map to draw based on current selection
         choice = self.selector.currentText()
         if choice == self.general_dict["Subcontractors"]:
-            fig = self.ui.supplychain.plot_worldmap_by_subcontractors(color="Blues", relative=True)
+            fig, world = self.ui.supplychain.plot_worldmap_by_subcontractors(color="Blues", relative=True, return_data=True)
         else:
-            fig = self.ui.supplychain.plot_worldmap_by_impact(choice)
+            fig, world = self.ui.supplychain.plot_worldmap_by_impact(choice, return_data=True)
+
+        self.world = world
+        self.world = self.world.to_crs(epsg=4326)
+        self.world_sindex = self.world.sindex
 
         # Create and display the new canvas with the selected map
         self.canvas = FigureCanvas(fig)
+        self.canvas.mpl_connect('motion_notify_event', self._on_hover)
+        self.canvas.mpl_connect('button_press_event', self._on_click)
         self._setup_canvas_context_menu()
         parent_layout.addWidget(self.canvas)
         self.canvas.draw()
 
         # Restore the cursor to its normal state
         QApplication.restoreOverrideCursor()
+
+    def _on_hover(self, event):
+        if event.inaxes is None:
+            QToolTip.hideText()
+            return
+
+        # Datenkoordinaten
+        x, y = event.xdata, event.ydata
+        pt = Point(x, y)
+        # Zuerst Bounding-Box-Filter via SpatialIndex
+        possible_idxs = list(self.world_sindex.intersection((x, y, x, y)))
+        if not possible_idxs:
+            QToolTip.hideText()
+            return
+
+        # Genaue contains-Abfrage
+        country = None
+        for idx in possible_idxs:
+            if self.world.geometry.iloc[idx].contains(pt):
+                country = self.world.iloc[idx]
+                break
+
+        if country is not None:
+            region = country.get("region", "-")
+            value = country.get("value", "-")
+            percentage = country.get("percentage", "-")
+
+            text = (
+                f"Region:    {region}\n"
+                f"Wert:  {round(value, 2)}\n"
+                f"Prozentwert.:    {round(percentage, 1)} %"
+            )
+
+            QToolTip.showText(
+                self.canvas.mapToGlobal(event.guiEvent.pos()),
+                text,
+                widget=self.canvas,
+            )
+        else:
+            QToolTip.hideText()
+
+    def _on_click(self, event):
+        if event.inaxes is None:
+            return
+
+        x, y = event.xdata, event.ydata
+        pt = Point(x, y)
+
+        # wie bei Hover: Spatial-Index-Filter + contains()
+        possible = list(self.world_sindex.intersection((x,y,x,y)))
+        country = None
+        for idx in possible:
+            if self.world.geometry.iloc[idx].contains(pt):
+                country = self.world.iloc[idx]
+                break
+
+        if country is not None:
+            region     = country.get("region", "-")
+            value      = country.get("value", "-")
+            percentage = country.get("percentage", "-")
+
+            text = (
+                f"Region:        {region}\n"
+                f"Wert:          {round(value, 5)}\n"
+                f"Prozentwert:   {round(percentage, 2)} %"
+            )
+
+            # kleines Info-Fenster
+            mb = QMessageBox(self)
+            mb.setWindowTitle("Detail-Info")
+            mb.setText(text)
+            mb.setStandardButtons(QMessageBox.Ok)
+            mb.exec_()
 
     def _update_tab_name(self, text):
         """

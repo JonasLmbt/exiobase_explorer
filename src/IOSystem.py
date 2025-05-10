@@ -233,7 +233,6 @@ class Index:
         # Load the latest config data and update sector and impact multiindices
         self.read_configs()
         self.create_multiindices()
-        self.update_map()
 
         # Extract unique names for system-wide reference
         self.IOSystem.sectors = self.sectors_df.iloc[:, -1].unique().tolist()
@@ -286,6 +285,9 @@ class Index:
         self.sector_classification = self.sectors_df.columns.tolist()
         self.region_classification = self.regions_df.columns.tolist()
         self.impact_classification = self.impacts_df.columns.tolist()        
+
+        # Update the map
+        self.update_map()
 
     def copy_configs(self, new=False, output=True):
         if output:
@@ -396,6 +398,9 @@ class Index:
         self.world = self.world[["region", "geometry"]]
         
         self.world = self.world.dissolve(by="region") 
+
+        # regions_without_malta = self.IOSystem.regions[:18] + self.IOSystem.regions[19:]
+        # self.world["region"] = regions_without_malta
 
     def get_map(self):
         """
@@ -697,7 +702,7 @@ class IOSystem:
 
                 # Add the multi_indices
                 self.Index.update_multiindices()
-            except:
+            except Exception as e:
                 logging.info("There was a problem trying to load the database. Force-loading instead... \n")
                 self.load(force=True)
 

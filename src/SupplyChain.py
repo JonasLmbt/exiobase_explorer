@@ -437,7 +437,7 @@ class SupplyChain:
         plt.close(fig)
         return fig
 
-    def plot_worldmap_by_subcontractors(self, color="Blues", title=None, relative=True, show_legend=False):
+    def plot_worldmap_by_subcontractors(self, color="Blues", title=None, relative=True, show_legend=False, return_data=False):
         values = list(self.database.L.iloc[:, self.indices]
                     .groupby(level=self.database.Index.region_classification[-1], sort=False)
                     .sum().sum(axis=1).values)
@@ -450,17 +450,17 @@ class SupplyChain:
         df = pd.DataFrame(values, index=self.database.regions_exiobase)
         title = title if title is not None else f'{self.database.Index.general_dict["Subcontractors"]} ' + self.get_title()
 
-        return self.plot_worldmap_by_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend)
+        return self.plot_worldmap_by_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend, return_data=return_data)
     
-    def plot_worldmap_by_impact(self, impact, color="Blues", title=None, relative=True, show_legend=False):
+    def plot_worldmap_by_impact(self, impact, color="Blues", title=None, relative=True, show_legend=False, return_data=False):
         values = self.database.Impact.total.loc[impact].iloc[:, self.indices].sum(axis=1).values.tolist()
 
         df = pd.DataFrame({'Impact': values}, index=self.database.regions_exiobase)
         title = title if title is not None else f'{self.database.Index.general_dict["Global"]} {impact} ' + self.get_title()
 
-        return self.plot_worldmap_by_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend)
+        return self.plot_worldmap_by_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend, return_data=return_data)
 
-    def plot_worldmap_by_data(self, df, column=None, color_map="Blues", relative=False, title="", show_legend=False):
+    def plot_worldmap_by_data(self, df, column=None, color_map="Blues", relative=False, title="", show_legend=False, return_data=False):
         """
         Plots a choropleth map of the given dataframe's column.
 
@@ -478,12 +478,16 @@ class SupplyChain:
         
         # Werte ggf. als Prozent
         values = df[column].copy()
-        if relative:
-            values = (values / values.sum()) * 100
+        percentages = (values / values.sum()) * 100
         
         # Reihenfolge sichern
         world = world.loc[df.index]
-        world["data"] = values
+        world["region"] = self.database.regions[:19] + self.database.regions[20:]
+        world["value"] = values
+        world["percentage"] =  percentages
+        
+        world["data"] = percentages if relative else values
+        
 
         # Plot
         fig, ax = plt.subplots(1, 1, figsize=(15, 10))
@@ -513,7 +517,10 @@ class SupplyChain:
         plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
         plt.close(fig)
-        return fig
+        if return_data:
+            return fig, world
+        else:
+            return fig
 
     def get_title(self, **kwargs):
         """
