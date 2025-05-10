@@ -483,6 +483,7 @@ class SupplyChain:
         # Reihenfolge sichern
         world = world.loc[df.index]
         world["region"] = self.database.regions[:19] + self.database.regions[20:]
+        world["exiobase"] = self.database.regions_exiobase[:19] + self.database.regions_exiobase[20:]
         world["value"] = values
         world["percentage"] =  percentages
         

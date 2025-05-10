@@ -1,15 +1,16 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import os
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from PyQt5.QtWidgets import (
-    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,  QMenu, QFileDialog,
-    QGroupBox, QLabel, QPushButton, QSizePolicy, QMessageBox,
+    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,  QMenu, QFileDialog, QGraphicsOpacityEffect,
+    QGroupBox, QLabel, QPushButton, QSizePolicy, QStackedLayout,
     QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog, QApplication, QComboBox, QTabBar, QToolTip
 )
 from PyQt5.QtCore import Qt
 from shapely.geometry import Point
-
+from PyQt5.QtGui import QPixmap
 
 def multiindex_to_nested_dict(multiindex: pd.MultiIndex) -> dict:
     # Initialize an empty dictionary to store the nested structure.
@@ -343,6 +344,61 @@ class DiagramTab(QWidget):
                 self.canvas.figure.savefig(fname)
 
 
+class InfoDialog(QDialog):
+    def __init__(self, ui, country, parent=None):
+        super().__init__(parent)
+        self.ui = ui
+        self.database = self.ui.database
+
+        # Dialog-Grundkonfiguration
+        self.setWindowTitle("Detail-Info")
+        self.setFixedSize(320, 220)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        # Haupt-Layout: überlagert Hintergrund und Text
+        stack = QStackedLayout(self)
+        stack.setContentsMargins(0, 0, 0, 0)
+        stack.setStackingMode(QStackedLayout.StackAll)
+
+        # Hintergrund: Flagge mit Transparenz
+        flag_name = f"{country.get('exiobase','-').lower()}.png"
+        flag_path = os.path.join(self.database.data_dir, "flags", flag_name)
+        bg_label = QLabel()
+        bg_label.setScaledContents(True)
+        bg_label.setFixedSize(self.size())
+        if os.path.exists(flag_path):
+            pixmap = QPixmap(flag_path).scaled(
+                self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+            )
+            bg_label.setPixmap(pixmap)
+        else:
+            bg_label.setStyleSheet("background-color: #fff;")
+        # Transparenz-Effekt
+        opacity_effect = QGraphicsOpacityEffect(bg_label)
+        opacity_effect.setOpacity(0.3)
+        bg_label.setGraphicsEffect(opacity_effect)
+        stack.addWidget(bg_label)
+
+        # Text-Label: ohne eigenen Hintergrund, nur weiße Schrift mit Schatten
+        region = country.get("region", "-")
+        value = country.get("value", "-")
+        percentage = country.get("percentage", "-")
+        text = (
+            f"<div style='color: #000; font-size:16px;'>"
+            f"<b>{region}</b><br>"
+            f"Wert: {value}<br>"
+            f"Prozent: {percentage} %"
+            f"</div>"
+        )
+        text_label = QLabel(text, self)
+        text_label.setAlignment(Qt.AlignCenter)
+        text_label.setWordWrap(True)
+        stack.addWidget(text_label)
+
+    def mousePressEvent(self, event):
+        self.accept()
+
+
 class MapConfigTab(QWidget):
     """
     A tab for configuring the map visualization in the application.
@@ -516,37 +572,25 @@ class MapConfigTab(QWidget):
             QToolTip.hideText()
 
     def _on_click(self, event):
+        """Wird bei Mausklick im Canvas aufgerufen – zeigt Info-Dialog an."""
         if event.inaxes is None:
             return
 
         x, y = event.xdata, event.ydata
         pt = Point(x, y)
+        possible_idxs = list(self.world_sindex.intersection((x, y, x, y)))
+        if not possible_idxs:
+            return
 
-        # wie bei Hover: Spatial-Index-Filter + contains()
-        possible = list(self.world_sindex.intersection((x,y,x,y)))
         country = None
-        for idx in possible:
+        for idx in possible_idxs:
             if self.world.geometry.iloc[idx].contains(pt):
                 country = self.world.iloc[idx]
                 break
 
         if country is not None:
-            region     = country.get("region", "-")
-            value      = country.get("value", "-")
-            percentage = country.get("percentage", "-")
-
-            text = (
-                f"Region:        {region}\n"
-                f"Wert:          {round(value, 5)}\n"
-                f"Prozentwert:   {round(percentage, 2)} %"
-            )
-
-            # kleines Info-Fenster
-            mb = QMessageBox(self)
-            mb.setWindowTitle("Detail-Info")
-            mb.setText(text)
-            mb.setStandardButtons(QMessageBox.Ok)
-            mb.exec_()
+            dialog = InfoDialog(ui=self.ui, country=country, parent=self)
+            dialog.exec_()
 
     def _update_tab_name(self, text):
         """
