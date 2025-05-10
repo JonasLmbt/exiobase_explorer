@@ -345,13 +345,14 @@ class DiagramTab(QWidget):
 
 
 class InfoDialog(QDialog):
-    def __init__(self, ui, country, parent=None):
+    def __init__(self, ui, country, choice, parent=None):
         super().__init__(parent)
         self.ui = ui
         self.database = self.ui.database
+        self.general_dict = self.database.Index.general_dict
 
         # Dialog-Grundkonfiguration
-        self.setWindowTitle("Detail-Info")
+        self.setWindowTitle(self.general_dict["Info"])
         self.setFixedSize(320, 220)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
@@ -380,15 +381,12 @@ class InfoDialog(QDialog):
         stack.addWidget(bg_label)
 
         # Text-Label: ohne eigenen Hintergrund, nur weiße Schrift mit Schatten
-        region = country.get("region", "-")
-        value = country.get("value", "-")
-        percentage = country.get("percentage", "-")
         text = (
-            f"<div style='color: #000; font-size:16px;'>"
-            f"<b>{region}</b><br>"
-            f"Wert: {value}<br>"
-            f"Prozent: {percentage} %"
-            f"</div>"
+            f'<div style="color: #000; font-size:16px;">'
+            f'<b>{country.get("region", "-")}</b><br>'
+            f'{choice}: {round(float(country.get("value", "-")), 3)} {country.get("unit", "-")}<br>'
+            f'{self.general_dict["Percentage"]}: {round(float(country.get("percentage", "-")), 2)} %'
+            f'</div>'
         )
         text_label = QLabel(text, self)
         text_label.setAlignment(Qt.AlignCenter)
@@ -510,11 +508,11 @@ class MapConfigTab(QWidget):
         self.canvas.deleteLater()
 
         # Determine which map to draw based on current selection
-        choice = self.selector.currentText()
-        if choice == self.general_dict["Subcontractors"]:
+        self.choice = self.selector.currentText()
+        if self.choice == self.general_dict["Subcontractors"]:
             fig, world = self.ui.supplychain.plot_worldmap_by_subcontractors(color="Blues", relative=True, return_data=True)
         else:
-            fig, world = self.ui.supplychain.plot_worldmap_by_impact(choice, return_data=True)
+            fig, world = self.ui.supplychain.plot_worldmap_by_impact(self.choice, return_data=True)
 
         self.world = world
         self.world = self.world.to_crs(epsg=4326)
@@ -553,14 +551,10 @@ class MapConfigTab(QWidget):
                 break
 
         if country is not None:
-            region = country.get("region", "-")
-            value = country.get("value", "-")
-            percentage = country.get("percentage", "-")
-
             text = (
-                f"Region:    {region}\n"
-                f"Wert:  {round(value, 2)}\n"
-                f"Prozentwert.:    {round(percentage, 1)} %"
+                f'{self.general_dict["Region"]}:    {country.get("region", "-")}\n'
+                f'{self.choice}:  {round(float(country.get("value", "-")), 2)} {country.get("unit", "-")}\n'
+                f'{self.general_dict["Percentage"]}:    {round(float(country.get("percentage", "-")), 1)} %'
             )
 
             QToolTip.showText(
@@ -572,7 +566,6 @@ class MapConfigTab(QWidget):
             QToolTip.hideText()
 
     def _on_click(self, event):
-        """Wird bei Mausklick im Canvas aufgerufen – zeigt Info-Dialog an."""
         if event.inaxes is None:
             return
 
@@ -589,7 +582,7 @@ class MapConfigTab(QWidget):
                 break
 
         if country is not None:
-            dialog = InfoDialog(ui=self.ui, country=country, parent=self)
+            dialog = InfoDialog(ui=self.ui, country=country, choice=self.choice, parent=self)
             dialog.exec_()
 
     def _update_tab_name(self, text):

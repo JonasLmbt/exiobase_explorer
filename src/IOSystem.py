@@ -540,6 +540,16 @@ class Impact:
             # Handle cases where the data structure is unexpected
             return "#ffffff"
 
+    def get_unit(self, impact):
+        # Extract the relevant impact column
+        impact_list = self.IOSystem.Index.impacts_df.iloc[:, -1].to_list()
+
+        # Find index of the impact
+        idx = impact_list.index(impact)
+
+        # Retrieve corresponding unit
+        return self.IOSystem.Index.units_df.iloc[idx].iloc[4]
+        
     def get_regional_impacts(self, region_indices):
         """ 
         Adjusts the environmental impact calculations to ensure that all sectors 
