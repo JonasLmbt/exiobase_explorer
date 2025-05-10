@@ -139,18 +139,12 @@ class SupplyChain:
         Transforms the given value based on the unit for the specified impact.
         """
         impact_row_idx = self.database.Index.units_df[self.database.Index.units_df.iloc[:, 0] == impact].index
-        if not impact_row_idx.empty:
-            impact_row = self.database.Index.units_df.iloc[impact_row_idx[0]].tolist()
-            unit = impact_row[4]
-            value = value / impact_row[2]
-            #if round(value, impact_row[3]) != 0:
-            #    value = round(value, impact_row[3])
-        else:
-            # Default or error handling if the impact is not found
-            print(f"Impact '{impact}' not found in units_df, using default unit.")
-            unit = "default_unit"  # Specify a default unit or handle the case accordingly
-            value = value  # Alternatively, handle this gracefully
-    
+        impact_row = self.database.Index.units_df.iloc[impact_row_idx[0]].tolist()
+        unit = impact_row[4]
+        value = value / impact_row[2]
+        #if round(value, impact_row[3]) != 0:
+        #    value = round(value, impact_row[3])
+
         return (value, unit)
     
     def total(self, impact):
@@ -442,25 +436,26 @@ class SupplyChain:
                     .groupby(level=self.database.Index.region_classification[-1], sort=False)
                     .sum().sum(axis=1).values)
 
-        # if not self.inputByIndices:
-        #     key = self.database.Index.region_classification[-1]
-        #     if key in self.hierarchy_levels and self.hierarchy_levels[key] is not None:
-        #         values[self.database.regions.index(self.hierarchy_levels[key])] = 0
-
         df = pd.DataFrame(values, index=self.database.regions_exiobase)
         title = title if title is not None else f'{self.database.Index.general_dict["Subcontractors"]} ' + self.get_title()
 
-        return self.plot_worldmap_by_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend, return_data=return_data)
+        units = [""] * 48
+
+        return self.plot_worldmap_by_data(df=df, units=units, color_map=color, relative=relative, title=title, show_legend=show_legend, return_data=return_data)
     
     def plot_worldmap_by_impact(self, impact, color="Blues", title=None, relative=True, show_legend=False, return_data=False):
         values = self.database.Impact.total.loc[impact].iloc[:, self.indices].sum(axis=1).values.tolist()
 
+        values = [self.transform_unit(value=value, impact=impact)[0] for value in values]
+
         df = pd.DataFrame({'Impact': values}, index=self.database.regions_exiobase)
         title = title if title is not None else f'{self.database.Index.general_dict["Global"]} {impact} ' + self.get_title()
 
-        return self.plot_worldmap_by_data(df=df, color_map=color, relative=relative, title=title, show_legend=show_legend, return_data=return_data)
+        units = [self.database.Impact.get_unit(impact)] * 48
 
-    def plot_worldmap_by_data(self, df, column=None, color_map="Blues", relative=False, title="", show_legend=False, return_data=False):
+        return self.plot_worldmap_by_data(df=df, units=units, color_map=color, relative=relative, title=title, show_legend=show_legend, return_data=return_data)
+
+    def plot_worldmap_by_data(self, df, units=None, column=None, color_map="Blues", relative=False, title="", show_legend=False, return_data=False):
         """
         Plots a choropleth map of the given dataframe's column.
 
@@ -486,6 +481,8 @@ class SupplyChain:
         world["exiobase"] = self.database.regions_exiobase[:19] + self.database.regions_exiobase[20:]
         world["value"] = values
         world["percentage"] =  percentages
+        if units:
+            world["unit"] = units
         
         world["data"] = percentages if relative else values
         
