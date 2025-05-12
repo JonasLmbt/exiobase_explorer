@@ -385,7 +385,7 @@ class InfoDialog(QDialog):
             f'<div style="color: #000; font-size:16px;">'
             f'<b>{country.get("region", "-")}</b><br>'
             f'{choice}: {round(float(country.get("value", "-")), 3)} {country.get("unit", "-")}<br>'
-            f'{self.general_dict["Percentage"]}: {round(float(country.get("percentage", "-")), 2)} %'
+            f'{self.general_dict["Global share"]}: {round(float(country.get("percentage", "-")), 2)} %'
             f'</div>'
         )
         text_label = QLabel(text, self)
@@ -554,7 +554,7 @@ class MapConfigTab(QWidget):
             text = (
                 f'{self.general_dict["Region"]}:    {country.get("region", "-")}\n'
                 f'{self.choice}:  {round(float(country.get("value", "-")), 2)} {country.get("unit", "-")}\n'
-                f'{self.general_dict["Percentage"]}:    {round(float(country.get("percentage", "-")), 1)} %'
+                f'{self.general_dict["Global share"]}:    {round(float(country.get("percentage", "-")), 1)} %'
             )
 
             QToolTip.showText(
