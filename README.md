@@ -19,6 +19,7 @@ A Python tool for analyzing Exiobase data with various modules for IO systems, i
 ### 2️⃣ Create a virtual environment (optional, but recommended)
 
     python -m venv venv
+    venv\Scripts\activate
 
 ### 3️⃣ Install dependencies
 
@@ -28,17 +29,15 @@ A Python tool for analyzing Exiobase data with various modules for IO systems, i
 
 ## Usage
 
-To use the Exiobase Explorer:
-
-    # Write your code into main.py or create new projects within the folder. Then import the classes:
-    from src.IOSystem import IOSystem
-    from src.SupplyChain import SupplyChain
-
 Download databases from exiobase on their website (don't change the name!) and put them into the empty folder "exiobase".
 
-Create an instance and load data:
+    https://zenodo.org/records/14869924
 
-    database = IOSystem(year=2022, language="german").load() # Loading it for the first time might take up to a minute
+Setup the fast load databases:
+
+    python setup.py
+
+Run main.py to use the exiobase explorer.
 
 ---
 
