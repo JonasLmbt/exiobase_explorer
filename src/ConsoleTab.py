@@ -6,9 +6,6 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QEvent
 from PyQt5.QtGui import QTextCursor
 
-from src.IOSystem import IOSystem
-from src.SupplyChain import SupplyChain
-
 
 class ConsoleTab(QWidget):
     """

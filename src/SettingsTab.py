@@ -50,7 +50,7 @@ class SettingsTab(QWidget):
     SettingsTab widget for displaying and adjusting application settings.
     This widget handles logging setup, fetching languages, years, and UI initialization.
     """
-    def __init__(self, database, ui):
+    def __init__(self, ui):
         """
         Initializes the SettingsTab widget.
 
@@ -60,8 +60,8 @@ class SettingsTab(QWidget):
         super().__init__()
         
         # Store references to the database and UI for later use
-        self.database = database
         self.ui = ui
+        self.database = self.ui.database
         
         # Access the general dictionary from the database for UI labels and text
         self.general_dict = self.database.Index.general_dict
@@ -211,8 +211,10 @@ class SettingsTab(QWidget):
         logging.info(f"Switching to year {self.current_year}...")
 
         # Switch year in the database and reload data for the selected year
-        self.database.switch_year(int(self.current_year))
-        self.database.load()  # Reload data for the selected year
+        self.ui.database.switch_year(int(self.current_year))
+        self.ui.database.load()  # Reload data for the selected year
+        self.ui.database.Index.copy_configs(output=False)
+        self.ui.update_supplychain()
 
         # Restore the cursor after processing is complete
         QApplication.restoreOverrideCursor()

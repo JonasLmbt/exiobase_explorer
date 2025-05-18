@@ -1,8 +1,8 @@
 pandas
 matplotlib
-mapclassify
 numpy
 geopandas
+mapclassify
 openpyxl
 PyQt5 
 plotly 
