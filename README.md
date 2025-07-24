@@ -13,7 +13,7 @@ A Python tool for analyzing Exiobase data with various modules for IO systems, i
 ## Installation
 
 ### 1️⃣ Clone the repository
-    git clone https://github.com/Zorbas05/exiobase_explorer.git
+    git clone https://github.com/JonasLmbt/exiobase_explorer.git
     cd exiobase_explorer
 
 ### 2️⃣ Create a virtual environment (optional, but recommended)
