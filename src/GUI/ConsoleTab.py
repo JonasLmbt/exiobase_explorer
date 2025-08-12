@@ -32,6 +32,11 @@ class ConsoleTab(QWidget):
         # Set execution context
         self.context = context or {}
 
+        # Add the main application instance (as 'app') and the console tab itself to the context
+        if self.ui:
+            self.context['app'] = self.ui  # Pass the main UI object as 'app'
+        self.context['console_tab'] = self
+
         # Create interactive console instance
         self.console = code.InteractiveConsole(self.context)
 
