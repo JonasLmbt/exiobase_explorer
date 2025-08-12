@@ -1,0 +1,10 @@
+pandas
+matplotlib
+numpy
+geopandas
+mapclassify
+openpyxl
+PyQt5 
+plotly 
+networkx
+qdarktheme
