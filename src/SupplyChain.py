@@ -417,7 +417,7 @@ class SupplyChain:
                 val_rel = row_values.iloc[col]
                 size = val_rel * bubble_scale  # Size of the bubble based on relative impact
                 ax.scatter(col, i, s=size, color=color, alpha=0.7, edgecolors="black", linewidths=0.6)  # Scatter plot
-                ax.text(col, i, f"{val_rel * 100:.1f} %", va=text_position, ha="center", fontsize=9, color="black")  # Text inside bubbles
+                ax.text(col, i, f"{val_rel * 100:.1f} %", va=text_position, ha="center", fontsize=9, color="black")  # Text inside bubbles #fontweight="bold"??
 
             # Total impact (column 4)
             total_val = row_values[self.database.Index.general_dict["Total"]]
