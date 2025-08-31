@@ -1,51 +1,81 @@
-# Exiobase Explorer 
+# Exiobase Explorer
 
-NOTE: This project is still in development 
+> **Note:** This project is still under development.
 
-A Python tool for analyzing Exiobase data with various modules for IO systems, impact analysis, and supply chain management.
+A Python tool for analyzing Exiobase data with modules for input-output systems, impact analysis, and supply chain management.
+
+-----
 
 ## Features
-- **IOSystem Module**: Loads and processes input-output data from Exiobase.
-- **SupplyChain Module**: Models supply chains with hierarchical structures.
 
----
+  - **IOSystem Module**: Loads and processes input-output data from Exiobase.
+  - **SupplyChain Module**: Models and analyzes supply chains with hierarchical structures.
+
+-----
 
 ## Installation
 
-### 1️⃣ Clone the repository
-    git clone https://github.com/Zorbas05/exiobase_explorer.git
+1.  **Clone the repository**
+
+    ```bash
+    git clone https://github.com/JonasLmbt/exiobase_explorer.git
     cd exiobase_explorer
+    ```
 
-### 2️⃣ Create a virtual environment (optional, but recommended)
+2.  **Create a virtual environment (recommended)**
 
+    ```bash
     python -m venv venv
+    ```
+
+    **Windows:**
+
+    ```bash
     venv\Scripts\activate
+    ```
 
-### 3️⃣ Install dependencies
+    **macOS/Linux:**
 
+    ```bash
+    source venv/bin/activate
+    ```
+
+3.  **Install dependencies**
+
+    ```bash
     pip install -r requirements.txt
+    ```
 
----
+-----
 
 ## Usage
 
-Download databases from exiobase on their website (don't change the name!) and put them into the empty folder "exiobase".
+1.  Download the the databases (select a version prior to 3.9.4 and always use pxp) and place them in the `exiobase` folder (do not change file names): [Download Exiobase database](https://zenodo.org/records/5589597)
 
-    https://zenodo.org/records/14869924
+2.  Set up the fast-load databases:
 
-Setup the fast load databases:
-
+    ```bash
     python setup.py
+    ```
 
-Run main.py to use the exiobase explorer.
+3.  Start the tool:
 
----
+    ```bash
+    python main.py
+    ```
+
+-----
 
 ## Modules
-IOSystem
 
-Handles the loading and processing of input-output data from Exiobase. It includes methods for managing databases and calculating IO matrices.
+  - **IOSystem**
 
-SupplyChain
+      - Loading and processing input-output data from Exiobase
+      - Database management and calculation of IO matrices
 
-Models and analyzes supply chains using hierarchical structures, with functions for managing different sectors and economic divisions.
+  - **SupplyChain**
+
+      - Modeling and analysis of supply chains with hierarchical structures
+      - Functions for managing sectors and economic units
+
+-----

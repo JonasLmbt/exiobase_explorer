@@ -1,16 +1,31 @@
+"""
+IOSystem.py
+
+An Input-Output System for processing EXIOBASE databases with optimized
+performance and unified code style.
+"""
+
+import io
+import itertools
+import json
+import logging
 import os
 import shutil
-import io
-import json
-import zipfile
+import sys
 import time
-import itertools
-import pandas as pd 
-import numpy as np 
-import geopandas as gpd 
-import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+import zipfile
+from typing import Dict, List, Optional, Tuple, Union
 
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+
+# Configure logging for clear output
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s - %(message)s',
+    stream=sys.stdout  # Hier wird der Ausgabestrom explizit gesetzt
+)
 
 class Index:
     """
@@ -38,11 +53,33 @@ class Index:
                                       and unit classification data into Excel files.
     """
     
-    def __init__(self, IOSystem):
+    def __init__(self, iosystem):
         """
-        Initializes the Index object.
+        Initializes the Index object with a reference to the IOSystem object.
+
+        Args:
+            iosystem: Reference to the IOSystem object
         """
-        self.IOSystem = IOSystem
+        self.iosystem = iosystem
+
+        # Initialize attributes that will be populated by read_configs
+        self.sectors_df = None
+        self.raw_materials_df = None
+        self.regions_df = None
+        self.exiobase_to_map_df = None
+        self.impacts_df = None
+        self.impact_color_df = None
+        self.units_df = None
+        self.general_df = None
+
+        self.amount_sectors = None
+        self.amount_regions = None
+        self.amount_impacts = None
+
+        self.general_dict = {}
+        self.raw_material_indices = []
+        self.not_raw_material_indices = []
+        self.languages = []
 
     def read_configs(self):
         """
@@ -67,90 +104,112 @@ class Index:
         This method ensures that all necessary data is loaded into the system and validated, allowing for reliable processing 
         in subsequent steps.
         """
+        
         try:
-            # Mapping of attributes to file names and sheet names
+            # Mapping of df_id to file names, sheet names, and expected lengths
             file_mapping = {
-                "sectors_df": ("sectors.xlsx", self.IOSystem.language),  
-                "raw_materials_df" : ("sectors.xlsx", "raw_material"),  
-                "regions_df": ("regions.xlsx", self.IOSystem.language),  
-                "exiobase_to_map_df": ("regions.xlsx", "map"), 
-                "impacts_df": ("impacts.xlsx", self.IOSystem.language),   
-                "impact_color_df": ("impacts.xlsx", "color"), 
-                "units_df": ("units.xlsx", self.IOSystem.language),   
-                "general_df": ("general.xlsx", self.IOSystem.language)  
+                "sectors_df": ("sectors.xlsx", self.iosystem.language, 200),
+                "raw_materials_df": ("sectors.xlsx", "raw_material", 200),
+                "regions_df": ("regions.xlsx", self.iosystem.language, 49),
+                "exiobase_to_map_df": ("regions.xlsx", "map", 178),
+                "impacts_df": ("impacts.xlsx", self.iosystem.language, 126),
+                "impact_color_df": ("impacts.xlsx", "color", 126),
+                "units_df": ("units.xlsx", self.iosystem.language, 126),
+                "general_df": ("general.xlsx", self.iosystem.language, 12)
             }
 
-            # Expected lengths for verification
-            expected_lengths = {
-                'sectors_df': 200,
-                "raw_materials_df" : 200,
-                'regions_df': 49,
-                'exiobase_to_map_df': 178,
-                'impacts_df': 126,
-                'impact_color_df': 126,
-                'units_df': 126,
-                'general_df': 12
-            }
-            
             # Attempt to load each Excel file and assign it to the corresponding attribute
-            try:
-                for attr, (file_name, sheet_name) in file_mapping.items():
+            for df_id, (file_name, sheet_name, expected_length) in file_mapping.items():
+                try:
                     # Read the Excel file and set the corresponding attribute
-                    df = pd.read_excel(os.path.join(self.IOSystem.fast_db, file_name), sheet_name=sheet_name)
-                    
+                    file_path = os.path.join(self.iosystem.current_fast_database_path, file_name)
+                    df = pd.read_excel(file_path, sheet_name=sheet_name)
                     amount = len(df)
-                    
-                    # For sectors_df, regions_df, and impacts_df: reverse the column order and check for duplicates
-                    if attr in ['sectors_df', 'regions_df', 'impacts_df']:
-                        # Reverse the column order for consistent hierarchical processing
+
+                    # For sectors_df, regions_df, and impacts_df: reverse column order and check for duplicates
+                    if df_id in ['sectors_df', 'regions_df', 'impacts_df']:
+                        # Reverse column order for consistent hierarchical processing
                         df = df.iloc[:, ::-1]
 
-                        # Store the number of rows for each DataFrame as reference
-                        setattr(self, f"amount_{attr[:-3]}", amount)
+                        # Store the number of rows as reference
+                        setattr(self, f"amount_{df_id[:-3]}", amount)
 
-                        # Verify column names are unique
+                        # Check for unique column names
                         duplicate_columns = df.columns[df.columns.duplicated()]
                         if len(duplicate_columns) > 0:
-                            raise ValueError(f"The sheet '{sheet_name}' in '{file_name}' contains duplicate column names: {', '.join(duplicate_columns)}.")
-                    
-                    # Verify length
-                    if amount != expected_lengths.get(attr, 0) and file_name != "general.xlsx":
-                        raise ValueError(f"Expected {expected_lengths.get(attr)} rows in sheet '{sheet_name}' of '{file_name}', but found {len(df)}.")
+                            raise ValueError(
+                                f"Sheet '{sheet_name}' in '{file_name}' contains duplicate column names: "
+                                f"{', '.join(duplicate_columns)}"
+                            )
 
-                    # Set the DataFrame as an instance variable using setattr
-                    setattr(self, attr, df)
-                    
-            except FileNotFoundError as e:
-                logging.error(f"Missing required Excel file: {e.filename}")
-                raise FileNotFoundError(f"Missing required Excel file: {e.filename}") from e
-                
+                    # Verify length
+                    if amount != expected_length and file_name != "general.xlsx":
+                        raise ValueError(
+                            f"Expected {expected_length} rows in sheet '{sheet_name}' of '{file_name}', "
+                            f"but found {amount}"
+                        )
+
+                    # Set the DataFrame as an instance variable
+                    setattr(self, df_id, df)
+                    logging.debug(f"Successfully loaded: {file_name}/{sheet_name} ({amount} rows)")
+
+                except FileNotFoundError:
+                    logging.error(f"Missing Excel file: {file_name}")
+                    raise
+                except Exception as e:
+                    logging.error(f"Error loading {file_name}/{sheet_name}: {e}")
+                    raise
+
+            # Store unit transformations for later use in unit calculations
+            self.iosystem.index.unit_transform = self.units_df.values.tolist()
+
+            # Create a dictionary from the 'general_df' DataFrame, mapping 'exiobase' to 'translation'
+            self.general_dict = dict(zip(self.general_df['exiobase'], self.general_df['translation']))
+
+            # Create list of all raw material indices
+            self._create_raw_material_indices()
+
+            # Determine available languages
+            self._determine_available_languages()
+
+            logging.debug("Configuration files successfully read")
+
         except Exception as e:
             logging.error(f"Error during Excel reading and processing: {e}")
-            raise e
+            raise
 
-        # Store unit transformations for later use in unit calculations
-        self.IOSystem.Impact.unit_transform = self.units_df.values.tolist()
+    def _create_raw_material_indices(self):
+        """
+        Creates lists of raw material and non-raw material indices.
+        """
+        # Create base indices
+        raw_material_base = self.raw_materials_df[
+            self.raw_materials_df['raw_material'] == True
+        ].index.tolist()
 
-        # Create a dictionary from the 'general_df' DataFrame, mapping 'exiobase' to 'translation'
-        self.general_dict = dict(zip(self.general_df['exiobase'], self.general_df['translation']))
+        not_raw_material_base = self.raw_materials_df[
+            self.raw_materials_df['raw_material'] == False
+        ].index.tolist()
 
-        # Create a list with all raw material indices
-        self.raw_material_indices = self.raw_materials_df[self.raw_materials_df['raw_material'] == True].index.tolist()
-        self.not_raw_material_indices = self.raw_materials_df[self.raw_materials_df['raw_material'] == False].index.tolist()
-        expanded_raw_material_indices = []
-        expanded_not_raw_material_indices = []
+        # Create expanded indices for all regions
+        self.raw_material_indices = []
+        self.not_raw_material_indices = []
 
-        for i in range(1, 49):  # for each region
-            expanded_raw_material_indices.extend([i * 200 + index for index in self.raw_material_indices])
-            expanded_not_raw_material_indices.extend([i * 200 + index for index in self.not_raw_material_indices])
+        for region in range(1, 49):  # for each region
+            self.raw_material_indices.extend([region * 200 + idx for idx in raw_material_base])
+            self.not_raw_material_indices.extend([region * 200 + idx for idx in not_raw_material_base])
 
-        self.raw_material_indices = expanded_raw_material_indices
-        self.not_raw_material_indices = expanded_not_raw_material_indices
-
-        # Create a list with all possible languages
-        data = pd.ExcelFile(os.path.join(self.IOSystem.fast_db, file_name))
-        self.languages = data.sheet_names
-        del data
+    def _determine_available_languages(self):
+        """
+        Determines available languages from Excel files.
+        """
+        try:
+            file_path = os.path.join(self.iosystem.current_fast_database_path, "general.xlsx")
+            with pd.ExcelFile(file_path) as xls:
+                self.languages = xls.sheet_names
+        except FileNotFoundError:
+            logging.warning("Could not find 'general.xlsx' to determine available languages")
+            self.languages = []
 
     def create_multiindices(self):
         """
@@ -171,43 +230,48 @@ class Index:
         in matrices, enabling the system to handle complex, multi-dimensional relationships between regions, sectors, 
         and impacts.
         """
-        # Expand sectors to match all regions (ensuring each sector exists for each region)
+
+        # Expand sectors to match all regions
         self.matching_sectors_df = pd.concat([self.sectors_df] * self.amount_regions, ignore_index=True)
-        
-        # Match regions to sectors by repeating the region indices to match the number of sectors
-        self.matching_regions_df = self.regions_df.loc[np.repeat(self.regions_df.index, self.amount_sectors)].reset_index(drop=True)
-        
-        # Create MultiIndex for sectors and regions, ensuring hierarchical order
+
+        # Match regions to sectors
+        self.matching_regions_df = self.regions_df.loc[
+            np.repeat(self.regions_df.index, self.amount_sectors)
+        ].reset_index(drop=True)
+
+        # Create MultiIndex for sectors and regions
         self.sector_multiindex = pd.MultiIndex.from_arrays(
-            # Combine region and sector columns to form a hierarchical index
-            [self.matching_regions_df[column] for column in self.matching_regions_df.columns] + 
-            [self.matching_sectors_df[column] for column in self.matching_sectors_df.columns],
-            names=self.matching_regions_df.columns.to_list() + self.matching_sectors_df.columns.to_list()
+            [self.matching_regions_df[col] for col in self.matching_regions_df.columns] +
+            [self.matching_sectors_df[col] for col in self.matching_sectors_df.columns],
+            names=(self.matching_regions_df.columns.tolist() +
+                   self.matching_sectors_df.columns.tolist())
         )
-        
-        # Create MultiIndex for impacts (hierarchical index for impact categories)
+
+        # Create MultiIndex for impacts
         self.impact_multiindex = pd.MultiIndex.from_arrays(
-            [self.impacts_df[column] for column in self.impacts_df.columns],
-            names=self.impacts_df.columns.to_list()
+            [self.impacts_df[col] for col in self.impacts_df.columns],
+            names=self.impacts_df.columns.tolist()
         )
 
-        # Create just the region MultiIndex (for regions alone)
+        # Create MultiIndex only for regions
         self.region_multiindex = pd.MultiIndex.from_arrays(
-            [self.regions_df[column] for column in self.regions_df.columns],
-            names=self.regions_df.columns.to_list()
-        )              
-
-        # Create just the sector MultiIndex for a single region
-        self.sector_multiindex_per_region = pd.MultiIndex.from_arrays(
-            [self.sectors_df[column] for column in self.sectors_df.columns],
-            names=self.sectors_df.columns.to_list()
+            [self.regions_df[col] for col in self.regions_df.columns],
+            names=self.regions_df.columns.tolist()
         )
 
-        # Erstelle den neuen MultiIndex; die Namen werden als Tupel angegeben
+        # Create MultiIndex for sectors per region
+        self.sector_multiindex_per_region = pd.MultiIndex.from_arrays(
+            [self.sectors_df[col] for col in self.sectors_df.columns],
+            names=self.sectors_df.columns.tolist()
+        )
+
+        # Create MultiIndex for impact per region
         self.impact_per_region_multiindex = pd.MultiIndex.from_tuples(
             [imp + reg for imp, reg in itertools.product(self.impact_multiindex, self.region_multiindex)],
             names=list(self.impact_multiindex.names) + list(self.region_multiindex.names)
         )
+
+        logging.debug("MultiIndices successfully created")
 
     def update_multiindices(self):
         """
@@ -235,85 +299,109 @@ class Index:
         self.create_multiindices()
 
         # Extract unique names for system-wide reference
-        self.IOSystem.sectors = self.sectors_df.iloc[:, -1].unique().tolist()
-        self.IOSystem.regions = self.regions_df.iloc[:, -1].unique().tolist()
-        self.IOSystem.impacts = self.impacts_df.iloc[:, -1].unique().tolist()
-        self.IOSystem.units = self.units_df.iloc[:, -1].tolist()
+        self.iosystem.sectors = self.sectors_df.iloc[:, -1].unique().tolist()
+        self.iosystem.regions = self.regions_df.iloc[:, -1].unique().tolist()
+        self.iosystem.impacts = self.impacts_df.iloc[:, -1].unique().tolist()
+        self.iosystem.units = self.units_df.iloc[:, -1].tolist()
 
         # Load 'regions_exiobase' data
-        regions_exiobase_df = pd.read_excel(os.path.join(self.IOSystem.fast_db, 'regions.xlsx'), sheet_name="Exiobase")
-        self.IOSystem.regions_exiobase = regions_exiobase_df.iloc[:, -1].unique().tolist()
+        regions_exiobase_path = os.path.join(self.iosystem.current_fast_database_path, 'regions.xlsx')
+        regions_exiobase_df = pd.read_excel(regions_exiobase_path, sheet_name="Exiobase")
+        self.iosystem.regions_exiobase = regions_exiobase_df.iloc[:, -1].unique().tolist()
 
         # Update impact units DataFrame
-        self.IOSystem.Impact.unit = pd.DataFrame({"unit": self.IOSystem.units}, index=self.IOSystem.impacts)
+        self.iosystem.impact.unit = pd.DataFrame(
+            {"unit": self.iosystem.units},
+            index=self.iosystem.impacts
+        )
 
-        # Define matrices that need their MultiIndex updated (both sector and impact matrices)
+        # Define matrix mappings
         matrix_mappings = {
             "standard_matrices": ["A", "L", "Y", "I"],
             "impact_matrices": ["S", "D_cba"],
-            "regional_impact_matrices": ["total", "retail", "direct_suppliers", "resource_extraction", "preliminary_products"],
-            "regional_matrices": ["retail_regional", "direct_suppliers_regional", "resource_extraction_regional", "preliminary_products_regional"]
+            "regional_impact_matrices": ["total", "retail", "direct_suppliers",
+                                        "resource_extraction", "preliminary_products"],
+            "regional_matrices": ["retail_regional", "direct_suppliers_regional",
+                                 "resource_extraction_regional", "preliminary_products_regional"]
         }
 
-        # Update standard matrices' index and columns
-        for matrix_group, matrices in matrix_mappings.items():
-            if matrix_group == "standard_matrices":
-                for matrix in matrices:
-                    matrix_data = getattr(self.IOSystem, matrix)
-                    matrix_data.index = matrix_data.columns = self.sector_multiindex
-            
-            if matrix_group == "impact_matrices":
-                for matrix in matrices:
-                    impact_matrix = getattr(self.IOSystem.Impact, matrix)
-                    impact_matrix.index = self.impact_multiindex
-                    impact_matrix.columns = self.sector_multiindex
+        # Update matrix indices
+        self._update_matrix_indices(matrix_mappings)
 
-            if matrix_group == "regional_impact_matrices":
-                for matrix in matrices:
-                    impact_matrix = getattr(self.IOSystem.Impact, matrix)
-                    impact_matrix.index = self.impact_per_region_multiindex
-                    impact_matrix.columns = self.sector_multiindex
-
-            # Update regional matrices' index and columns if region-specific matrices exist
-            if matrix_group == "regional_matrices" and self.IOSystem.Impact.region_indices is not None:
-                for matrix in matrices:
-                    regional_matrix = getattr(self.IOSystem.Impact, matrix)
-                    regional_matrix.index = self.impact_multiindex
-                    regional_matrix.columns = self.sector_multiindex
-
-        # Lists to save the classification structure
+        # Store classification structures
         self.sector_classification = self.sectors_df.columns.tolist()
         self.region_classification = self.regions_df.columns.tolist()
-        self.impact_classification = self.impacts_df.columns.tolist()        
+        self.impact_classification = self.impacts_df.columns.tolist()
 
         # Update the map
         self.update_map()
 
-    def copy_configs(self, new=False, output=True):
+    def _update_matrix_indices(self, matrix_mappings: Dict[str, List[str]]):
+        """
+        Updates indices for different matrix groups.
+        """
+        for matrix_group, matrices in matrix_mappings.items():
+            if matrix_group == "standard_matrices":
+                for matrix_name in matrices:
+                    if hasattr(self.iosystem, matrix_name):
+                        matrix_data = getattr(self.iosystem, matrix_name)
+                        matrix_data.index = matrix_data.columns = self.sector_multiindex
+
+            elif matrix_group == "impact_matrices":
+                for matrix_name in matrices:
+                    if hasattr(self.iosystem.impact, matrix_name):
+                        impact_matrix = getattr(self.iosystem.impact, matrix_name)
+                        impact_matrix.index = self.impact_multiindex
+                        impact_matrix.columns = self.sector_multiindex
+
+            elif matrix_group == "regional_impact_matrices":
+                for matrix_name in matrices:
+                    if hasattr(self.iosystem.impact, matrix_name):
+                        impact_matrix = getattr(self.iosystem.impact, matrix_name)
+                        impact_matrix.index = self.impact_per_region_multiindex
+                        impact_matrix.columns = self.sector_multiindex
+
+            elif (matrix_group == "regional_matrices" and
+                  self.iosystem.impact.region_indices is not None):
+                for matrix_name in matrices:
+                    if hasattr(self.iosystem.impact, matrix_name):
+                        regional_matrix = getattr(self.iosystem.impact, matrix_name)
+                        regional_matrix.index = self.impact_multiindex
+                        regional_matrix.columns = self.sector_multiindex
+
+    def copy_configs(self, new: bool = False, output: bool = True):
+        """
+        Copies configuration files from the /config folder to the fast load database.
+
+        Args:
+            new: Indicates whether new configuration (not used)
+            output: Whether to display logging output
+        """
         if output:
             logging.info("Copying config files from /config to the fast load database...")
 
         config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "general.xlsx"]
-        
+
         # Loop through each Excel file in the list
         for file_name in config_files:
-            source_file = os.path.join(self.IOSystem.config_dir, file_name)
-            target_file = os.path.join(self.IOSystem.fast_db, file_name)
-            
-                # Check if the source file exists
+            source_file = os.path.join(self.iosystem.config_dir, file_name)
+            target_file = os.path.join(self.iosystem.current_fast_database_path, file_name)
+
+            # Check if the source file exists
             if os.path.exists(source_file):
                 try:
                     shutil.copy(source_file, target_file)
                     if output:
-                        logging.info(f"File {file_name} has been successfully copied." + ("\n" if file_name == config_files[-1] else ""))
+                        logging.info(f"File {file_name} has been successfully copied" +
+                                   ("\n" if file_name == config_files[-1] else ""))
                 except Exception as e:
                     logging.error(f"Error copying {file_name}: {e}")
             else:
-                logging.error(f"Error: {file_name} not found in the folder {self.IOSystem.config}.")
-        
+                logging.error(f"File {file_name} not found in folder {self.iosystem.config_dir}")
+
         self.read_configs()
 
-    def write_configs(self, sheet_name):
+    def write_configs(self, sheet_name: str):
         """
         Creates or updates Excel files for various datasets (sectors, regions, impacts, etc.) based on the provided 
         or default sheet name. This function will write the data to corresponding Excel files, either creating new ones 
@@ -339,19 +427,22 @@ class Index:
         - Exception: If any unexpected error occurs during the execution of the method.
         """
 
-        # List of file paths and corresponding DataFrames
+        # File paths and corresponding DataFrames
         file_data = {
-            "sectors.xlsx": [(self.sectors_df.iloc[:, ::-1], sheet_name), (self.raw_materials_df, "raw_material")],
-            "regions.xlsx": [(self.regions_df.iloc[:, ::-1], sheet_name), (self.exiobase_to_map_df, "map")],
-            "impacts.xlsx": [(self.impacts_df.iloc[:, ::-1], sheet_name), (self.impact_color_df, "color")],
+            "sectors.xlsx": [(self.sectors_df.iloc[:, ::-1], sheet_name),
+                            (self.raw_materials_df, "raw_material")],
+            "regions.xlsx": [(self.regions_df.iloc[:, ::-1], sheet_name),
+                            (self.exiobase_to_map_df, "map")],
+            "impacts.xlsx": [(self.impacts_df.iloc[:, ::-1], sheet_name),
+                            (self.impact_color_df, "color")],
             "units.xlsx": [(self.units_df, sheet_name)],
             "general.xlsx": [(self.general_df, sheet_name)]
         }
 
         # Write to Excel files
-        try: 
+        try:
             for file_name, sheets in file_data.items():
-                file_path = os.path.join(self.IOSystem.fast_db, file_name)
+                file_path = os.path.join(self.iosystem.current_fast_database_path, file_name)
                 mode = "a" if os.path.exists(file_path) else "w"
 
                 with pd.ExcelWriter(file_path, engine="openpyxl", mode=mode) as writer:
@@ -359,13 +450,13 @@ class Index:
                         try:
                             df.to_excel(writer, sheet_name=sheet, index=False)
                         except Exception as e:
-                            print(f"Error writing to sheet '{sheet}' in file '{file_name}': {e}")
+                            logging.error(f"Error writing to sheet '{sheet}' in file '{file_name}': {e}")
 
-            print("Excel files have been successfully created or updated.")
+            logging.info("Excel files have been successfully created or updated")
         except PermissionError:
             raise PermissionError("Make sure to close all Excel files before running the program.")
         except Exception as e:
-            print(f"An unexpected error occurred: {e}")
+            logging.error(f"An unexpected error occurred: {e}")
 
     def update_map(self, force=False):
         """
@@ -380,34 +471,38 @@ class Index:
         - force (bool, optional): If set to True, the method will force a refresh of the `world` GeoDataFrame, 
         even if it already exists. Default is False.
 
-        Returns:
-        - GeoDataFrame: A GeoDataFrame containing regions and their geometries, with regions mapped from Exiobase.
-
         The method performs the following actions:
         - Reads the shapefile for world countries using Geopandas.
         - Maps Exiobase regions to the corresponding world regions using `exiobase_to_map_df`.
         - Adds a new column for regions based on the mapping and dissolves geometries by region to create a simplified world map.
         - Returns a copy of the resulting GeoDataFrame.
         """
-        self.world = world = gpd.read_file(os.path.join(self.IOSystem.data_dir, "ne_110m_admin_0_countries.zip"))
+        try:
+            world_map_path = os.path.join(self.iosystem.data_dir, "data_world_map.zip")
+            self.world = gpd.read_file(world_map_path)
 
-        self.exiobase_to_map_dict = dict(zip(self.exiobase_to_map_df['NAME'], self.exiobase_to_map_df['region']))
+            self.exiobase_to_map_dict = dict(
+                zip(self.exiobase_to_map_df['NAME'], self.exiobase_to_map_df['region'])
+            )
 
-        self.world["region"] = self.world["NAME"].map(self.exiobase_to_map_dict)
-        
-        self.world = self.world[["region", "geometry"]]
-        
-        self.world = self.world.dissolve(by="region") 
+            self.world["region"] = self.world["NAME"].map(self.exiobase_to_map_dict)
+            self.world = self.world[["region", "geometry"]]
+            self.world = self.world.dissolve(by="region")
 
-        # regions_without_malta = self.IOSystem.regions[:18] + self.IOSystem.regions[19:]
-        # self.world["region"] = regions_without_malta
+            logging.debug("World map successfully updated")
+
+        except Exception as e:
+            logging.error(f"Error updating map: {e}")
 
     def get_map(self):
         """
-        Returns the geopandas world-map with exiobase regions as indices.
+        Returns the geopandas world map with EXIOBASE regions as indices.
+
+        Returns:
+            Copy of the world map GeoDataFrame
         """
         return self.world.copy()
-    
+
 
 class Impact:
     """
@@ -423,7 +518,7 @@ class Impact:
                            access to stored impact data and configurations.
 
     Attributes:
-        IOSystem: Reference to the associated IOSystem instance.
+        iosystem: Reference to the associated IOSystem instance.
         color: Stores impact colors dictionary 
         unit_transform: Stores unit transformation data for impact calculations.
         region_indices: Stores region-specific indices for impact matrices.
@@ -441,9 +536,14 @@ class Impact:
     within the IOSystem.
     """
 
-    def __init__(self, IOSystem):
-        # Store the provided IOSystem object for later use.
-        self.IOSystem = IOSystem
+    def __init__(self, iosystem):
+        """
+        Initializes the Impact object with a reference to the IOSystem object.
+
+        Args:
+            iosystem: Reference to the IOSystem object
+        """
+        self.iosystem = iosystem
         self.color = None
         self.unit_transform = None
         self.region_indices = None
@@ -463,94 +563,78 @@ class Impact:
         - 'resource_extraction' (Resource extraction impact)
         - 'preliminary_products' (Preliminary products impact)
         """
-        try:
-            # Define file paths
-            impact_files = {
-                "S": "S.npy",
-                "D_cba": "D_cba.npy",
-                "total": "total.npy",
-                "retail": "retail.npy",
-                "direct_suppliers": "direct_suppliers.npy",
-                "resource_extraction": "resource_extraction.npy",
-                "preliminary_products": "preliminary_products.npy"
-            }
+        # Mapping of file_id to file names and expected shapes
+        file_mapping = {
+            "S": ("S.npy", (126, 9800)),
+            "D_cba": ("D_cba.npy", (126, 9800)),
+            "total": ("total.npy", (6174, 9800)),
+            "retail": ("retail.npy", (6174, 9800)),
+            "direct_suppliers": ("direct_suppliers.npy", (6174, 9800)),
+            "resource_extraction": ("resource_extraction.npy", (6174, 9800)),
+            "preliminary_products": ("preliminary_products.npy", (6174, 9800))
+        }
 
-            # Expected shape of the matrices
-            expected_shape = {
-                "S": (126, 9800),
-                "D_cba": (126, 9800),
-                "total": (6174, 9800),
-                "retail": (6174, 9800),
-                "direct_suppliers": (6174, 9800),
-                "resource_extraction": (6174, 9800),
-                "preliminary_products": (6174, 9800)
-            }
-            
-            # Load the impact matrices
-            for attr, filename in impact_files.items():
-                file_path = os.path.join(self.IOSystem.fast_db, "impacts", filename)
-                try:
-                    array = np.load(file_path).astype(np.float32)
+        for file_id, (filename, expected_shape) in file_mapping.items():
+            file_path = os.path.join(self.iosystem.current_fast_database_path, "impacts", filename)
+            try:
+                array = np.load(file_path).astype(np.float32)
+                if array.shape != expected_shape:
+                    raise ValueError(f"Unexpected shape of {filename}: {array.shape}")
+                setattr(self, file_id, pd.DataFrame(array))
+                logging.debug(f"Impact matrix '{file_id}' successfully loaded")
+            except Exception as e:
+                logging.error(f"Error while loading {filename}: {e}")
 
-                    # Check if the loaded array has the correct shape
-                    if array.shape != expected_shape[attr]:
-                        logging.error(f"Shape mismatch in {filename}: Expected {expected_shape}, but got {array.shape}")
-                        raise ValueError(f"Incorrect shape for {filename}: Expected {expected_shape}, got {array.shape}")
-
-                    setattr(self, attr, pd.DataFrame(array))
-
-                except FileNotFoundError:
-                    logging.error(f"File not found: {file_path}")
-                    raise FileNotFoundError(f"Missing impact matrix: {filename}")
-                except ValueError as ve:
-                    logging.error(f"Invalid data in {file_path}: {str(ve)}")
-                    raise ValueError(f"Could not load {filename} correctly: {str(ve)}")
-
-        except Exception as e:
-            logging.error(f"Error loading impact matrices: {str(e)}")
-            raise RuntimeError("Failed to load impact matrices. Consider recreating the fast-load database (force=true).") from e
-
-    def get_color(self, impact):
+    def get_color(self, impact: str):
         """
-        Retrieves the color associated with a specific impact from the IOSystem's extension data.
-    
-        The function looks up the color for the given impact in `impacts_df`. If the impact is not found, 
-        it returns a default color ("#ffffff" for white).
-    
-        Parameters:
-        - impact (str): The name or key of the impact for which the color is requested.
-    
+        Retrieves the color associated with a specific impact.
+
+        Args:
+            impact: Name of the impact
+
         Returns:
-        - str: A string representing the color code for the given impact. If not found, returns "#ffffff".
+            Hex color code or #ffffff as default
         """
         try:
             # Extract the relevant impact column
-            impact_list = self.IOSystem.Index.impacts_df.iloc[:, -1].to_list()
-    
+            impact_list = self.iosystem.index.impacts_df.iloc[:, -1].tolist()
+
             # Find index of the impact
             idx = impact_list.index(impact)
-    
+
             # Retrieve corresponding color
-            return self.IOSystem.Index.impact_color_df.iloc[idx]["color"]
-        
-        except ValueError:
-            # If the impact is not found in the list
-            return "#ffffff"
-        except (AttributeError, IndexError, KeyError):
-            # Handle cases where the data structure is unexpected
+            return self.iosystem.index.impact_color_df.iloc[idx]["color"]
+
+        except (ValueError, AttributeError, IndexError, KeyError) as e:
+            # Handle cases where impact is not found
+            logging.warning(f"Color for impact '{impact}' not found: {e}")
             return "#ffffff"
 
-    def get_unit(self, impact):
-        # Extract the relevant impact column
-        impact_list = self.IOSystem.Index.impacts_df.iloc[:, -1].to_list()
+    def get_unit(self, impact: str):
+        """
+        Retrieves the unit associated with a specific impact.
 
-        # Find index of the impact
-        idx = impact_list.index(impact)
+        Args:
+            impact: Name of the impact
 
-        # Retrieve corresponding unit
-        return self.IOSystem.Index.units_df.iloc[idx].iloc[4]
-        
-    def get_regional_impacts(self, region_indices):
+        Returns:
+            Unit of the impact
+        """
+        try:
+            # Extract the relevant impact column
+            impact_list = self.iosystem.index.impacts_df.iloc[:, -1].tolist()
+
+            # Find index of the impact
+            idx = impact_list.index(impact)
+
+            # Retrieve corresponding unit
+            return self.iosystem.index.units_df.iloc[idx].iloc[4]
+
+        except (ValueError, AttributeError, IndexError) as e:
+            logging.warning(f"Unit for impact '{impact}' not found: {e}")
+            return "Unknown"
+
+    def get_regional_impacts(self, region_indices: List[int]):
         """ 
         Adjusts the environmental impact calculations to ensure that all sectors 
         within the specified region (defined by `region_indices`) are counted as part of the 
@@ -569,7 +653,6 @@ class Impact:
             (e.g., resource extraction, preliminary products, or direct suppliers) to retail, 
             ensuring that all domestically produced impacts remain within the regional analysis.
         """  
-
         if region_indices != self.region_indices:
             self.region_indices = region_indices
 
@@ -577,447 +660,806 @@ class Impact:
 
             # Convert key matrices to NumPy arrays for efficient calculations
             S = self.S.to_numpy()  # Environmental impact factor matrix
-            Y = self.IOSystem.Y.to_numpy()  # Final demand matrix
-        
-            # Extract key matrices used in multiple calculations
-            I = self.IOSystem.I.to_numpy()  # Identity matrix
-            L_minus_I = self.IOSystem.L.to_numpy() - I  # Leontief matrix minus identity
-            A = self.IOSystem.A.to_numpy()  # Input-output coefficient matrix    
-    
-            # Step 1: Identify sectoral impacts before reassignment
-    
-            # Direct suppliers: Exclude raw material sectors 
+            Y = self.iosystem.Y.to_numpy()  # Final demand matrix
+            A = self.iosystem.A.to_numpy()  # Input-output coefficient matrix
+            L = self.iosystem.L.to_numpy()  # Leontief inverse matrix
+
+            # Pre-calculate a few matrices for cleaner logic
+            I = np.identity(A.shape[0])
+            L_minus_I = L - I
+            raw_material_indices = self.iosystem.index.raw_material_indices
+            not_raw_material_indices = self.iosystem.index.not_raw_material_indices
+
+            # Step 1: Define the supply chain matrices
+
+            # Direct suppliers: Exclude raw material sectors
             direct_suppliers = A.copy()
-            direct_suppliers[self.IOSystem.Index.raw_material_indices, :] = 0
-    
+            direct_suppliers[raw_material_indices, :] = 0
+
             # Resource extraction: Only consider raw material sectors
             resource_extraction = L_minus_I.copy()
-            resource_extraction[self.IOSystem.Index.not_raw_material_indices, :] = 0
-    
-            # Preliminary products: Exclude raw material sectors and remove direct suppliers
-            preliminary_products = L_minus_I - A
-            preliminary_products[self.IOSystem.Index.raw_material_indices, :] = 0
-            
-            # Step 2: Reassign impacts of selected region's sectors to retail
+            resource_extraction[not_raw_material_indices, :] = 0
+
+            # Preliminary products: Exclude raw material sectors and direct suppliers
+            preliminary_products = L_minus_I - direct_suppliers
+            preliminary_products[raw_material_indices, :] = 0
+
+            # Step 2: Calculate the impacts
+
+            # Create the `retail` matrix for the regional reassignment
             retail = I.copy()
             retail[self.region_indices, :] += (
-                direct_suppliers[self.region_indices, :] +
-                resource_extraction[self.region_indices, :] +
-                preliminary_products[self.region_indices, :])
-    
-            # Step 3: Compute environmental impacts for each supply chain category
-    
-            # Retail impact: Total impact for all stages within the region
-            retail_impact = S @ (retail @ Y)
-            self.retail_regional = pd.DataFrame(retail_impact)
-    
-            # Direct suppliers impact: Exclude region's direct suppliers
-            direct_suppliers[self.region_indices, :] = 0
-            direct_suppliers_impact = S @ (direct_suppliers @ Y)
-            self.direct_suppliers_regional = pd.DataFrame(direct_suppliers_impact)
-    
-            # Resource extraction impact: Exclude region's extracted resources
-            resource_extraction[self.region_indices, :] = 0
-            resource_extraction_impact = S @ (resource_extraction @ Y)
-            self.resource_extraction_regional = pd.DataFrame(resource_extraction_impact)
-    
-            # Preliminary products impact: Exclude region's preliminary products
-            preliminary_products[self.region_indices, :] = 0 
-            preliminary_products_impact = S @ (preliminary_products @ Y)
-            self.preliminary_products_regional = pd.DataFrame(preliminary_products_impact)
-    
-            # Step 4: Update labels for DataFrames
-            self.IOSystem.Index.update_multiindices()   
+                    direct_suppliers[self.region_indices, :] +
+                    resource_extraction[self.region_indices, :] +
+                    preliminary_products[self.region_indices, :])
 
-            logging.info("Calculations successful.\n")     
+            # Calculate impacts by applying S and Y
+            self.retail_regional = pd.DataFrame(S @ (retail @ Y))
+
+            # Zero out the selected region's contributions for the other categories
+            direct_suppliers[self.region_indices, :] = 0
+            resource_extraction[self.region_indices, :] = 0
+            preliminary_products[self.region_indices, :] = 0
+
+            # Calculate the remaining impacts
+            self.direct_suppliers_regional = pd.DataFrame(S @ (direct_suppliers @ Y))
+            self.resource_extraction_regional = pd.DataFrame(S @ (resource_extraction @ Y))
+            self.preliminary_products_regional = pd.DataFrame(S @ (preliminary_products @ Y))
+
+            # Step 3: Update labels for DataFrames
+            self.iosystem.index.update_multiindices()
+
+            logging.info("Calculations successful.\n")
+
+    def _calculate_supply_chain_matrices(self, A: np.ndarray, L_minus_I: np.ndarray,
+                                       I: np.ndarray, S: np.ndarray, Y: np.ndarray):
+        """
+        Calculates the various supply chain matrices.
+
+        Args:
+            A: Input-output coefficient matrix
+            L_minus_I: Leontief matrix minus identity
+            I: Identity matrix
+            S: Environmental impact factor matrix
+            Y: Final demand matrix
+        """
+        # Direct suppliers: Exclude raw material sectors
+        direct_suppliers = A.copy()
+        direct_suppliers[self.iosystem.index.raw_material_indices, :] = 0
+
+        # Resource extraction: Only consider raw material sectors
+        resource_extraction = L_minus_I.copy()
+        resource_extraction[self.iosystem.index.not_raw_material_indices, :] = 0
+
+        # Preliminary products: Exclude raw material sectors and remove direct suppliers
+        preliminary_products = L_minus_I - A
+        preliminary_products[self.iosystem.index.raw_material_indices, :] = 0
+
+        # Step 2: Reassign impacts of selected region's sectors to retail
+        retail = I.copy()
+        retail[self.region_indices, :] += (
+            direct_suppliers[self.region_indices, :] +
+            resource_extraction[self.region_indices, :] +
+            preliminary_products[self.region_indices, :]
+        )
+
+        # Step 3: Compute environmental impacts for each supply chain category
+
+        # Retail impact
+        retail_impact = S @ (retail @ Y)
+        self.retail_regional = pd.DataFrame(retail_impact)
+
+        # Direct suppliers impact
+        direct_suppliers[self.region_indices, :] = 0
+        direct_suppliers_impact = S @ (direct_suppliers @ Y)
+        self.direct_suppliers_regional = pd.DataFrame(direct_suppliers_impact)
+
+        # Resource extraction impact
+        resource_extraction[self.region_indices, :] = 0
+        resource_extraction_impact = S @ (resource_extraction @ Y)
+        self.resource_extraction_regional = pd.DataFrame(resource_extraction_impact)
+
+        # Preliminary products impact
+        preliminary_products[self.region_indices, :] = 0
+        preliminary_products_impact = S @ (preliminary_products @ Y)
+        self.preliminary_products_regional = pd.DataFrame(preliminary_products_impact)
 
 
 class IOSystem:
+    """
+    Main class for the Input-Output System, managing database paths,
+    language, year, and coordinating data loading and calculations.
+    """
 
-    def __init__(self, year=2022, language="Exiobase", exiobase_dir=None, fast_dir=None, exiobase_db=None, fast_db=None):
+    def __init__(self, year: int = 2022, language: str = "Exiobase"):
         """
         Initializes the IOSystem with paths and parameters for the database.
-        
+
         Args:
-            compressed_path: The path to the folder containing the compressed Exiobase ZIP files.
-            fast_path: (Optional) The path to the folder for fast-load databases.
-            year: (Optional) The year for the database to use (default: 2022).
-            language: (Optional) The language of the database (default: "exiobase").
-            exiobase_db: (Optional) The path to the compressed database file.
-            fast_db: (Optional) The path to the fast-load database.
+            year: Year of the database to use
+            language: Language for the labels
         """
-        # Year as a string
         self.year = str(year)
-        
-        # Language of the database
         self.language = language
-     
-        # Paths to the various data folders
-        self.current_dir = os.path.dirname(__file__)  
-        self.config_dir = os.path.normpath(os.path.join(self.current_dir, '..', 'config'))
-        self.data_dir = os.path.normpath(os.path.join(self.current_dir, '..', 'data'))
-        self.exiobase_dir = os.path.normpath(exiobase_dir) if exiobase_dir is not None else os.path.normpath(os.path.join(self.current_dir, '..', 'exiobase'))  # Path to the folder with compressed ZIP files
-        self.fast_dir = os.path.normpath(fast_dir) if fast_dir is not None else os.path.normpath(os.path.join(self.exiobase_dir, 'fast load databases')) # Path to the folder for fast-load databases
-        
-        self.exiobase_db = os.path.normpath(exiobase_db) if exiobase_db is not None else os.path.normpath(os.path.join(self.exiobase_dir, f'IOT_{year}_pxp.zip'))  # Default path to the compressed database
-        self.fast_db = os.path.normpath(fast_db) if fast_db is not None else os.path.normpath(os.path.join(self.fast_dir, f'Fast_IOT_{year}_pxp'))  # Path to the fast-load database
-        
-        # Impact and Index Class
-        self.Impact = Impact(self)
-        self.Index = Index(self)
-        self.regions_exiobase = None
-        self.start_time = None
-    
-    def load(self, force=False, attempt=1):  
+
+        # Initialize paths
+        self._initialize_paths()
+
+        # Initialize label lists
+        self.impacts: Optional[List[str]] = None
+        self.units: Optional[List[str]] = None
+        self.regions: Optional[List[str]] = None
+        self.sectors: Optional[List[str]] = None
+        self.regions_exiobase: Optional[List[str]] = None
+
+        # Initialize components
+        self.index = Index(self)
+        self.impact = Impact(self)
+
+    def _initialize_paths(self) -> None:
         """
-        The method performs the following actions:
-        - Checks if the fast database exists. If so, it loads the matrix files (`A`, `L`, `Y`, `I`) and initializes them as DataFrames.
-        - Loads the impact matrices using the `Impact` class and updates the multi-indices using the `Index` class.
-        - If the `return_time` parameter is `True`, it records and prints the time taken to load the database.
-        - If the database does not exist or if `force=True`, it creates a new fast database by calling the `create_fast_load_database` method 
-        and recalculates all necessary data. After creating the database, it loads it again by recursively calling the `load()` method.
-        
-        Parameters:
-        - `force` (bool, default=False): Forces the creation of a new fast database, even if an existing one is found.
-        - `return_time` (bool, default=True): Determines whether to measure and print the time taken to load the database.
-
-        Returns:
-        - None
-
-        Raises:
-        - FileNotFoundError: If any required `.npy` file is missing.
-        - Exception: If there are any issues during the loading process.
-
-        This method ensures the system is populated with the necessary matrices and impact data, providing a foundation for further calculations.
+        Initializes all paths based on the project directory.
         """
+        self.project_directory = os.path.dirname(os.path.dirname(__file__))
+        self.config_dir = os.path.join(self.project_directory, 'config')
+        self.data_dir = os.path.join(self.project_directory, 'data')
+        self.databases_dir = os.path.join(self.project_directory, 'exiobase')
+        self.fast_databases_dir = os.path.join(self.databases_dir, 'fast_databases')
 
-        if attempt == 1:
-            self.start_time = time.time()  # Record the start time if measuring the elapsed time
+        self.current_exiobase_path = os.path.join(self.databases_dir, f'IOT_{self.year}_pxp.zip')
+        self.current_fast_database_path = os.path.join(self.fast_databases_dir, f'FAST_IOT_{self.year}_pxp')
 
-        if attempt > 2:
-            raise RuntimeError("Interrupted load-function to prevent recursive actions.") 
-        
-        if os.path.exists(self.fast_db) and not force:
-            if attempt == 1:
-                logging.info(f"Fast database of the year {self.year} was found - Loading...")
-            try:
-                # Load the matrices and convert them to DataFrames (without labels)
-                self.A = pd.DataFrame(np.load(os.path.join(self.fast_db, 'A.npy')).astype(np.float32))  # Load 'A' matrix
-                self.L = pd.DataFrame(np.load(os.path.join(self.fast_db, 'L.npy')).astype(np.float32))  # Load 'L' matrix
-                self.Y = pd.DataFrame(np.load(os.path.join(self.fast_db, 'Y.npy')).astype(np.float32))  # Load 'Y' matrix
-                self.I = pd.DataFrame(np.identity(9800, dtype=np.float32))  # Identity matrix (9800x9800)
-                
-                # Load the impact matrices using the Impact class
-                self.Impact.load()
-
-                # Add the multi_indices
-                self.Index.update_multiindices()
-            except Exception as e:
-                logging.info("There was a problem trying to load the database. Force-loading instead... \n")
-                self.load(force=True)
-
-            # Calculate and print the elapsed time
-            end_time = time.time()  # Record the end time
-            elapsed_time = end_time - self.start_time  # Calculate elapsed time
-            logging.info(f"Database has been loaded successfully in {round(float(elapsed_time), 3)} seconds. \n")
-            return self
-    
-        else:
-            # If the fast database doesn't exist or force is True, create it
-            logging.info("Creating fast database...\n")
-            self.create_fast_load_database(force=force)  # Create the fast load database
-            self.Index.copy_configs()
-            self.Index.read_configs()
-            self.calc_all()  # Perform calculations on the database
-            self.load(attempt=attempt + 1) # Call load again after the database is created
-       
-    def switch_language(self, language="Exiobase"):
+    def switch_language(self, language: str = "Exiobase") -> None:
         """
         Switches the language for the system and updates the labels accordingly.
-        
+
         Args:
-            language: The language to switch to (default is "exiobase").
+            language: New language for the labels
         """
-        
-        self.language = language  # Set the new language
-        self.Index.update_multiindices()  # Update the labels based on the new language
-        logging.info(f"Language has been changed successfully to {self.language}")
-
-    def switch_year(self, year):
-        self.year = year
-        self.exiobase_db = os.path.normpath(os.path.join(self.exiobase_dir, f'IOT_{year}_pxp.zip'))  # Default path to the compressed database
-        self.fast_db = os.path.normpath(os.path.join(self.fast_dir, f'Fast_IOT_{year}_pxp'))  # Path to the fast-load database
-
-    def extract_file_parameters(self, json_filename="file_parameters.json"):
-        """
-        Extracts parameters from all JSON files in the Zip archive (including subfolders) with the specified name
-        and combines them into a single header_lines_dict and indices_lines_dict.
-        
-        Args:
-            json_filename: The name of the JSON file to search for within the Zip archive (default is "file_parameters.json").
-            
-        Returns:
-            header_lines_dict: A dictionary mapping file names to their respective header line counts.
-            indices_lines_dict: A dictionary mapping file names to their respective index column line counts.
-            
-        Raises:
-            FileNotFoundError: If the specified JSON file is not found in the Zip archive or any of its subfolders.
-        """
-        
-        header_lines_dict = {}  # Dictionary to store header line counts for each file
-        indices_lines_dict = {}  # Dictionary to store index column line counts for each file
-        found_any = False  # Flag to track whether the JSON file was found
-    
-        with zipfile.ZipFile(self.exiobase_db, 'r') as zip_ref:  # Open the Zip archive
-            # Iterate through all files in the archive
-            for file_name in zip_ref.namelist():
-                if os.path.basename(file_name) == json_filename:  # Check if the file is the target JSON file
-                    found_any = True  # Mark that the file has been found
-                    with zip_ref.open(file_name) as file:  # Open the JSON file within the Zip archive
-                        data = json.load(file)  # Load the JSON data
-                        # Iterate through all entries in the "files" block of the JSON data
-                        for key, file_info in data["files"].items():
-                            name = file_info["name"]  # Get the file name
-                            # Add or overwrite the header line and index column counts
-                            header_lines_dict[name] = int(file_info["nr_header"])
-                            indices_lines_dict[name] = int(file_info["nr_index_col"])
-    
-        # Raise an error if no matching JSON file was found
-        if not found_any:
-            raise FileNotFoundError(f"{json_filename} was not found in the Zip archive or in a subfolder.")
-    
-        return header_lines_dict, indices_lines_dict  # Return the dictionaries with extracted parameters
-
-    def create_fast_load_database(self, force=False):
-        """
-        Formats the fast load database and saves it in the specified directory.
-        
-        Args:
-            force: Whether to overwrite existing files in the target directory (default is False).
-        
-        Raises:
-            ValueError: If the target directory already exists and force is not set to True, or if the archive is not a ZIP file.
-        """
-        
-        necessary_files = ["D_cba.txt", "A.txt", "S.txt", "Y.txt"]  # List of required files to process
-        ignored_subfolders = ["satellite"]  # Subfolders to ignore when extracting files
-        
-        # Retrieve the parameters from the Zip file
-        header_lines_dict, indices_lines_dict = self.extract_file_parameters()
-        
-        # Check if self.exiobase_db is a file and ends with ".zip"
-        if os.path.isfile(self.exiobase_db) and self.exiobase_db.endswith(".zip"):         
-            try:
-                os.makedirs(self.fast_db, exist_ok=False)  # Create the target folder for fast load database
-                logging.info(f"Folder '{self.fast_db}' was successfully created. \n")
-            except FileExistsError:
-                # Handle folder existence
-                if force:
-                    logging.info(f"Folder '{self.fast_db}' already exists. Its contents will be overwritten... (force-mode) \n")
-                else:
-                    raise ValueError(f"Custom Error: Folder '{self.fast_db}' already exists! To overwrite: force=True")
-            
-            # Open the ZIP archive for extraction
-            with zipfile.ZipFile(self.exiobase_db, 'r') as zip_ref:
-                for file_name in zip_ref.namelist():
-                    normalized_path = os.path.normpath(file_name)  # Normalize the file path
-                    path_parts = normalized_path.split(os.sep)  # Split path into components
-                    if any(ignored in path_parts for ignored in ignored_subfolders):  # Skip ignored subfolders
-                        continue
-                    base_name = os.path.basename(file_name)   # Extract the base file name
-                    relative_file_path = os.path.join(self.fast_db, *path_parts[1:])  # Create the relative path for the file
-                    
-                    # Read unit.txt-files
-                    if base_name== "unit.txt":
-                        parent_folder = normalized_path.split(os.sep)[1]
-                        if parent_folder == "impacts":   
-                            with zip_ref.open(file_name) as file:
-                                df = pd.read_csv(io.StringIO(file.read().decode("utf-8")), sep="\t")
-                                self.impacts = df["impact"].tolist()
-                                self.units = df["unit"].tolist()
-                                del df
-                        else:
-                            with zip_ref.open(file_name) as file:
-                                df = pd.read_csv(io.StringIO(file.read().decode("utf-8")), sep="\t")
-                                self.regions = df["region"].unique().tolist()
-                                self.sectors = df["sector"].unique().tolist()
-                                del df
-                    
-                    # If the file is in necessary_files, convert it and save as .npy
-                    if base_name in necessary_files:
-                        header_lines = header_lines_dict.get(base_name, 1)  # Get the number of header lines
-                        indices_lines = indices_lines_dict.get(base_name, 1)  # Get the number of index columns
-                        output_file_path = os.path.splitext(relative_file_path)[0] + '.npy'  # Define the output file path
-                        os.makedirs(os.path.dirname(output_file_path), exist_ok=True)  # Ensure the directory exists
-                        with zip_ref.open(file_name) as file_obj:
-                            # Read the CSV content and convert it to numpy array
-                            content = pd.read_csv(file_obj, index_col=list(range(indices_lines)), header=list(range(header_lines)), sep='\t')
-                            np.save(output_file_path, content.values.astype(np.float32))  # Save as .npy
-                            logging.info(f"{file_name} was found and converted. Saved as: {os.path.basename(output_file_path)} \n")
-                        del content  # Clean up the content variable to free memory
-                        
-
+        if language != self.language:
+            logging.info(f"Switching language from '{self.language}' to '{language}'")
+            self.language = language
+            # Update labels by re-reading configs with the new language
+            self.index.read_configs()
+            self.index.update_multiindices()
+            logging.info(f"Language successfully switched to '{language}'")
         else:
-            raise ValueError("The archive must be a ZIP file.")  
+            logging.info(f"Language is already set to '{language}'. No action required")
 
-    def calc_all(self):
+    def switch_year(self, year: int) -> None:
         """
-        Calculates missing matrices and saves them in a .npy file.
+        Switches the year for the system and updates the paths to the
+        EXIOBASE and fast-load databases accordingly.
+
+        Args:
+            year: New year for the database
         """
-        
+        if str(year) != self.year:
+            logging.info(f"Switching year from '{self.year}' to '{year}'")
+            self.year = str(year)
+
+            # Update file paths based on the new year
+            self.current_exiobase_path = os.path.join(self.databases_dir, f'IOT_{year}_pxp.zip')
+            self.current_fast_database_path = os.path.join(
+                self.fast_databases_dir, f'FAST_IOT_{year}_pxp'
+            )
+
+            # Load the database for the new year
+            self.load()
+            logging.info(f"Year successfully switched to {year}")
+        else:
+            logging.info(f"Year is already set to {year}. No action required")
+
+    def calc_all(self) -> None:
+        """
+        Calculates missing matrices and saves them as .npy files.
+        """
+        logging.info("Starting calculation of all matrices...")
+
         # Quick loading of matrices (with float32)
-        A = np.load(os.path.join(self.fast_db, 'A.npy')).astype(np.float32)
-        Y = np.load(os.path.join(self.fast_db, 'Y.npy')).astype(np.float32)
-        S = np.load(os.path.join(self.fast_db, 'impacts', 'S.npy')).astype(np.float32)
-        
-        # Create an identity matrix
+        matrix_paths = {
+            'A': os.path.join(self.current_fast_database_path, 'A.npy'),
+            'Y': os.path.join(self.current_fast_database_path, 'Y.npy'),
+            'S': os.path.join(self.current_fast_database_path, 'impacts', 'S.npy')
+        }
+
+        try:
+            A = np.load(matrix_paths['A']).astype(np.float32)
+            Y = np.load(matrix_paths['Y']).astype(np.float32)
+            S = np.load(matrix_paths['S']).astype(np.float32)
+        except FileNotFoundError as e:
+            logging.error(f"Required matrix file not found: {e}")
+            raise
+        except Exception as e:
+            logging.error(f"Error loading matrices: {e}")
+            raise
+
+        # Create identity matrix
         I = np.eye(A.shape[0], dtype=np.float32)
-        
-        # Create the diagonalized Y matrix
+
+        # Diagonalize Y matrix
+        Y = self._diagonalize_y_matrix(Y)
+
+        # Calculate Leontief Inverse
+        logging.info("Calculating Leontief Inverse...")
+        try:
+            L = np.linalg.inv(I - A)
+        except np.linalg.LinAlgError as e:
+            logging.error(f"Error calculating Leontief Inverse: {e}")
+            raise
+
+        # Calculate impact matrices
+        logging.info("Calculating impact matrices...")
+        impact_matrices = self._calculate_all_impact_matrices(A, L, I, S, Y)
+
+        # Save calculated matrices
+        self._save_calculated_matrices(L, Y, impact_matrices)
+
+    def _diagonalize_y_matrix(self, Y: np.ndarray) -> np.ndarray:
+        """
+        Diagonalizes the Y matrix if required.
+
+        Args:
+            Y: Original Y matrix
+
+        Returns:
+            Diagonalized Y matrix
+        """
         logging.info("Diagonalizing Y matrix...")
+
         if Y.shape != (9800, 9800):
             Y = Y.reshape(9800, len(self.regions), 7).sum(axis=2)
             n, num_blocks = Y.shape  # (9800, len(self.regions))
             block_size = n // num_blocks  # 9800 / len(self.regions) = len(self.sectors)
             Y_diag = np.zeros((n, n), dtype=np.float32)
-        
             for i in range(num_blocks):
                 block = Y[:, i]  # Column i (size 9800)
                 row_idx = np.arange(n)  # 9800 row indices
                 col_idx = (row_idx % block_size) + i * block_size
-                mask = col_idx < n  # If it goes out of bounds
+                mask = col_idx < n  # If out of bounds
                 Y_diag[row_idx[mask], col_idx[mask]] = block[mask]
-            
+
             Y = Y_diag
-        
-        # Calculate Leontief Inverse (L)
-        logging.info("Calculating Leontief Inverse...")
-        L = np.linalg.inv(I - A)
-        
-        # Calculate impact matrices
-        logging.info("Calculating impact matrices...")
+
+        return Y
+
+    def _calculate_all_impact_matrices(self, A: np.ndarray, L: np.ndarray,
+                                     I: np.ndarray, S: np.ndarray,
+                                     Y: np.ndarray) -> Dict[str, np.ndarray]:
+        """
+        Calculates all impact matrices.
+
+        Args:
+            A: Input-output coefficient matrix
+            L: Leontief Inverse
+            I: Identity matrix
+            S: Environmental impact factor matrix
+            Y: Diagonalized final demand matrix
+
+        Returns:
+            Dictionary with calculated impact matrices
+        """
+        LY = L @ Y
+        L_minus_I = L - I
 
         # Total impact matrix
-        LY = L @ Y
+        total_impact = self._calculate_regional_impacts(S, LY, "total")
 
-        # List to store environmental impacts for each region
+        # Retail impact matrix
+        retail_impact = self._calculate_regional_impacts(S, Y, "retail")
+
+        # Direct suppliers impact matrix
+        direct_suppliers_matrix = A.copy()
+        direct_suppliers_matrix[self.index.raw_material_indices, :] = 0
+        direct_suppliers_impact = self._calculate_regional_impacts(
+            S, direct_suppliers_matrix @ Y, "direct_suppliers"
+        )
+
+        # Resource extraction impact matrix
+        resource_extraction_matrix = L_minus_I.copy()
+        resource_extraction_matrix[self.index.not_raw_material_indices, :] = 0
+        resource_extraction_impact = self._calculate_regional_impacts(
+            S, resource_extraction_matrix @ Y, "resource_extraction"
+        )
+
+        # Preliminary products impact matrix
+        preliminary_products_matrix = L_minus_I - A
+        preliminary_products_matrix[self.index.raw_material_indices, :] = 0
+        preliminary_products_impact = self._calculate_regional_impacts(
+            S, preliminary_products_matrix @ Y, "preliminary_products"
+        )
+
+        return {
+            'total': total_impact,
+            'retail': retail_impact,
+            'direct_suppliers': direct_suppliers_impact,
+            'resource_extraction': resource_extraction_impact,
+            'preliminary_products': preliminary_products_impact
+        }
+
+    def _calculate_regional_impacts(self, S: np.ndarray, production_matrix: np.ndarray,
+                                  matrix_type: str) -> np.ndarray:
+        """
+        Calculates regional impacts for a given production matrix.
+
+        Args:
+            S: Environmental impact factor matrix
+            production_matrix: Production matrix
+            matrix_type: Type of matrix (for logging)
+
+        Returns:
+            Calculated regional impact matrix
+        """
+        logging.debug(f"Calculating {matrix_type} impact matrix...")
+
         all_region_impacts = []
+        num_regions = len(self.regions)
+        num_sectors = len(self.sectors)
 
-        for region in range(len(self.regions)):
-            # Determine the index range for the current region's sectors
-            start = region * len(self.sectors)
-            end = (region + 1) * len(self.sectors)
+        for region in range(num_regions):
+            start = region * num_sectors
+            end = (region + 1) * num_sectors
 
-            # Extract the production and environmental intensity data for this region
-            x_region = LY[start:end, :]       # Regional production (sectors of region x sectors)
-            s_region = S[:, start:end]        # Environmental intensities (impacts x sectors of region)
+            x_region = production_matrix[start:end, :]
+            s_region = S[:, start:end]
 
-            # Calculate environmental impacts for this region
-            E_region = s_region @ x_region    # Resulting shape: (impacts x sectors)
-
-            # Store the impact matrix for this region
+            E_region = s_region @ x_region
             all_region_impacts.append(E_region)
 
         # Stack all regional impact matrices vertically
-        # Resulting shape: (impacts * regions, sectors)
-        total_impact = np.vstack(all_region_impacts)
+        stacked_impact = np.vstack(all_region_impacts)
 
-        # Initialize a new matrix to store the reordered impacts
-        total_impact_sorted = np.zeros_like(total_impact)
+        # Reorder from grouped-by-region to grouped-by-impact-category
+        return self._reorder_impact_matrix(stacked_impact, len(S), num_regions)
 
-        # Reorder rows from grouped-by-region to grouped-by-impact-category
-        for new_idx in range((len(S)*len(self.regions))):
-            # Calculate the original index before reordering
-            old_idx = (new_idx % len(self.regions)) * len(S) + (new_idx // len(self.regions))
-            total_impact_sorted[new_idx] = total_impact[old_idx]
+    def _reorder_impact_matrix(self, impact_matrix: np.ndarray,
+                             num_impacts: int, num_regions: int) -> np.ndarray:
+        """
+        Reorders impact matrix from region-grouped to impact-grouped.
 
-        # Replace the original matrix with the sorted version
-        total_impact = total_impact_sorted
+        Args:
+            impact_matrix: Impact matrix to reorder
+            num_impacts: Number of impacts
+            num_regions: Number of regions
 
-        # Retail impact matrix
-        all_region_impacts = []
-        for region in range(len(self.regions)):
-            start = region * len(self.sectors)
-            end = (region + 1) * len(self.sectors)
-            x_region = Y[start:end, :]       # Regional production (sectors of region x sectors)
-            s_region = S[:, start:end]        # Environmental intensities (impacts x sectors of region)
-            E_region = s_region @ x_region    # Resulting shape: (impacts x sectors)
-            all_region_impacts.append(E_region)
+        Returns:
+            Reordered impact matrix
+        """
+        sorted_impact = np.zeros_like(impact_matrix)
+        total_rows = num_impacts * num_regions
 
-        retail_impact = np.vstack(all_region_impacts) # Resulting shape: (impacts * regions x sectors)
-        retail_impact_sorted = np.zeros_like(retail_impact)
-        for new_idx in range((len(S)*len(self.regions))):
-            old_idx = (new_idx % len(self.regions)) * len(S) + (new_idx // len(self.regions))
-            retail_impact_sorted[new_idx] = retail_impact[old_idx]
-        retail_impact = retail_impact_sorted
-        
-        # Direct suppliers impact matrix
-        df = A.copy()
-        df[self.Index.raw_material_indices, :] = 0
-        df = df @ Y
-        all_region_impacts = []
-        for region in range(len(self.regions)):
-            start = region * len(self.sectors)
-            end = (region + 1) * len(self.sectors)
-            x_region = df[start:end, :]       # Regional production (sectors of region x sectors)
-            s_region = S[:, start:end]        # Environmental intensities (impacts x sectors of region)
-            E_region = s_region @ x_region    # Resulting shape: (impacts x sectors)
-            all_region_impacts.append(E_region)
+        for new_idx in range(total_rows):
+            old_idx = (new_idx % num_regions) * num_impacts + (new_idx // num_regions)
+            sorted_impact[new_idx] = impact_matrix[old_idx]
 
-        direct_suppliers_impact = np.vstack(all_region_impacts) # Resulting shape: (impacts * regions x sectors)
-        direct_suppliers_impact_sorted = np.zeros_like(direct_suppliers_impact)
-        for new_idx in range((len(S)*len(self.regions))):
-            old_idx = (new_idx % len(self.regions)) * len(S) + (new_idx // len(self.regions))
-            direct_suppliers_impact_sorted[new_idx] = direct_suppliers_impact[old_idx]
-        direct_suppliers_impact = direct_suppliers_impact_sorted
-        
-        # Resources extraction impact matrix
-        df = (L - I)
-        df[self.Index.not_raw_material_indices, :] = 0
-        df = df @ Y
-        all_region_impacts = []
-        for region in range(len(self.regions)):
-            start = region * len(self.sectors)
-            end = (region + 1) * len(self.sectors)
-            x_region = df[start:end, :]       # Regional production (sectors of region x sectors)
-            s_region = S[:, start:end]        # Environmental intensities (impacts x sectors of region)
-            E_region = s_region @ x_region    # Resulting shape: (impacts x sectors)
-            all_region_impacts.append(E_region)
+        return sorted_impact
 
-        resource_extraction_impact = np.vstack(all_region_impacts) # Resulting shape: (impacts * regions x sectors)
-        resource_extraction_impact_sorted = np.zeros_like(resource_extraction_impact)
-        for new_idx in range((len(S)*len(self.regions))):
-            old_idx = (new_idx % len(self.regions)) * len(S) + (new_idx // len(self.regions))
-            resource_extraction_impact_sorted[new_idx] = resource_extraction_impact[old_idx]
-        resource_extraction_impact = resource_extraction_impact_sorted
-        
-        # Production of preliminary products impact matrix
-        df = (L - I - A)
-        df[self.Index.raw_material_indices, :] = 0
-        df = df @ Y
-        all_region_impacts = []
-        for region in range(len(self.regions)):
-            start = region * len(self.sectors)
-            end = (region + 1) * len(self.sectors)
-            x_region = df[start:end, :]       # Regional production (sectors of region x sectors)
-            s_region = S[:, start:end]        # Environmental intensities (impacts x sectors of region)
-            E_region = s_region @ x_region    # Resulting shape: (impacts x sectors)
-            all_region_impacts.append(E_region)
+    def _save_calculated_matrices(self, L: np.ndarray, Y: np.ndarray,
+                                impact_matrices: Dict[str, np.ndarray]) -> None:
+        """
+        Saves all calculated matrices as .npy files.
 
-        preliminary_products_impact = np.vstack(all_region_impacts) # Resulting shape: (impacts * regions x sectors)
-        preliminary_products_impact_sorted = np.zeros_like(preliminary_products_impact)
-        for new_idx in range((len(S)*len(self.regions))):
-            old_idx = (new_idx % len(self.regions)) * len(S) + (new_idx // len(self.regions))
-            preliminary_products_impact_sorted[new_idx] = preliminary_products_impact[old_idx]
-        preliminary_products_impact = preliminary_products_impact_sorted
-        
-        # Save the calculated matrices
-        logging.info("Calculations successful. Matrices are being saved...\n")
-        np.save(os.path.join(self.fast_db, 'L.npy'), L)
-        np.save(os.path.join(self.fast_db, 'Y.npy'), Y)
-        np.save(os.path.join(self.fast_db, 'impacts', 'total.npy'), total_impact)
-        np.save(os.path.join(self.fast_db, 'impacts', 'retail.npy'), retail_impact)
-        np.save(os.path.join(self.fast_db, 'impacts', 'direct_suppliers.npy'), direct_suppliers_impact)
-        np.save(os.path.join(self.fast_db, 'impacts', 'resource_extraction.npy'), resource_extraction_impact)
-        np.save(os.path.join(self.fast_db, 'impacts', 'preliminary_products.npy'), preliminary_products_impact)
-        logging.info("All matrices have been successfully saved.\n")
+        Args:
+            L: Leontief Inverse
+            Y: Diagonalized Y matrix
+            impact_matrices: Dictionary with impact matrices
+        """
+        logging.info("Calculations successful. Matrices are being saved...")
+
+        try:
+            # Save main matrices
+            np.save(os.path.join(self.current_fast_database_path, 'L.npy'), L)
+            np.save(os.path.join(self.current_fast_database_path, 'Y.npy'), Y)
+
+            # Save impact matrices
+            impacts_dir = os.path.join(self.current_fast_database_path, 'impacts')
+            for matrix_name, matrix_data in impact_matrices.items():
+                np.save(os.path.join(impacts_dir, f'{matrix_name}.npy'), matrix_data)
+
+            logging.info("All matrices successfully saved \n")
+
+        except Exception as e:
+            logging.error(f"Error saving matrices: {e}")
+            raise
+
+    def _extract_file_parameters(self, zip_archive_path: str) -> Dict[str, Dict[str, int]]:
+        """
+        Reads all 'file_parameters.json' files from a ZIP archive and extracts
+        header and index column information for each file.
+
+        Args:
+            zip_archive_path: Path to the ZIP archive
+
+        Returns:
+            Dictionary with file parameters
+        """
+        file_parameters = {}
+        found_json_files = []
+
+        try:
+            with zipfile.ZipFile(zip_archive_path, 'r') as zf:
+                # Iterate through all files in the ZIP archive
+                for member_name in zf.namelist():
+                    if member_name.endswith('file_parameters.json'):
+                        found_json_files.append(member_name)
+
+                if not found_json_files:
+                    logging.info(f"No 'file_parameters.json' files found in ZIP archive '{zip_archive_path}'")
+                    return file_parameters
+
+                # Process each found 'file_parameters.json' file
+                for json_file_name in found_json_files:
+                    try:
+                        with zf.open(json_file_name) as f:
+                            data = json.load(f)
+                            if "files" in data:
+                                file_parameters.update(
+                                    self._process_file_parameters(data["files"], json_file_name)
+                                )
+                            else:
+                                logging.warning(
+                                    f"File '{json_file_name}' does not contain a top-level 'files' key"
+                                )
+                    except json.JSONDecodeError:
+                        logging.error(f"File '{json_file_name}' is not a valid JSON file")
+                    except Exception as e:
+                        logging.error(f"Unexpected error while reading '{json_file_name}': {e}")
+
+        except FileNotFoundError:
+            logging.error(f"ZIP archive '{zip_archive_path}' was not found")
+        except zipfile.BadZipFile:
+            logging.error(f"File '{zip_archive_path}' is not a valid ZIP archive")
+        except Exception as e:
+            logging.error(f"An unexpected error occurred: {e}")
+
+        return file_parameters
+
+    def _process_file_parameters(self, files_data: Dict, json_file_name: str) -> Dict[str, Dict[str, int]]:
+        """
+        Processes file parameters from a JSON file.
+
+        Args:
+            files_data: Dictionary with file parameters
+            json_file_name: Name of the JSON file for logging
+
+        Returns:
+            Processed file parameters
+        """
+        processed_params = {}
+
+        for file_key, file_info in files_data.items():
+            try:
+                # Ensure values are converted to integers
+                nr_header = int(file_info.get("nr_header", 0))
+                nr_index_col = int(file_info.get("nr_index_col", 0))
+
+                processed_params[file_key] = {
+                    "nr_header": nr_header,
+                    "nr_index_col": nr_index_col
+                }
+            except ValueError:
+                logging.warning(
+                    f"Invalid numeric values in '{json_file_name}' for key '{file_key}'"
+                )
+
+        return processed_params
+
+    def _get_file_parameters(self, zip_archive_path: str, file_name: str) -> Tuple[Optional[int], Optional[int]]:
+        """
+        Retrieves header and index columns for a specific file from a ZIP archive.
+
+        Args:
+            zip_archive_path: Path to the ZIP archive
+            file_name: Name of the file to search for
+
+        Returns:
+            Tuple with (nr_header, nr_index_col) or (None, None) if not found
+        """
+        # First, extract all file parameters from the ZIP archive
+        all_file_params = self._extract_file_parameters(zip_archive_path)
+
+        # Then retrieve specific parameters for the given file name
+        if file_name in all_file_params:
+            params = all_file_params[file_name]
+            return params["nr_header"], params["nr_index_col"]
+        else:
+            logging.error(f"Parameters for file '{file_name}' were not found")
+            return None, None
+
+    def _read_units_and_labels(self, zip_archive_path: str) -> bool:
+        """
+        Reads all 'unit.txt' files from the given EXIOBASE archive.
+
+        Args:
+            zip_archive_path: Path to the EXIOBASE ZIP archive
+
+        Returns:
+            True if successful, False on errors
+        """
+        try:
+            with zipfile.ZipFile(zip_archive_path, 'r') as zf:
+                for member_name in zf.namelist():
+                    if os.path.basename(member_name) != "unit.txt":
+                        continue
+
+                    parent_folder = (os.path.dirname(member_name).split('/')[-1]
+                                   if '/' in member_name else "")
+                    logging.info(f"Found 'unit.txt' in folder: '{parent_folder}'")
+
+                    with zf.open(member_name) as file:
+                        df = pd.read_csv(io.StringIO(file.read().decode("utf-8")), sep="\t")
+
+                    self._process_unit_file(df, parent_folder, member_name)
+                    del df  # Free memory
+
+            return True
+
+        except Exception as e:
+            logging.error(f"Failed to read unit.txt files from '{zip_archive_path}': {e}")
+            return False
+
+    def _process_unit_file(self, df: pd.DataFrame, parent_folder: str, member_name: str) -> None:
+        """
+        Processes a single unit.txt file.
+
+        Args:
+            df: DataFrame with loaded data
+            parent_folder: Name of the parent folder
+            member_name: Name of the file for logging
+        """
+        if parent_folder == "impacts":
+            if {"impact", "unit"}.issubset(df.columns):
+                self.impacts = df["impact"].tolist()
+                self.units = df["unit"].tolist()
+                logging.info("Successfully read 'impacts/unit.txt'")
+            else:
+                logging.warning(f"Missing columns in '{member_name}'")
+        else:
+            if {"region", "sector"}.issubset(df.columns):
+                self.regions = df["region"].unique().tolist()
+                self.sectors = df["sector"].unique().tolist()
+                logging.info(f"Successfully read '{parent_folder}/unit.txt' for regions/sectors")
+            else:
+                logging.warning(f"Missing columns in '{member_name}' - Ignore this if in 'satellite' folder.")
+
+    def _read_and_save_as_npy(self, file_id: str, output_directory: str) -> bool:
+        """
+        Reads a TSV file from a ZIP archive using header/index column settings
+        and saves it as a NumPy array (.npy).
+
+        Args:
+            file_id: ID of the file to read
+            output_directory: Output directory
+
+        Returns:
+            True if successful, False on errors
+        """
+        ignored_subfolders = ["satellite"]
+
+        logging.info(f"Retrieving parameters for '{file_id}.txt'...")
+        nr_header, nr_index_col = self._get_file_parameters(self.current_exiobase_path, file_id)
+        if nr_header is None or nr_index_col is None:
+            logging.error(f"No header/index info for '{file_id}.txt'")
+            return False
+
+        logging.info(f"Detected: Header rows={nr_header}, Index columns={nr_index_col}")
+
+        try:
+            with zipfile.ZipFile(self.current_exiobase_path, 'r') as zf:
+                target_file_name = f"{file_id}.txt"
+                found_path, relative_subfolder_path = self._find_file_in_zip(
+                    zf, target_file_name, ignored_subfolders
+                )
+
+                if not found_path:
+                    logging.error(f"File '{target_file_name}' not found or in ignored folder")
+                    return False
+
+                # Create output directory and process file
+                return self._process_tsv_file(
+                    zf, found_path, file_id, output_directory,
+                    relative_subfolder_path, nr_header, nr_index_col
+                )
+
+        except Exception as e:
+            logging.error(f"Failed to read/save '{file_id}': {e}")
+            return False
+
+    def _find_file_in_zip(self, zf: zipfile.ZipFile, target_file_name: str,
+                         ignored_subfolders: List[str]) -> Tuple[Optional[str], str]:
+        """
+        Finds a file in the ZIP archive and returns its path.
+
+        Args:
+            zf: ZipFile object
+            target_file_name: Name of the file to search for
+            ignored_subfolders: List of subfolders to ignore
+
+        Returns:
+            Tuple with (found_path, relative_subfolder_path)
+        """
+        for member_name in zf.namelist():
+            if member_name.endswith(f"/{target_file_name}") or member_name == target_file_name:
+                member_dir = os.path.dirname(member_name)
+                if any(part in ignored_subfolders for part in member_dir.split('/') if part):
+                    continue
+
+                relative_subfolder_path = ""
+                if member_dir:
+                    path_parts = member_dir.split('/')
+                    relative_subfolder_path = (os.path.join(*path_parts[1:])
+                                             if len(path_parts) > 1 else "")
+
+                return member_name, relative_subfolder_path
+
+        return None, ""
+
+    def _process_tsv_file(self, zf: zipfile.ZipFile, found_path: str, file_id: str,
+                         output_directory: str, relative_subfolder_path: str,
+                         nr_header: int, nr_index_col: int) -> bool:
+        """
+        Processes a TSV file from the ZIP archive.
+
+        Args:
+            zf: ZipFile object
+            found_path: Path to the found file
+            file_id: ID of the file
+            output_directory: Output directory
+            relative_subfolder_path: Relative subfolder path
+            nr_header: Number of header rows
+            nr_index_col: Number of index columns
+
+        Returns:
+            True if successful
+        """
+        final_output_directory = os.path.join(output_directory, relative_subfolder_path)
+        os.makedirs(final_output_directory, exist_ok=True)
+        output_npy_path = os.path.join(final_output_directory, f"{file_id}.npy")
+
+        with zf.open(found_path) as f_tsv:
+            df = pd.read_csv(
+                f_tsv,
+                sep='\t',
+                skiprows=nr_header,
+                header=None,
+                index_col=list(range(nr_index_col)) if nr_index_col > 0 else None
+            )
+
+        df = df.dropna(how='all').reset_index(drop=True)
+        np.save(output_npy_path, df.values)
+
+        logging.info(f"Saved '{found_path}' as '{output_npy_path}'")
+        return True
+
+    def create_fast_database(self) -> None:
+        """
+        Creates the fast database by extracting the current EXIOBASE database,
+        processing it, and saving the results in a structured format.
+        """
+        logging.info("Creating fast database...")
+
+        necessary_files = ["A", "Y", "D_cba", "S"]
+
+        # Create fast database directory if it doesn't exist
+        if not os.path.exists(self.current_fast_database_path):
+            os.makedirs(self.current_fast_database_path)
+            logging.info(f"Folder '{self.current_fast_database_path}' was created\n")
+        else:
+            logging.info(f"Folder '{self.current_fast_database_path}' already exists\n")
+
+        # Read unit.txt files first
+        logging.info("Starting to read unit.txt files...")
+        unit_read_success = self._read_units_and_labels(self.current_exiobase_path)
+        if not unit_read_success:
+            logging.warning("Reading unit.txt files was not entirely successful")
+        logging.info("Finished reading unit.txt files\n")
+
+        # Transform .txt files to .npy files
+        logging.info(f"Starting creation of fast-load database for year {self.year}...")
+        success_count = 0
+        for file_id in necessary_files:
+            logging.info(f"Processing file: {file_id}.txt")
+            success = self._read_and_save_as_npy(file_id, self.current_fast_database_path)
+            if success:
+                success_count += 1
+            else:
+                logging.warning(f"Processing of file '{file_id}.txt' was not successful")
+
+        logging.info(f"Fast-load database creation completed for year {self.year} "
+                    f"({success_count}/{len(necessary_files)} files successful)\n")
+
+        # Copy config files
+        logging.info("Copying configuration files to the fast-load database path...")
+        self.index.copy_configs(output=False)
+        logging.info("Configuration files copied and Index attributes populated\n")
+
+    def load(self) -> 'IOSystem':
+        """
+        Loads the fast database. If the database does not exist, it triggers
+        its creation and all necessary calculations.
+
+        Returns:
+            Self-reference for method chaining
+        """
+        start_time = time.time()
+        l_matrix_path = os.path.join(self.current_fast_database_path, 'L.npy')
+
+        if os.path.exists(l_matrix_path):
+            logging.info(f"Fast database for year {self.year} likely exists due to the presence of an L matrix - loading...")
+
+            try:
+                self._load_existing_database()
+                elapsed_time = time.time() - start_time
+                logging.info(f"Database has been loaded successfully in {elapsed_time:.3f} seconds")
+                return self
+
+            except Exception as e:
+                logging.error(f"There was a problem trying to load the database: {e}")
+                logging.info("Attempting to recreate fast database from scratch due to loading error...")
+                return self._create_and_calculate_database(start_time)
+        else:
+            logging.info("Creating fast database from scratch...\n")
+            return self._create_and_calculate_database(start_time)
+
+    def _load_existing_database(self) -> None:
+        """
+        Loads an existing fast database.
+        """
+        # Load main matrices
+        matrix_files = ['A.npy', 'L.npy', 'Y.npy']
+        for matrix_file in matrix_files:
+            matrix_name = matrix_file[:-4]  # Remove .npy extension
+            file_path = os.path.join(self.current_fast_database_path, matrix_file)
+            setattr(self, matrix_name, pd.DataFrame(np.load(file_path).astype(np.float32)))
+
+        # Create identity matrix
+        self.I = pd.DataFrame(np.identity(9800, dtype=np.float32))
+
+        # Load impact matrices via the Impact class
+        self.impact.load()
+
+        # Add multi-indices
+        self.index.update_multiindices()
+
+    def _create_and_calculate_database(self, start_time: float) -> 'IOSystem':
+        """
+        Creates and calculates a new fast database.
+
+        Args:
+            start_time: Start time for timing measurement
+
+        Returns:
+            Self-reference
+        """
+        self.create_fast_database()
+        self.index.copy_configs()
+        self.index.read_configs()
+        self.calc_all()
+
+        elapsed_time = time.time() - start_time
+        logging.info(f"Database created and calculated in {elapsed_time:.3f} seconds")
+        return self
+
+
+if __name__ == "__main__" and 1 == 2:  # This block is for testing purposes only, not executed in production
+    # Create an instance of the IOSystem class
+    io_system_instance = IOSystem(year=2022, language="Deutsch")
+
+    # Load the fast database (creates it if necessary)
+    io_system_instance.load()
+
+    # Optional: Verify one of the created .npy files (e.g. S.npy)
+    output_npy_full_path = os.path.join(io_system_instance.current_fast_database_path, "impacts", "S.npy")
+    if os.path.exists(output_npy_full_path):
+        print(f"\n--- Verifying file '{output_npy_full_path}' ---")
+        loaded_data = np.load(output_npy_full_path)
+        print(f"\n--- Loaded data:\n{loaded_data} ---")
+        print(f"Shape of loaded data: {loaded_data.shape}")
+    else:
+        print(f"Error: File '{output_npy_full_path}' was not found after database creation")
+
+    print("\n--- Verifying extracted units and labels ---")
+    print(f"Impacts ({len(io_system_instance.impacts)}): {io_system_instance.impacts}")
+    print(f"Units ({len(io_system_instance.units)}): {io_system_instance.units}")
+    print(f"Regions ({len(io_system_instance.regions)}): {io_system_instance.regions}")
+    print(f"Sectors ({len(io_system_instance.sectors)}): {io_system_instance.sectors}")
