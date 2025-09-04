@@ -7,3 +7,4 @@ openpyxl
 PyQt5 
 plotly 
 networkx
+pyqtdarktheme
