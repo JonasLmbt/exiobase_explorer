@@ -15,7 +15,7 @@ Desktop.ini
 *.lnk
 
 # Ignoriere Datenbanken und große Datenverzeichnisse
-exiobase/
+exiobase/*
 data/
 
 # Ignoriere Build-/Distributionsdateien
