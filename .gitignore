@@ -1,0 +1,32 @@
+# Ignoriere virtuelle Umgebungen, temporäre Dateien und große Datenverzeichnisse
+venv/
+.env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swo
+*.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.lnk
+
+# Ignoriere Datenbanken und große Datenverzeichnisse
+exiobase/
+data/
+
+# Ignoriere Build-/Distributionsdateien
+build/
+dist/
+*.egg-info/
+
+# Ignoriere lokale Konfigurationsdateien
+*.local
+*.log
+
+# Optional: ignoriere weitere temporäre oder Editor-Dateien
+.idea/
+.vscode/
