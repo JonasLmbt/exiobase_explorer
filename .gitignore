@@ -16,6 +16,7 @@ Desktop.ini
 
 # Ignoriere Datenbanken und große Datenverzeichnisse
 exiobase/*
+!exiobase/.gitkeep
 data/
 
 # Ignoriere Build-/Distributionsdateien
