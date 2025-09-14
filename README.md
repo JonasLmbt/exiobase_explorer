@@ -50,7 +50,7 @@ A Python tool for analyzing Exiobase data with modules for input-output systems,
 
 ## Usage
 
-1.  Download the the databases (select a version prior to 3.9.4 and always use pxp) and place them in the `exiobase` folder (do not change file names): [Download Exiobase database](https://zenodo.org/records/5589597)
+1.  Download the databases (select a version prior to 3.9.4 and always use pxp) and place them in the `exiobase` folder (do not change file names; 2022 is required): [Download Exiobase database](https://zenodo.org/records/5589597)
 
 2.  Set up the fast-load databases:
 

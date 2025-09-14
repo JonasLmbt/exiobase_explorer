@@ -42,28 +42,41 @@ class SettingsTab(QWidget):
 
     theme_changed = pyqtSignal(str)
 
-    def __init__(self, ui):
+    def __init__(self, ui, log_widget=None, show_indices_state=None, current_theme=None):
         """
         Initialize the SettingsTab widget.
 
         Args:
             ui (UserInterface): The UI instance to link to the SettingsTab.
+            log_widget (QTextEdit, optional): Logger widget to reuse.
+            show_indices_state (bool, optional): Checkbox state to reuse.
+            current_theme (str, optional): Name of the current theme for ComboBox selection.
         """
         super().__init__()
 
         self.ui = ui
         self.iosystem = self.ui.iosystem
         self.general_dict = self.iosystem.index.general_dict
+        self._current_theme = current_theme
 
         # Set up logging
-        self.log_handler = QTextEditLogger()
-        logging.getLogger().addHandler(self.log_handler)
-        logging.getLogger().setLevel(logging.INFO)
+        logger = logging.getLogger()
+        # Entferne alle bestehenden QTextEditLogger-Handler
+        for handler in list(logger.handlers):
+            if isinstance(handler, QTextEditLogger):
+                logger.removeHandler(handler)
+        if log_widget is not None:
+            self.log_handler = QTextEditLogger()
+            self.log_handler.widget = log_widget
+        else:
+            self.log_handler = QTextEditLogger()
+        logger.addHandler(self.log_handler)
+        logger.setLevel(logging.INFO)
 
         self._get_languages()
         self._get_years()
 
-        self._init_ui()
+        self._init_ui(show_indices_state)
 
     def _get_text(self, key, fallback):
         """Get text from general_dict with fallback."""
@@ -101,14 +114,14 @@ class SettingsTab(QWidget):
             if self.current_year not in self.years:
                 self.years.append(self.current_year)
 
-    def _init_ui(self):
+    def _init_ui(self, show_indices_state=None):
         """Initialize the UI components."""
         layout = QVBoxLayout(self)
 
         general_group = self._create_general_settings_group()
         layout.addWidget(general_group)
 
-        options_group = self._create_options_group()
+        options_group = self._create_options_group(show_indices_state)
         layout.addWidget(options_group)
 
         console_group = QGroupBox(self._get_text("Console Output", "Console Output"))
@@ -138,13 +151,16 @@ class SettingsTab(QWidget):
 
         return group
 
-    def _create_options_group(self):
+    def _create_options_group(self, show_indices_state=None):
         group = QGroupBox(self._get_text("Options", "Options"))
         layout = QVBoxLayout(group)
 
         first_row = QHBoxLayout()
         self.show_indices_checkbox = QCheckBox(self._get_text("Show Indices", "Show Indices"))
-        self.show_indices_checkbox.setChecked(True)
+        if show_indices_state is not None:
+            self.show_indices_checkbox.setChecked(show_indices_state)
+        else:
+            self.show_indices_checkbox.setChecked(True)
         first_row.addWidget(self.show_indices_checkbox)
         layout.addLayout(first_row)
 
@@ -157,7 +173,9 @@ class SettingsTab(QWidget):
             self._get_text("Custom Light Mode", "Custom Light Mode"),
             self._get_text("Custom Dark Mode", "Custom Dark Mode")
         ])
-        self.theme_combo.setCurrentText(self._get_text("System Default", "System Default"))
+        # Setze den aktuellen Theme-Namen korrekt
+        theme_name = self._get_current_theme_name()
+        self.theme_combo.setCurrentText(theme_name)
         self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
 
         theme_row.addWidget(theme_label)
@@ -167,6 +185,13 @@ class SettingsTab(QWidget):
         layout.addLayout(theme_row)
 
         return group
+
+    def _get_current_theme_name(self):
+        # Gibt den Namen für die Theme-ComboBox zurück
+        if self._current_theme is not None:
+            return self._current_theme
+        # Fallback: System Default
+        return self._get_text("System Default", "System Default")
 
     def _on_language_changed(self, text):
         try:
