@@ -81,154 +81,6 @@ class UserInterface(QMainWindow):
 
         logger.info("UserInterface initialization completed")
 
-        # GUI STYLES
-        # Darkmode Style
-        self.DARKMODE_STYLE2 = """
-            QWidget {
-                background-color: #2a2a2a;
-                color: #e0e0e0;
-            }
-
-            QTextEdit, QComboBox, QCheckBox {
-                background-color: #353535;
-                color: #e0e0e0;
-                border: 1px solid #555;
-                border-radius: 4px;
-            }
-
-            QPushButton {
-                background-color: #4a4a4a;
-                color: #fff;
-                border: 1px solid #666;
-                border-radius: 4px;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background-color: #5a5a5a;
-            }
-
-            QTabWidget::pane {
-                border: none;
-                background: #2a2a2a;
-                border-radius: 6px;
-            }
-            QTabBar::tab {
-                background: #404040;
-                color: #e0e0e0;
-                padding: 10px 20px;
-                border-radius: 4px;
-            }
-            QTabBar::tab:selected {
-                background: #555555;
-                color: #fff;
-            }
-
-            QGroupBox {
-                border: 1px solid #666;
-                border-radius: 6px;
-                margin-top: 20px;
-                padding: 12px;
-            }
-            QGroupBox:title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                background-color: #404040;
-                color: #e0e0e0;
-                font-weight: bold;
-            }
-        """
-        self.DARKMODE_STYLE = """
-            QWidget {
-                background-color: #2a2a2a;
-                color: #e0e0e0;
-            }
-            QTextEdit, QComboBox, QCheckBox {
-                background-color: #353535;
-                color: #e0e0e0;
-            }
-            QPushButton {
-                background-color: #4a4a4a;
-                color: #fff;
-            }
-            QPushButton:hover {
-                background-color: #5a5a5a;
-            }
-            QTabWidget::pane {
-                background: #2a2a2a;
-            }
-            QTabBar::tab {
-                background: #404040;
-                color: #e0e0e0;
-            }
-            QTabBar::tab:selected {
-                background: #555555;
-                color: #fff;
-            }
-            QGroupBox:title {
-                background-color: #404040;
-                color: #e0e0e0;
-            }
-        """
-
-        # Lightmode Style
-        self.LIGHTMODE_STYLE2 = """
-            QWidget {
-                background-color: #fafafa;
-                color: #333;
-            }
-
-            QTextEdit, QComboBox, QCheckBox {
-                background-color: #ffffff;
-                color: #333;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-            }
-
-            QPushButton {
-                background-color: #f0f0f0;
-                color: #333;
-                border: 1px solid #bbb;
-                border-radius: 4px;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-
-            QTabWidget::pane {
-                border: none;
-                background: #fafafa;
-                border-radius: 6px;
-            }
-            QTabBar::tab {
-                background: #ffffff;
-                color: #333;
-                padding: 10px 20px;
-                border-radius: 4px;
-            }
-            QTabBar::tab:selected {
-                background: #e0e0e0;
-                color: #333;
-            }
-
-            QGroupBox {
-                border: 1px solid #ccc;
-                border-radius: 6px;
-                margin-top: 20px;
-                padding: 12px;
-            }
-            QGroupBox:title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                background-color: #ffffff;
-                color: #333;
-                font-weight: bold;
-            }
-        """
-        self.LIGHTMODE_STYLE = """"""
-
     def _initialize_database(self) -> None:
         """Initialize the database connection and load configurations."""
         try:
@@ -289,7 +141,7 @@ class UserInterface(QMainWindow):
 
         # Set size constraints - allow full screen
         self.setMinimumSize(min_width, min_height)
-        # Remove maximum size constraint to allow fullscreen
+        # Remove maximum size constraint to allowfullscreen
         # self.setMaximumSize(screen.width(), screen.height())
 
         # Set initial size
@@ -435,6 +287,41 @@ class UserInterface(QMainWindow):
             logger.error(f"Failed to reload console tab: {e}")
             raise
 
+    def reload_settings_tab(self) -> None:
+        """Reload the settings tab with a new instance, preserving logger, checkbox state, theme and tab focus."""
+        try:
+            logger.info("Reloading settings tab")
+            # Sicherung des Logger-Widgets und des Checkbox-Status
+            log_widget = None
+            show_indices_state = None
+            if hasattr(self.settings_tab, 'log_handler'):
+                log_widget = getattr(self.settings_tab.log_handler, 'widget', None)
+            if hasattr(self.settings_tab, 'show_indices_checkbox'):
+                show_indices_state = self.settings_tab.show_indices_checkbox.isChecked()
+            # Aktuellen Tab-Index sichern
+            current_tab_index = self.tabs.currentIndex()
+            # Aktuelles Theme ermitteln
+            theme_name = self.settings_tab.theme_combo.currentText() if hasattr(self.settings_tab, 'theme_combo') else self.general_dict.get("System Default", "System Default")
+            # Tab entfernen
+            self.tabs.removeTab(self.SETTINGS_TAB_INDEX)
+            # Neue Instanz erzeugen
+            self.settings_tab = SettingsTab(self, log_widget=log_widget, show_indices_state=show_indices_state, current_theme=theme_name)
+            # Tab wieder einfügen
+            self.tabs.insertTab(
+                self.SETTINGS_TAB_INDEX,
+                self.settings_tab,
+                self.general_dict["Settings"]
+            )
+            # Tab-Fokus wiederherstellen, falls vorher SettingsTab aktiv war
+            if current_tab_index == self.SETTINGS_TAB_INDEX:
+                self.tabs.setCurrentIndex(self.SETTINGS_TAB_INDEX)
+            else:
+                self.tabs.setCurrentIndex(current_tab_index)
+            logger.info("Settings tab reloaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to reload settings tab: {e}")
+            raise
+
     def reload_tabs(self) -> None:
         """
         Reload all tabs and update configurations.
@@ -449,6 +336,7 @@ class UserInterface(QMainWindow):
             self.reload_selection_tab()
             self.reload_visualisation_tab()
             self.reload_console_tab()
+            self.reload_settings_tab()
 
             logger.info("All tabs reloaded successfully")
         except Exception as e:

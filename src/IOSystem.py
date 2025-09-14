@@ -81,7 +81,7 @@ class Index:
         self.not_raw_material_indices = []
         self.languages = []
 
-    def read_configs(self):
+    def read_configs(self) -> None:
         """
         Reads and processes multiple Excel files, loading data into corresponding instance variables for later use in 
         the IOSystem. The method validates the structure and content of each Excel sheet, ensuring that the data 
@@ -178,7 +178,7 @@ class Index:
             logging.error(f"Error during Excel reading and processing: {e}")
             raise
 
-    def _create_raw_material_indices(self):
+    def _create_raw_material_indices(self) -> None:
         """
         Creates lists of raw material and non-raw material indices.
         """
@@ -199,7 +199,7 @@ class Index:
             self.raw_material_indices.extend([region * 200 + idx for idx in raw_material_base])
             self.not_raw_material_indices.extend([region * 200 + idx for idx in not_raw_material_base])
 
-    def _determine_available_languages(self):
+    def _determine_available_languages(self) -> None:
         """
         Determines available languages from Excel files.
         """
@@ -211,7 +211,7 @@ class Index:
             logging.warning("Could not find 'general.xlsx' to determine available languages")
             self.languages = []
 
-    def create_multiindices(self):
+    def create_multiindices(self) -> None:
         """
         Creates MultiIndex structures for sector, region, and impact matrices in the IOSystem. This method
         generates hierarchical indices to manage the relationships between sectors, regions, and impacts. 
@@ -273,7 +273,7 @@ class Index:
 
         logging.debug("MultiIndices successfully created")
 
-    def update_multiindices(self):
+    def update_multiindices(self) -> None:
         """
         Updates the MultiIndex structures for sector and impact matrices in the IOSystem. This method loads the
         latest Excel data, creates and updates MultiIndex structures for key matrices (A, L, Y, I), impact matrices 
@@ -336,7 +336,9 @@ class Index:
         # Update the map
         self.update_map()
 
-    def _update_matrix_indices(self, matrix_mappings: Dict[str, List[str]]):
+        logging.debug("MultiIndices successfully updated")
+
+    def _update_matrix_indices(self, matrix_mappings: Dict[str, List[str]]) -> None:
         """
         Updates indices for different matrix groups.
         """
@@ -369,7 +371,7 @@ class Index:
                         regional_matrix.index = self.impact_multiindex
                         regional_matrix.columns = self.sector_multiindex
 
-    def copy_configs(self, new: bool = False, output: bool = True):
+    def copy_configs(self, new: bool = False, output: bool = True) -> None:
         """
         Copies configuration files from the /config folder to the fast load database.
 
@@ -382,12 +384,10 @@ class Index:
 
         config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "general.xlsx"]
 
-        # Loop through each Excel file in the list
         for file_name in config_files:
             source_file = os.path.join(self.iosystem.config_dir, file_name)
             target_file = os.path.join(self.iosystem.current_fast_database_path, file_name)
 
-            # Check if the source file exists
             if os.path.exists(source_file):
                 try:
                     shutil.copy(source_file, target_file)
@@ -401,7 +401,7 @@ class Index:
 
         self.read_configs()
 
-    def write_configs(self, sheet_name: str):
+    def write_configs(self, sheet_name: str) -> None:
         """
         Creates or updates Excel files for various datasets (sectors, regions, impacts, etc.) based on the provided 
         or default sheet name. This function will write the data to corresponding Excel files, either creating new ones 
@@ -450,15 +450,17 @@ class Index:
                         try:
                             df.to_excel(writer, sheet_name=sheet, index=False)
                         except Exception as e:
-                            logging.error(f"Error writing to sheet '{sheet}' in file '{file_name}': {e}")
+                            logging.error(f"Error writing to sheet '{sheet}' "
+                                        f"in file '{file_name}': {e}")
 
             logging.info("Excel files have been successfully created or updated")
         except PermissionError:
-            raise PermissionError("Make sure to close all Excel files before running the program.")
+            raise PermissionError("Make sure to close all Excel files "
+                                "before running the program")
         except Exception as e:
             logging.error(f"An unexpected error occurred: {e}")
 
-    def update_map(self, force=False):
+    def update_map(self, force: bool = False) -> None:
         """
         Creates or updates a GeoDataFrame for world regions, mapping Exiobase regions to geographical regions 
         based on the provided or default natural earth shapefile. This method loads the shapefile, applies the region 
@@ -494,7 +496,7 @@ class Index:
         except Exception as e:
             logging.error(f"Error updating map: {e}")
 
-    def get_map(self):
+    def get_map(self) -> gpd.GeoDataFrame:
         """
         Returns the geopandas world map with EXIOBASE regions as indices.
 
@@ -548,7 +550,7 @@ class Impact:
         self.unit_transform = None
         self.region_indices = None
 
-    def load(self):
+    def load(self) -> None:
         """
         This method loads various impact matrices from `.npy` files and stores them as DataFrames in instance variables.
         It first defines the file paths for the impact matrices and then attempts to load each file in a loop. 
@@ -585,7 +587,7 @@ class Impact:
             except Exception as e:
                 logging.error(f"Error while loading {filename}: {e}")
 
-    def get_color(self, impact: str):
+    def get_color(self, impact: str) -> str:
         """
         Retrieves the color associated with a specific impact.
 
@@ -610,7 +612,7 @@ class Impact:
             logging.warning(f"Color for impact '{impact}' not found: {e}")
             return "#ffffff"
 
-    def get_unit(self, impact: str):
+    def get_unit(self, impact: str) -> str:
         """
         Retrieves the unit associated with a specific impact.
 
@@ -634,7 +636,7 @@ class Impact:
             logging.warning(f"Unit for impact '{impact}' not found: {e}")
             return "Unknown"
 
-    def get_regional_impacts(self, region_indices: List[int]):
+    def get_regional_impacts(self, region_indices: List[int]) -> None:
         """ 
         Adjusts the environmental impact calculations to ensure that all sectors 
         within the specified region (defined by `region_indices`) are counted as part of the 
@@ -712,7 +714,7 @@ class Impact:
             logging.info("Calculations successful.\n")
 
     def _calculate_supply_chain_matrices(self, A: np.ndarray, L_minus_I: np.ndarray,
-                                       I: np.ndarray, S: np.ndarray, Y: np.ndarray):
+                                       I: np.ndarray, S: np.ndarray, Y: np.ndarray) -> None:
         """
         Calculates the various supply chain matrices.
 

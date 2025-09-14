@@ -1,31 +1,32 @@
-# Python bytecode
+# Ignoriere virtuelle Umgebungen, temporäre Dateien und große Datenverzeichnisse
+venv/
+.env/
+__pycache__/
 *.pyc
 *.pyo
-__pycache__/
-
-# Virtual environment
-venv/
-ENV/
-env/
-.venv/
-
-# Jupyter Notebook
-.ipynb_checkpoints/
-
-# macOS
-.DS_Store
-
-# Windows
-Thumbs.db
-
-# IDEs
-.vscode/
-.idea/
+*.pyd
 *.swp
+*.swo
+*.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.lnk
 
-# Logfiles
-*.log
-
-# Exiobase databases
+# Ignoriere Datenbanken und große Datenverzeichnisse
 exiobase/*
 !exiobase/.gitkeep
+
+# Ignoriere Build-/Distributionsdateien
+build/
+dist/
+*.egg-info/
+
+# Ignoriere lokale Konfigurationsdateien
+*.local
+*.log
+
+# Optional: ignoriere weitere temporäre oder Editor-Dateien
+.idea/
+.vscode/
