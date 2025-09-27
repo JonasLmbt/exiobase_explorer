@@ -273,7 +273,7 @@ class DiagramTab(QWidget):
 
         try:
             # Generate new plot
-            fig = self.ui.supplychain.plot_supplychain_diagram(
+            fig = self.ui.supplychain.plot_bubble_diagram(
                 self.selected_impacts,
                 size=1,
                 lines=True,
@@ -660,6 +660,7 @@ class MapConfigTab(QWidget):
                 fig, world = self.ui.supplychain.plot_worldmap_by_impact(
                     self.choice,
                     return_data=True,
+                    color="Reds",
                     title=None
                 )
 

@@ -11,6 +11,11 @@ from typing import List, Dict, Optional, Tuple, Union, Any
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import pandas as pd
+import matplotlib as mpl
+from matplotlib.colors import Normalize, BoundaryNorm
+from matplotlib.cm import get_cmap
+
+import numpy as np
 
 
 class SupplyChain:
@@ -532,7 +537,7 @@ class SupplyChain:
 
         return final_result.rstrip()
 
-    def plot_supplychain_diagram(
+    def plot_bubble_diagram(
             self,
             impacts: List[str],
             title: Optional[str] = None,
@@ -569,7 +574,7 @@ class SupplyChain:
         # Set default title if none provided
         if title is None:
             general_dict = self.iosystem.index.general_dict
-            title = f'{general_dict["Supply Chain Analysis"]} {self.get_title()}'
+            title = f'{general_dict["Supply Chain Analysis"]} {self._get_title()}'
 
         # Get relative environmental impact data
         df_rel = self.calculate_all(impacts=impacts, relative=True, decimal_places=5)
@@ -605,7 +610,7 @@ class SupplyChain:
             self._draw_grid_lines(ax, n_rows, n_cols, line_color, line_width)
 
         # Plot data points
-        self._plot_supply_chain_data(
+        self._plot_bubble_data(
             ax, df_rel, row_labels, text_position
         )
 
@@ -636,7 +641,7 @@ class SupplyChain:
         ax.axhline(n_rows - 0.5, color=line_color, linewidth=line_width * 1.5)
         ax.axvline(n_cols - 0.5, color=line_color, linewidth=line_width * 1.5)
 
-    def _plot_supply_chain_data(
+    def _plot_bubble_data(
             self,
             ax: plt.Axes,
             df_rel: pd.DataFrame,
@@ -691,27 +696,77 @@ class SupplyChain:
                 fontweight="bold"
             )
 
+    def return_impact_per_region_data(
+            self, 
+            impact,
+            save_to_excel: Optional[str] = None
+        ):
+        """
+        Returns a DataFrame containing world map data for one or more impact categories.
+
+        Parameters
+        ----------
+        impact : str or list of str
+            Impact category or list of categories to compute.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with regions as index and one column per impact category.
+        """
+        # Ensure impact is a list
+        if isinstance(impact, str):
+            impact = [impact]
+
+        data = {}
+
+        for i in impact:
+            values = (
+                self.iosystem.impact.total.loc[i]
+                .iloc[:, self.indices]
+                .sum(axis=1)
+                .values
+                .tolist()
+            )
+
+            # Transform values using unit conversion
+            values = [
+                self.transform_unit(value=value, impact=i)[0] for value in values
+            ]
+
+            data[i] = values
+
+        df = pd.DataFrame(data, index=self.iosystem.regions)
+
+        if save_to_excel:
+            df.to_excel(save_to_excel)
+        else:
+            return df
+
     def plot_worldmap_by_subcontractors(
             self,
             color: str = "Blues",
             title: Optional[str] = None,
             relative: bool = True,
             show_legend: bool = False,
-            return_data: bool = False
+            return_data: bool = False,
+            # pass-through to map function for consistent behavior
+            mode: str = "binned",                 # "continuous" or "binned"
+            k: int = 7,                           # classes if no custom_bins
+            custom_bins: Optional[List[float]] = None,  # explicit breakpoints
+            norm_mode: str = "linear",            # "linear" | "log" | "power" (continuous only)
+            robust: float = 2.0,                  # quantile clipping in % (continuous only)
+            gamma: float = 0.7                    # for PowerNorm (continuous only)
     ) -> Union[plt.Figure, Tuple[plt.Figure, pd.DataFrame]]:
         """
         Plot world map showing subcontractor distribution.
 
-        Args:
-            color: Color map for visualization
-            title: Plot title
-            relative: Whether to show relative values
-            show_legend: Whether to display color bar legend
-            return_data: Whether to return data along with figure
-
-        Returns:
-            Figure or tuple of figure and data
+        Notes
+        -----
+        - In continuous mode we color and label by ABSOLUTE values (unit shown in legend).
+        - In binned mode, `relative=True` bins by percentage share; `relative=False` by absolute values.
         """
+        # Aggregate subcontractor intensity by EXIOBASE region
         values = list(
             self.iosystem.L.iloc[:, self.indices]
             .groupby(level=self.iosystem.index.region_classification[-1], sort=False)
@@ -720,22 +775,32 @@ class SupplyChain:
             .values
         )
 
-        df = pd.DataFrame(values, index=self.iosystem.regions_exiobase)
+        # Build DataFrame with a clear column name
+        df = pd.DataFrame({"Subcontractors": values}, index=self.iosystem.regions_exiobase)
 
+        # Title
         if title is None:
             general_dict = self.iosystem.index.general_dict
-            title = f'{general_dict["Subcontractors"]} {self.get_title()}'
+            title = f'{general_dict["Subcontractors"]} {self._get_title()}'
 
-        units = [""] * 48
+        # IMPORTANT: scalar unit to avoid length mismatch after filtering (e.g., Malta drop)
+        unit_scalar = ""  # no specific unit known; keep empty string
 
-        return self.plot_worldmap_by_data(
+        return self._plot_worldmap_by_data(
             df=df,
-            units=units,
+            units=unit_scalar,              # scalar unit
+            column="Subcontractors",
             color_map=color,
             relative=relative,
             title=title,
             show_legend=show_legend,
-            return_data=return_data
+            return_data=return_data,
+            mode=mode,
+            k=k,
+            custom_bins=custom_bins,
+            norm_mode=norm_mode,
+            robust=robust,
+            gamma=gamma
         )
 
     def plot_worldmap_by_impact(
@@ -745,21 +810,17 @@ class SupplyChain:
             title: Optional[str] = None,
             relative: bool = True,
             show_legend: bool = False,
-            return_data: bool = False
+            return_data: bool = False,
+            # pass-through to map function
+            mode: str = "binned",                 # "continuous" or "binned"
+            k: int = 7,                           # classes if no custom_bins
+            custom_bins: Optional[List[float]] = None,  # explicit breakpoints
+            norm_mode: str = "linear",            # "linear" | "log" | "power"
+            robust: float = 2.0,                  # quantile clipping in %, e.g. 2 -> [2%,98%]
+            gamma: float = 0.7                    # for PowerNorm
     ) -> Union[plt.Figure, Tuple[plt.Figure, pd.DataFrame]]:
         """
-        Plot world map showing impact distribution.
-
-        Args:
-            impact: Environmental impact to visualize
-            color: Color map for visualization
-            title: Plot title
-            relative: Whether to show relative values
-            show_legend: Whether to display color bar legend
-            return_data: Whether to return data along with figure
-
-        Returns:
-            Figure or tuple of figure and data
+        Plot world map showing impact distribution with clear legend.
         """
         values = (
             self.iosystem.impact.total.loc[impact]
@@ -769,99 +830,223 @@ class SupplyChain:
             .tolist()
         )
 
-        # Transform values using unit conversion
-        values = [
-            self.transform_unit(value=value, impact=impact)[0]
-            for value in values
-        ]
+        # Unit transformation
+        values = [self.transform_unit(value=value, impact=impact)[0] for value in values]
 
         df = pd.DataFrame({'Impact': values}, index=self.iosystem.regions_exiobase)
 
         if title is None:
             general_dict = self.iosystem.index.general_dict
-            title = f'{general_dict["Global"]} {impact} {self.get_title()}'
+            title = f'{general_dict["Global"]} {impact} {self._get_title()}'
 
-        units = [self.iosystem.impact.get_unit(impact)] * 48
+        # IMPORTANT: pass unit as scalar, not a list (avoids length mismatch after drops)
+        unit_scalar = self.iosystem.impact.get_unit(impact)
 
-        return self.plot_worldmap_by_data(
+        return self._plot_worldmap_by_data(
             df=df,
-            units=units,
+            units=unit_scalar,              # scalar unit
             color_map=color,
             relative=relative,
             title=title,
             show_legend=show_legend,
-            return_data=return_data
+            return_data=return_data,
+            mode=mode,
+            k=k,
+            custom_bins=custom_bins,
+            norm_mode=norm_mode,
+            robust=robust,
+            gamma=gamma
         )
 
-    def plot_worldmap_by_data(
+    def _plot_worldmap_by_data(
             self,
             df: pd.DataFrame,
-            units: Optional[List[str]] = None,
+            units: Optional[Union[str, List[str]]] = None,
             column: Optional[str] = None,
             color_map: str = "Blues",
             relative: bool = False,
             title: str = "",
-            show_legend: bool = False,
-            return_data: bool = False
+            show_legend: bool = True,
+            return_data: bool = False,
+            mode: str = "binned",          # "continuous" or "binned"
+            k: int = 7,                    # classes if mode="binned" and no custom_bins
+            custom_bins: Optional[List[float]] = None,
+            # NEW: continuous contrast controls
+            norm_mode: str = "linear",     # "linear" | "log" | "power"
+            robust: float = 2.0,           # quantile clipping in %
+            gamma: float = 0.7             # for PowerNorm
     ) -> Union[plt.Figure, Tuple[plt.Figure, pd.DataFrame]]:
         """
-        Plot a choropleth map of the given DataFrame's column.
+        Plot a choropleth map with a clear legend showing numeric ranges.
 
-        Args:
-            df: DataFrame with regions as index and numerical column
-            units: List of units for each region
-            column: Column name to plot (uses first column if None)
-            color_map: Color map for shading
-            relative: Whether to convert values to percentages
-            title: Plot title
-            show_legend: Whether to display color bar legend
-            return_data: Whether to return data along with figure
+        Continuous mode:
+            - Colors and legend are based on ABSOLUTE values (with unit),
+            regardless of `relative`. This keeps the scale interpretable.
+            - `norm_mode` + `robust` + `gamma` control contrast.
 
-        Returns:
-            Figure or tuple of figure and data
+        Binned mode:
+            - Behaves like before; `relative=True` means bins on percentages,
+            `relative=False` means bins on absolute values.
         """
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import matplotlib as mpl
+        from matplotlib.colors import Normalize, BoundaryNorm
+        from matplotlib.cm import get_cmap
+        import matplotlib.colors as mcolors
+
+        # Helper for binned legend range labels (raw numbers)
+        def _fmt_range(lo: float, hi: float) -> str:
+            if lo is None and hi is None:
+                return ""
+            if lo is None:
+                return f"≤ {hi:.2f}"
+            elif hi is None:
+                return f"≥ {lo:.2f}"
+            else:
+                return f"{lo:.2f} – {hi:.2f}"
+
         world = self.iosystem.index.get_map()
         column = column if column is not None else df.columns[0]
 
-        # Remove Malta if present (special case)
+        # Drop Malta if present (special case in EXIOBASE)
         df = df.drop(index="MT", errors="ignore")
 
-        # Calculate values and percentages
         values = df[column].copy()
         total_sum = values.sum()
-        percentages = (values / total_sum * 100) if total_sum != 0 else values * 0
+        percentages = (values / total_sum * 100.0) if total_sum != 0 else values * 0.0
 
-        # Ensure proper ordering and add metadata
+        # Align shapes and attach metadata
         world = world.loc[df.index]
         world = self._add_world_metadata(world, values, percentages, units)
 
-        # Set data column based on relative flag
-        world["data"] = percentages if relative else values
+        # Data columns:
+        # - absolute values: world["value"]
+        # - percentage share: world["percentage"]
+        # For continuous we force absolute; for binned we honor `relative`.
+        if mode == "continuous":
+            world["data"] = world["value"].astype(float)       # FORCE absolute
+        else:
+            world["data"] = (world["percentage"] if relative else world["value"]).astype(float)
 
-        # Create the plot
+        data = world["data"].astype(float)
         fig, ax = plt.subplots(1, 1, figsize=(15, 10))
 
-        world.plot(
-            column="data",
-            cmap=color_map,
-            legend=False,
-            scheme="quantiles",
-            classification_kwds={'k': 5},
-            ax=ax,
-            edgecolor="gray",
-            linewidth=0.6,
-            alpha=0.9
-        )
+        if mode == "continuous":
+            # Robust quantile clipping for better contrast
+            finite = data[np.isfinite(data)]
+            if finite.empty:
+                vmin, vmax = 0.0, 1.0
+            else:
+                lo_q, hi_q = np.nanpercentile(finite, [robust, 100.0 - robust])
+                vmin, vmax = float(lo_q), float(hi_q)
+                if not np.isfinite(vmin) or not np.isfinite(vmax) or vmin == vmax:
+                    vmin, vmax = float(finite.min()), float(finite.max())
+                    if vmin == vmax:
+                        vmin, vmax = vmin - 0.5, vmax + 0.5
 
-        # Add legend if requested
-        if show_legend:
-            self._add_map_legend(fig, ax, world["data"], column, color_map, relative)
+            # Choose normalization
+            if norm_mode == "log":
+                eps = 1e-12
+                vmin = max(vmin, eps)
+                norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
+            elif norm_mode == "power":
+                norm = mcolors.PowerNorm(gamma=gamma, vmin=vmin, vmax=vmax)
+            else:
+                norm = Normalize(vmin=vmin, vmax=vmax)
 
-        # Configure plot appearance
+            cmap = get_cmap(color_map)
+
+            world.plot(
+                column="data",
+                cmap=cmap,
+                legend=False,
+                ax=ax,
+                edgecolor="gray",
+                linewidth=0.6,
+                alpha=0.95,
+                norm=norm
+            )
+
+            if show_legend:
+                # Absolute-value legend with unit
+                unit = None
+                if isinstance(units, str):
+                    unit = units
+                elif hasattr(units, "__len__") and len(units) > 0:
+                    # if heterogeneous, we don't try to synthesize; else take single
+                    unit = units if isinstance(units, str) else (list(set(units))[0] if len(set(units)) == 1 else None)
+
+                self._add_map_legend(
+                    fig=fig, ax=ax, data=data, column=column, color_map=color_map,
+                    relative=False,  # legend should show absolute values
+                    mode="continuous",
+                    edges=None,
+                    norm_mode=norm_mode,
+                    vmin=vmin, vmax=vmax, gamma=gamma,
+                    unit=unit
+                )
+
+        elif mode == "binned":
+            # Discrete classes with numeric ranges in legend
+            finite = data[np.isfinite(data)]
+            if finite.empty:
+                world.plot(color="#dddddd", ax=ax, edgecolor="gray", linewidth=0.6)
+                self._configure_map_appearance(ax, title)
+                plt.close(fig)
+                return (fig, world) if return_data else fig
+
+            dmin, dmax = float(finite.min()), float(finite.max())
+
+            # Determine bin edges
+            if custom_bins is not None and len(custom_bins) > 0:
+                edges = np.array([dmin] + list(custom_bins) + [dmax], dtype=float)
+                edges = np.unique(edges)
+            else:
+                edges = np.linspace(dmin, dmax, num=max(2, int(k) + 1))
+
+            if np.allclose(edges.min(), edges.max()):
+                edges = np.array([dmin - 0.5, dmax + 0.5])
+
+            n_classes = len(edges) - 1
+            cmap = get_cmap(color_map, n_classes)
+            norm = BoundaryNorm(edges, ncolors=cmap.N, clip=True)
+
+            world.plot(
+                column="data",
+                cmap=cmap,
+                ax=ax,
+                edgecolor="gray",
+                linewidth=0.6,
+                alpha=0.9,
+                norm=norm
+            )
+
+            if show_legend:
+                sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
+                sm.set_array([])
+                cbar = fig.colorbar(
+                    sm,
+                    ax=ax,
+                    fraction=0.03,
+                    pad=0.02,
+                    ticks=[(edges[i] + edges[i+1]) / 2 for i in range(n_classes)]
+                )
+                tick_labels = [_fmt_range(edges[i], edges[i+1]) for i in range(n_classes)]
+                cbar.ax.set_yticklabels(tick_labels)
+                # If we have a single unit, display it in the label
+                label = column
+                if isinstance(units, str):
+                    label = f"{column} [{units}]"
+                elif hasattr(units, "__len__") and len(set(units)) == 1:
+                    label = f"{column} [{list(set(units))[0]}]"
+                cbar.set_label(f"{label} (binned)")
+
+        else:
+            raise ValueError('mode must be "continuous" or "binned"')
+
         self._configure_map_appearance(ax, title)
-
         plt.close(fig)
-
         return (fig, world) if return_data else fig
 
     def _add_world_metadata(
@@ -869,22 +1054,59 @@ class SupplyChain:
             world: pd.DataFrame,
             values: pd.Series,
             percentages: pd.Series,
-            units: Optional[List[str]]
+            units: Optional[Union[str, List[str]]]
     ) -> pd.DataFrame:
         """
-        Add metadata to the world DataFrame for mapping.
+        Enrich the world GeoDataFrame with metadata for plotting.
+
+        Parameters
+        ----------
+        world : pd.DataFrame
+            GeoDataFrame with country geometries, already aligned to EXIOBASE indices.
+        values : pd.Series
+            Absolute impact values per country.
+        percentages : pd.Series
+            Percentage share per country (sum = 100).
+        units : str or list, optional
+            Unit of the values. Can be a scalar (applied to all rows) or a list
+            matching the index length.
+
+        Returns
+        -------
+        pd.DataFrame
+            GeoDataFrame with additional columns: region, exiobase, value, percentage, unit.
         """
-        # Handle region names (skip Malta at index 19)
+        # Construct region name lists (skipping Malta at position 19)
         regions = self.iosystem.regions[:19] + self.iosystem.regions[20:]
         regions_exiobase = self.iosystem.regions_exiobase[:19] + self.iosystem.regions_exiobase[20:]
+
+        # Ensure length match after potential Malta drop
+        if len(world) != len(regions):
+            raise ValueError(
+                f"Length mismatch: world has {len(world)} rows, "
+                f"but regions has {len(regions)} entries. "
+                "Check if filtering is consistent."
+            )
 
         world["region"] = regions
         world["exiobase"] = regions_exiobase
         world["value"] = values
         world["percentage"] = percentages
 
-        if units:
-            world["unit"] = units
+        # Unit handling: broadcast scalar or check list length
+        if units is not None:
+            if isinstance(units, str):
+                world["unit"] = units
+            elif hasattr(units, "__len__"):
+                if len(units) == len(world):
+                    world["unit"] = units
+                elif len(set(units)) == 1:
+                    # all entries equal → broadcast single value
+                    world["unit"] = list(units)[0]
+                else:
+                    raise ValueError(
+                        f"Unit list length ({len(units)}) does not match number of rows ({len(world)})."
+                    )
 
         return world
 
@@ -895,34 +1117,75 @@ class SupplyChain:
             data: pd.Series,
             column: str,
             color_map: str,
-            relative: bool
+            relative: bool,
+            *,
+            mode: str = "continuous",               # "continuous" or "binned"
+            edges: Optional[List[float]] = None,    # for binned
+            # NEW: normalization parameters for continuous (to match the map)
+            norm_mode: str = "linear",
+            vmin: Optional[float] = None,
+            vmax: Optional[float] = None,
+            gamma: float = 0.7,
+            unit: Optional[str] = None
     ) -> None:
         """
-        Add color bar legend to the map.
-        """
-        norm = mcolors.Normalize(vmin=data.min(), vmax=data.max())
-        sm = plt.cm.ScalarMappable(cmap=color_map, norm=norm)
-        sm._A = []
-        cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
+        Add a colorbar legend to the map.
 
-        if relative:
-            cbar.set_label(f"{column} (%)")
-            cbar.ax.set_yticklabels([f"{int(tick)}%" for tick in cbar.get_ticks()])
+        - continuous: shows absolute values with unit (if provided).
+        - binned: handled in _plot_worldmap_by_data (this helper is used for continuous).
+        """
+        import numpy as np
+        import matplotlib as mpl
+        import matplotlib.colors as mcolors
+        import matplotlib.pyplot as plt
+
+        cmap = plt.get_cmap(color_map)
+
+        finite = data[np.isfinite(data)]
+        if finite.empty:
+            norm = mcolors.Normalize(vmin=0.0, vmax=1.0)
+            sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
+            fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
+            return
+
+        if mode == "continuous":
+            # Use provided vmin/vmax to ensure consistency with the map
+            if vmin is None or vmax is None:
+                vmin, vmax = float(finite.min()), float(finite.max())
+                if vmin == vmax:
+                    vmin, vmax = vmin - 0.5, vmax + 0.5
+
+            if norm_mode == "log":
+                eps = 1e-12
+                vmin = max(vmin, eps)
+                norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
+            elif norm_mode == "power":
+                norm = mcolors.PowerNorm(gamma=gamma, vmin=vmin, vmax=vmax)
+            else:
+                norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+            sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
+            cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
+
+            # Absolute-value legend label with unit if available
+            cbar.set_label(f"{column} [{unit}]" if unit else f"{column}")
         else:
-            cbar.set_label(column)
+            raise ValueError('Legend helper is meant for mode=\"continuous\" here.')
 
     def _configure_map_appearance(self, ax: plt.Axes, title: str) -> None:
         """
-        onfigure the visual appearance of the map.
+        Configure the visual appearance of the map.
         """
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_frame_on(False)
-        # ax.set_title(title)
         ax.set_title(title, fontsize=14, fontweight="bold", pad=20)
-        plt.subplots_adjust(left=0, right=1, top=0.95, bottom=0)
+        # Leave tight layout control to the caller; minimal padding here:
+        plt.subplots_adjust(left=0, right=1, top=0.95, bottom=0.0)
 
-    def get_title(self, **kwargs) -> str:
+    def _get_title(self, **kwargs) -> str:
         """
         Generate a dynamic title based on hierarchy levels and their translations.
 
