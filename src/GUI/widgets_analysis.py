@@ -2,28 +2,33 @@ from __future__ import annotations
 
 from typing import Dict, Callable, List, Optional
 from PyQt5.QtWidgets import (
-    QWidget, QComboBox, QHBoxLayout, QDialog, QLabel, QCheckBox, QDialogButtonBox, QVBoxLayout, QSpinBox, QDoubleSpinBox
+    QWidget, QComboBox, QHBoxLayout, QDialog, QLabel, QCheckBox, QDialogButtonBox, QVBoxLayout, QSpinBox, QDoubleSpinBox, QPushButton, QTreeWidget, QTreeWidgetItem
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 
 
 class MethodSelectorWidget(QWidget):
     """
-    A compact one-line widget providing a drop-down to select an analysis method.
-    Emits methodChanged(method_id) when selection changes.
+    One-line drop-down to select an analysis method.
+
+    - Shows localized labels (via `tr`).
+    - Keeps stable `method_id` in userData.
+    - Emits methodChanged(method_id) on change.
     """
     methodChanged = pyqtSignal(str)
 
-    def __init__(self, methods: Dict[str, object], parent=None):
+    def __init__(self, methods: Dict[str, object], tr: Callable[[str, str], str], parent=None):
         super().__init__(parent)
         self._methods = methods
+        self._tr = tr
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.combo = QComboBox(self)
         for mid, m in self._methods.items():
-            self.combo.addItem(m.label, userData=mid)
+            label = self._tr(getattr(m, "label", str(mid)), getattr(m, "label", str(mid)))
+            self.combo.addItem(label, userData=mid)
         self.combo.currentIndexChanged.connect(self._emit_change)
         layout.addWidget(self.combo)
 
@@ -33,7 +38,6 @@ class MethodSelectorWidget(QWidget):
             self.methodChanged.emit(mid)
 
     def set_current_method(self, method_id: str) -> None:
-        """Programmatically set current method by id."""
         idx = self.combo.findData(method_id)
         if idx >= 0:
             self.combo.setCurrentIndex(idx)
@@ -41,16 +45,24 @@ class MethodSelectorWidget(QWidget):
     def current_method(self) -> str:
         return self.combo.currentData()
 
+    def current_label(self) -> str:
+        return self.combo.currentText()
+
 
 class ImpactSelectorWidget(QWidget):
     """
-    A compact one-line widget to select an impact.
-    Emits impactChanged(impact_name) when selection changes.
+    One-line impact selector.
+
+    - Displays localized labels (via `tr`), keeps raw impact names in userData.
+    - current_value(): raw impact name
+    - current_display(): localized display text
     """
     impactChanged = pyqtSignal(str)
 
-    def __init__(self, impacts: list[str], include_subcontractors: bool = True, parent=None):
+    def __init__(self, impacts: list[str], tr: Callable[[str, str], str],
+                 include_subcontractors: bool = True, parent=None):
         super().__init__(parent)
+        self._tr = tr
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -58,25 +70,29 @@ class ImpactSelectorWidget(QWidget):
         self.combo = QComboBox(self)
 
         if include_subcontractors:
-            self.combo.addItem("Subcontractors")
+            raw = "Subcontractors"
+            self.combo.addItem(self._tr(raw, raw), userData=raw)
 
         for imp in impacts:
-            self.combo.addItem(imp)
+            self.combo.addItem(self._tr(imp, imp), userData=imp)
 
         self.combo.currentIndexChanged.connect(self._emit_change)
         layout.addWidget(self.combo)
 
     def _emit_change(self, *_):
-        text = self.combo.currentText()
-        if text:
-            self.impactChanged.emit(text)
+        val = self.current_value()
+        if val is not None:
+            self.impactChanged.emit(val)
 
     def set_current_impact(self, impact_name: str) -> None:
-        idx = self.combo.findText(impact_name)
+        idx = self.combo.findData(impact_name)
         if idx >= 0:
             self.combo.setCurrentIndex(idx)
 
-    def current_impact(self) -> str:
+    def current_value(self) -> str:
+        return self.combo.currentData()
+
+    def current_display(self) -> str:
         return self.combo.currentText()
 
 
@@ -253,14 +269,6 @@ class WorldMapSettingsDialog(QDialog):
         }
 
 
-
-
-from PyQt5.QtWidgets import (
-    QWidget, QHBoxLayout, QPushButton, QDialog, QVBoxLayout, QLabel,
-    QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QHBoxLayout as HBox, 
-)
-
-
 class ImpactMultiSelectorButton(QWidget):
     """
     Compact one-line multi-impact selector with a button that opens a tree dialog.
@@ -326,18 +334,20 @@ class ImpactMultiSelectorButton(QWidget):
         def add_items(parent_item, data_dict, level=0):
             for key, val in data_dict.items():
                 item = QTreeWidgetItem(parent_item)
-                item.setText(0, key)
+                # store raw key, display localized text
+                item.setData(0, Qt.UserRole + 1, key)
+                item.setText(0, self._tr(key, key))
                 item.setData(0, Qt.UserRole, level)
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
                 item.setCheckState(0, Qt.Checked if key in self._selected else Qt.Unchecked)
                 if isinstance(val, dict) and val:
                     add_items(item, val, level + 1)
-
+                    
         add_items(tree, self._hierarchy)
 
         # buttons row
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
-        row = HBox()
+        row = QHBoxLayout()
         reset_btn = QPushButton(self._tr("Reset to Defaults", "Reset to Defaults"), dlg)
         reset_btn.clicked.connect(lambda: self._reset_to_defaults(tree))
         row.addWidget(reset_btn)
@@ -351,10 +361,9 @@ class ImpactMultiSelectorButton(QWidget):
         dlg.exec_()
 
     def _reset_to_defaults(self, tree: QTreeWidget):
-        # set all based on defaults
         def walk(item: QTreeWidgetItem):
-            key = item.text(0)
-            item.setCheckState(0, Qt.Checked if key in self._defaults else Qt.Unchecked)
+            raw = item.data(0, Qt.UserRole + 1)
+            item.setCheckState(0, Qt.Checked if raw in self._defaults else Qt.Unchecked)
             for i in range(item.childCount()):
                 walk(item.child(i))
         for i in range(tree.topLevelItemCount()):
@@ -363,9 +372,9 @@ class ImpactMultiSelectorButton(QWidget):
     def _accept_dialog(self, tree: QTreeWidget, dlg: QDialog):
         new_sel = set()
         def collect(item: QTreeWidgetItem):
-            key = item.text(0)
-            if item.flags() & Qt.ItemIsUserCheckable and item.checkState(0) == Qt.Checked:
-                new_sel.add(key)
+            raw = item.data(0, Qt.UserRole + 1)
+            if raw is not None and (item.flags() & Qt.ItemIsUserCheckable) and item.checkState(0) == Qt.Checked:
+                new_sel.add(raw)
             for i in range(item.childCount()):
                 collect(item.child(i))
         for i in range(tree.topLevelItemCount()):

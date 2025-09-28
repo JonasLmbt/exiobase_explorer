@@ -7,15 +7,9 @@ This module provides the SupplyChain class for analyzing environmental impacts a
 import tkinter as tk
 from tkinter import ttk
 from typing import List, Dict, Optional, Tuple, Union, Any
-
-import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
 import pandas as pd
-import matplotlib as mpl
-from matplotlib.colors import Normalize, BoundaryNorm
-from matplotlib.cm import get_cmap
+import matplotlib.pyplot as plt
 
-import numpy as np
 
 
 class SupplyChain:
@@ -1220,3 +1214,207 @@ class SupplyChain:
                 f' ({self.iosystem.year})'
         )
     
+    def _sc__extract_unit(self, world) -> str:
+        """
+        Internal helper: robustly extract a scalar 'unit' from various world objects
+        (DataFrame/GeoDataFrame, dict, plain object attribute).
+        """
+        try:
+            if isinstance(world, pd.DataFrame):
+                return str(world["unit"].iloc[0]) if "unit" in world.columns and len(world) else ""
+            if isinstance(world, dict) and "unit" in world:
+                return str(world["unit"])
+            u = getattr(world, "unit", "")
+            return "" if u is None else str(u)
+        except Exception:
+            return ""
+
+    def _sc__world_df(self,
+                    impact: str,
+                    *,
+                    relative: bool = True,
+                    color: str = "Reds",
+                    title: Optional[str] = None,
+                    show_legend: bool = False,
+                    mode: str = "binned",
+                    k: int = 7,
+                    custom_bins: Optional[List[float]] = None,
+                    norm_mode: str = "linear",
+                    robust: float = 2.0,
+                    gamma: float = 0.7) -> Tuple[pd.DataFrame, str]:
+        """
+        Internal helper: returns the same dataframe the worldmap calls use, but without
+        the GUI. Greift – falls vorhanden – auf reine Datenfunktionen zu,
+        sonst über die bestehenden Plot-Funktionen mit return_data=True.
+        Columns guaranteed: region, value, percentage, unit (geometry optional).
+        """
+        # 1) Daten-only Endpunkte nutzen, falls du sie später implementierst
+        try:
+            if impact.strip().lower() == "subcontractors" and hasattr(self, "worldmap_data_by_subcontractors"):
+                df = self.worldmap_data_by_subcontractors(relative=relative)
+                unit = str(df["unit"].iloc[0]) if "unit" in df.columns and len(df) else ""
+                return df.copy(), unit
+            if impact.strip().lower() != "subcontractors" and hasattr(self, "worldmap_data_by_impact"):
+                df = self.worldmap_data_by_impact(impact, relative=relative)
+                unit = str(df["unit"].iloc[0]) if "unit" in df.columns and len(df) else ""
+                return df.copy(), unit
+        except Exception:
+            # Fallback auf plot_* unten
+            pass
+
+        # 2) Fallback: vorhandene Plot-Funktionen (verwenden return_data=True)
+        kw = dict(color=color, title=title, relative=relative, show_legend=show_legend,
+                return_data=True, mode=mode, k=k, custom_bins=custom_bins,
+                norm_mode=norm_mode, robust=robust, gamma=gamma)
+
+        if impact.strip().lower() == "subcontractors":
+            _fig, world = self.plot_worldmap_by_subcontractors(**kw)
+        else:
+            _fig, world = self.plot_worldmap_by_impact(impact, **kw)
+
+        unit = self._sc__extract_unit(world)
+        df = pd.DataFrame(world).copy()
+
+        # Mindestspalten sicherstellen
+        for col in ["region", "value", "percentage"]:
+            if col not in df.columns:
+                df[col] = None
+        if "unit" not in df.columns:
+            df["unit"] = unit
+
+        return df, unit
+
+    def plot_topn_by_impact(self,
+                            impact: str,
+                            n: int = 10,
+                            *,
+                            ascending: bool = False,
+                            relative: bool = True,
+                            color: str = "tab:blue",
+                            title: Optional[str] = None,
+                            label_rotation: int = 45,
+                            return_data: bool = False,
+                            # Klassifizierungs-Args durchreichen (werden für Daten nicht benötigt,
+                            # bleiben aber API-kompatibel zur Worldmap)
+                            mode: str = "binned",
+                            k: int = 7,
+                            custom_bins: Optional[List[float]] = None,
+                            norm_mode: str = "linear",
+                            robust: float = 2.0,
+                            gamma: float = 0.7
+                        ) -> Union[plt.Figure, Tuple[plt.Figure, pd.DataFrame]]:
+        """
+        Bar chart of Top/Flop regions by impact value.
+
+        Args:
+            impact: Impact name, or 'Subcontractors' for supplier counts.
+            n: Number of bars.
+            ascending: False -> Top N (largest first), True -> Flop N (smallest first).
+            relative: Use relative normalization consistent with world map data.
+            color, title, label_rotation: Plot appearance.
+            return_data: If True, returns (fig, df); otherwise only fig.
+
+        Returns:
+            Figure or (Figure, DataFrame with columns: region, value, unit).
+        """
+        df, unit = self._sc__world_df(impact, relative=relative, color="Reds", title=None,
+                                    mode=mode, k=k, custom_bins=custom_bins,
+                                    norm_mode=norm_mode, robust=robust, gamma=gamma)
+
+        # Werte bereinigen & sortieren
+        s = pd.to_numeric(df["value"], errors="coerce")
+        take = df.loc[s.notna(), ["region"]].copy()
+        take["value"] = s.loc[s.notna()]
+        take = take.sort_values("value", ascending=ascending).head(max(1, int(n)))
+        take["unit"] = unit
+
+        # Plot
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.bar(take["region"], take["value"], color=color)
+        ax.set_ylabel(unit or "")
+        if title:
+            ax.set_title(title)
+        ax.set_xticklabels(take["region"], rotation=label_rotation, ha="right")
+        fig.tight_layout()
+
+        return (fig, take) if return_data else fig
+
+    def plot_flopn_by_impact(self, impact: str, n: int = 10, **kwargs):
+        """
+        Convenience wrapper for the N smallest (Flop N). Identisch zu:
+        plot_topn_by_impact(..., ascending=True).
+        """
+        kwargs = dict(kwargs)
+        kwargs["ascending"] = True
+        return self.plot_topn_by_impact(impact, n, **kwargs)
+
+    def plot_pie_by_impact(self,
+                        impact: str,
+                        top_slices: int = 10,
+                        *,
+                        relative: bool = True,
+                        title: Optional[str] = None,
+                        return_data: bool = False,
+                        colors: Optional[List[str]] = None,
+                        # Klassifizierungs-Args (nur zur API-Gleichheit)
+                        mode: str = "binned",
+                        k: int = 7,
+                        custom_bins: Optional[List[float]] = None,
+                        norm_mode: str = "linear",
+                        robust: float = 2.0,
+                        gamma: float = 0.7
+                        ) -> Union[plt.Figure, Tuple[plt.Figure, pd.DataFrame]]:
+        """
+        Pie chart über Regionen: Top 'top_slices' einzeln, Rest als 'Others'.
+
+        Args:
+            impact: Impact name, oder 'Subcontractors'.
+            top_slices: Anzahl der benannten Segmente, der Rest -> 'Others'.
+            relative: Datenbasis wie in der Worldmap (True/False).
+            title: Optionaler Titel.
+            return_data: Wenn True, (fig, df) zurück – df hat Spalten: label, value, unit.
+            colors: Optional Liste von Farben für die Slices.
+
+        Returns:
+            Figure oder (Figure, DataFrame).
+        """
+        df, unit = self._sc__world_df(impact, relative=relative, color="Reds", title=None,
+                                    mode=mode, k=k, custom_bins=custom_bins,
+                                    norm_mode=norm_mode, robust=robust, gamma=gamma)
+
+        s = pd.to_numeric(df["value"], errors="coerce")
+        base = df.loc[s.notna(), ["region"]].copy()
+        base["value"] = s.loc[s.notna()]
+        base = base.sort_values("value", ascending=False)
+
+        top = base.head(max(1, int(top_slices))).copy()
+        others_val = base["value"].iloc[int(top_slices):].sum() if len(base) > top_slices else 0.0
+
+        pie_df = top.rename(columns={"region": "label"})
+        if others_val > 0:
+            pie_df = pd.concat([pie_df, pd.DataFrame([{"label": "Others", "value": others_val}])], ignore_index=True)
+        pie_df["unit"] = unit
+
+        # Plot
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.pie(pie_df["value"], labels=pie_df["label"], autopct="%1.1f%%", colors=colors)
+        if title:
+            ax.set_title(title)
+        ax.axis("equal")  # nicer circle
+        fig.tight_layout()
+
+        return (fig, pie_df) if return_data else fig
+
+    def plot_topn_by_subcontractors(self, n: int = 10, **kwargs):
+        """Shortcut für Zulieferer: ruft plot_topn_by_impact('Subcontractors', ...)."""
+        return self.plot_topn_by_impact("Subcontractors", n, **kwargs)
+
+    def plot_flopn_by_subcontractors(self, n: int = 10, **kwargs):
+        """Shortcut für Zulieferer: ruft plot_flopn_by_impact('Subcontractors', ...)."""
+        return self.plot_flopn_by_impact("Subcontractors", n, **kwargs)
+
+    def plot_pie_by_subcontractors(self, top_slices: int = 10, **kwargs):
+        """Shortcut für Zulieferer: ruft plot_pie_by_impact('Subcontractors', ...)."""
+        return self.plot_pie_by_impact("Subcontractors", top_slices, **kwargs)

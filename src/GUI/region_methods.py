@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, Optional, Tuple
 import matplotlib.pyplot as plt
-from PyQt5.QtWidgets import QDialog, QWidget, QSpinBox, QLabel, QHBoxLayout
+from PyQt5.QtWidgets import QDialog, QWidget
 import pandas as pd
 
 
@@ -100,104 +100,104 @@ class WorldMapMethod(AnalysisMethod):
         return fig
 
 
-class _TopNBase(AnalysisMethod):
+class TopNMethod(AnalysisMethod):
     """
-    Shared logic for Top/Flop N methods.
-
-    Expects a dataframe with columns ['region', 'value'] from the view's data provider.
+    Top-N regions by value. Uses SupplyChain.plot_topn_by_impact(data-only).
     """
-    def __init__(self, default_n: int = 10):
-        self.n = default_n  # default Top/Flop count
-        self._inline_widget = None  # created lazily
-
-    def get_inline_controls(self, parent: QWidget) -> Optional[QWidget]:
-        if self._inline_widget is None:
-            box = QHBoxLayout()
-            box.setContentsMargins(0, 0, 0, 0)
-            label = QLabel("N:")
-            spin = QSpinBox()
-            spin.setRange(1, 50)
-            spin.setValue(self.n)
-            spin.valueChanged.connect(lambda v: setattr(self, "n", v))
-
-            container = QWidget(parent)
-            container.setLayout(box)
-            box.addWidget(label)
-            box.addWidget(spin)
-            self._inline_widget = container
-        return self._inline_widget
-
-    def _get_sorted(self, df: pd.DataFrame, ascending: bool) -> pd.DataFrame:
-        # Defensive: drop rows with non-numeric values
-        safe = df.copy()
-        safe["value"] = pd.to_numeric(safe["value"], errors="coerce")
-        safe = safe.dropna(subset=["value"])
-        safe = safe.sort_values("value", ascending=ascending)
-        return safe
-
-
-class TopNMethod(_TopNBase):
-    """Bar chart of the Top-N regions by value for the selected impact."""
     id = "top_n"
     label = "Top n"
 
-    def render(self, parent_view, impact_choice, get_world_data):
-        df, unit = get_world_data(impact_choice)
-        sorted_df = self._get_sorted(df, ascending=False).head(self.n)
+    def __init__(self, n: int = 10):
+        self.n = n
 
+    def render(self, parent_view, impact_choice, _get_world_df):
+        # Respect world-map setting 'relative' so Top/Flop basieren auf der gleichen Basis
+        s = parent_view.method_state.get("world_map", {})
+        relative = bool(s.get("relative", True))
+
+        # Daten vom Backend holen (return_data=True, Figure ignorieren)
+        _fig, df = parent_view.ui.supplychain.plot_topn_by_impact(
+            impact_choice, n=self.n, relative=relative, return_data=True
+        )
+
+        # Robust konvertieren
+        df = pd.DataFrame(df)
+        unit = str(df["unit"].iloc[0]) if "unit" in df.columns and len(df) else ""
+
+        # Frontend-Plot (i18n-sicher)
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        ax.bar(sorted_df["region"], sorted_df["value"])
-        ax.set_title(f"Top {self.n} – {impact_choice}")
+        ax.bar(df["region"], df["value"])
         ax.set_ylabel(unit or "")
-        ax.set_xticklabels(sorted_df["region"], rotation=45, ha="right")
+        title = f"{parent_view._get_text(self.label, self.label)} {self.n} – {impact_choice}"
+        ax.set_title(title)
+        ax.set_xticklabels(df["region"], rotation=45, ha="right")
         fig.tight_layout()
         return fig
 
 
-class FlopNMethod(_TopNBase):
-    """Bar chart of the Flop-N (lowest) regions by value for the selected impact."""
+class FlopNMethod(AnalysisMethod):
+    """
+    Flop-N regions (smallest values). Uses SupplyChain.plot_flopn_by_impact(data-only).
+    """
     id = "flop_n"
     label = "Flop n"
 
-    def render(self, parent_view, impact_choice, get_world_data):
-        df, unit = get_world_data(impact_choice)
-        sorted_df = self._get_sorted(df, ascending=True).head(self.n)
+    def __init__(self, n: int = 10):
+        self.n = n
+
+    def render(self, parent_view, impact_choice, _get_world_df):
+        s = parent_view.method_state.get("world_map", {})
+        relative = bool(s.get("relative", True))
+
+        _fig, df = parent_view.ui.supplychain.plot_flopn_by_impact(
+            impact_choice, n=self.n, relative=relative, return_data=True
+        )
+
+        df = pd.DataFrame(df)
+        unit = str(df["unit"].iloc[0]) if "unit" in df.columns and len(df) else ""
 
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        ax.bar(sorted_df["region"], sorted_df["value"])
-        ax.set_title(f"Flop {self.n} – {impact_choice}")
+        ax.bar(df["region"], df["value"])
         ax.set_ylabel(unit or "")
-        ax.set_xticklabels(sorted_df["region"], rotation=45, ha="right")
+        title = f"{parent_view._get_text(self.label, self.label)} {self.n} – {impact_choice}"
+        ax.set_title(title)
+        ax.set_xticklabels(df["region"], rotation=45, ha="right")
         fig.tight_layout()
         return fig
 
 
 class PieChartMethod(AnalysisMethod):
-    """Pie chart of regional shares for the selected impact."""
-    id = "pie_chart"
+    """
+    Pie chart over regions. Uses SupplyChain.plot_pie_by_impact(data-only).
+    """
+    id = "pie"
     label = "Pie chart"
 
-    def render(self, parent_view, impact_choice, get_world_data):
-        df, unit = get_world_data(impact_choice)
-        # keep top 10 slices + aggregate rest as "Others" for readability
-        safe = df.copy()
-        safe["value"] = pd.to_numeric(safe["value"], errors="coerce")
-        safe = safe.dropna(subset=["value"])
-        safe = safe.sort_values("value", ascending=False)
-        top = safe.head(10)
-        others_val = safe["value"].iloc[10:].sum()
-        labels = list(top["region"])
-        values = list(top["value"])
-        if others_val > 0:
-            labels.append("Others")
-            values.append(others_val)
+    def __init__(self, top_slices: int = 10):
+        self.top_slices = top_slices
+
+    def render(self, parent_view, impact_choice, _get_world_df):
+        s = parent_view.method_state.get("world_map", {})
+        relative = bool(s.get("relative", True))
+
+        _fig, df = parent_view.ui.supplychain.plot_pie_by_impact(
+            impact_choice, top_slices=self.top_slices, relative=relative, return_data=True
+        )
+
+        df = pd.DataFrame(df)
+        unit = str(df["unit"].iloc[0]) if "unit" in df.columns and len(df) else ""
+
+        # i18n für 'Others'
+        others_key = parent_view._get_text("Others", "Others")
+        if "label" in df.columns:
+            df.loc[df["label"].astype(str).str.lower() == "others", "label"] = others_key
 
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        ax.pie(values, labels=labels, autopct="%1.1f%%", startangle=90)
-        ax.set_title(f"{impact_choice}")
+        ax.pie(df["value"], labels=df["label"], autopct="%1.1f%%")
+        ax.set_title(f'{parent_view._get_text(self.label, self.label)} – {impact_choice}')
         ax.axis("equal")
         fig.tight_layout()
         return fig
