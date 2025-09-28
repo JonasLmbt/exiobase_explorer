@@ -7,7 +7,6 @@ This module serves as the entry point for the Exiobase Explorer application.
 import sys
 import os
 import logging
-from typing import Optional, Dict, Any
 
 from src.IOSystem import IOSystem
 from src.SupplyChain import SupplyChain
@@ -17,7 +16,7 @@ from src.GUI.VisualisationTab import VisualisationTab
 from src.GUI.ConsoleTab import ConsoleTab
 
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QSizePolicy,
+    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
 )
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
@@ -115,6 +114,13 @@ class UserInterface(QMainWindow):
         # Show the window
         self.show()
         logger.info("User interface setup completed")
+    
+    def _translate(self, key: str, fallback: str) -> str:
+        """Return localized string; always cast to str to avoid non-str labels."""
+        val = self.general_dict.get(key, fallback)
+        if val is None:
+            return str(fallback)
+        return str(val)
 
     def _configure_main_window(self) -> None:
         """Configure the main window properties with flexible sizing."""
@@ -194,12 +200,12 @@ class UserInterface(QMainWindow):
             # Allow tabs to be more flexible in size
             self.tabs.setUsesScrollButtons(True)
             self.tabs.setElideMode(Qt.ElideNone)  # Don't elide tab text
-
+    
             # Add tabs in order
-            self.tabs.addTab(self.selection_tab, self.general_dict["Selection"])
-            self.tabs.addTab(self.visualisation_tab, self.general_dict["Visualisation"])
-            self.tabs.addTab(self.console_tab, self.general_dict["Console"])
-            self.tabs.addTab(self.settings_tab, self.general_dict["Settings"])
+            self.tabs.addTab(self.selection_tab, self._translate("Selection", "Selection"))
+            self.tabs.addTab(self.visualisation_tab, self._translate("Visualisation", "Visualisation"))
+            self.tabs.addTab(self.console_tab, self._translate("Console", "Console"))
+            self.tabs.addTab(self.settings_tab, self._translate("Settings", "Settings"))
 
             # Add tabs to main layout
             self._main_layout.addWidget(self.tabs)
@@ -233,7 +239,7 @@ class UserInterface(QMainWindow):
             self.tabs.insertTab(
                 self.SELECTION_TAB_INDEX,
                 self.selection_tab,
-                self.general_dict["Selection"]
+                self._translate("Selection", "Selection")
             )
 
             logger.info("Selection tab reloaded successfully")
@@ -256,7 +262,7 @@ class UserInterface(QMainWindow):
             self.tabs.insertTab(
                 self.VISUALISATION_TAB_INDEX,
                 self.visualisation_tab,
-                self.general_dict["Visualisation"]
+                self._translate("Visualisation", "Visualisation")
             )
 
             logger.info("Visualisation tab reloaded successfully")
@@ -279,7 +285,7 @@ class UserInterface(QMainWindow):
             self.tabs.insertTab(
                 self.CONSOLE_TAB_INDEX,
                 self.console_tab,
-                self.general_dict["Console"]
+                self._translate("Console", "Console")
             )
 
             logger.info("Console tab reloaded successfully")
@@ -310,7 +316,7 @@ class UserInterface(QMainWindow):
             self.tabs.insertTab(
                 self.SETTINGS_TAB_INDEX,
                 self.settings_tab,
-                self.general_dict["Settings"]
+                self._translate("Settings", "Settings")
             )
             # Tab-Fokus wiederherstellen, falls vorher SettingsTab aktiv war
             if current_tab_index == self.SETTINGS_TAB_INDEX:

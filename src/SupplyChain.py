@@ -9,6 +9,13 @@ from tkinter import ttk
 from typing import List, Dict, Optional, Tuple, Union, Any
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+import matplotlib as mpl
+import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib.ticker import MaxNLocator
+
 
 
 
@@ -696,46 +703,51 @@ class SupplyChain:
             save_to_excel: Optional[str] = None
         ):
         """
-        Returns a DataFrame containing world map data for one or more impact categories.
+        Returns a DataFrame (index: EXIOBASE regions) with one column per impact.
+        The column name includes the unit in parentheses, e.g. "Water consumption (m³)".
 
-        Parameters
-        ----------
-        impact : str or list of str
-            Impact category or list of categories to compute.
-
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with regions as index and one column per impact category.
+        If 'save_to_excel' is provided, writes the file and returns None.
         """
-        # Ensure impact is a list
-        if isinstance(impact, str):
-            impact = [impact]
+        # Normalize to list
+        impacts = [impact] if isinstance(impact, str) else list(impact)
 
         data = {}
+        colnames = []
 
-        for i in impact:
-            values = (
-                self.iosystem.impact.total.loc[i]
+        for imp in impacts:
+            # Aggregate values for the current selection of indices
+            vals = (
+                self.iosystem.impact.total.loc[imp]
                 .iloc[:, self.indices]
                 .sum(axis=1)
-                .values
-                .tolist()
+                .to_numpy(dtype="float64")
             )
 
-            # Transform values using unit conversion
-            values = [
-                self.transform_unit(value=value, impact=i)[0] for value in values
-            ]
+            # Convert unit (fallback: per-value transform, if no vectorized factor available)
+            converted = [self.transform_unit(value=v, impact=imp)[0] for v in vals]
 
-            data[i] = values
+            # Get unit string (prefer official unit; fallback to transform_unit’s return, if provided)
+            try:
+                unit = self.iosystem.impact.get_unit(imp)
+            except Exception:
+                try:
+                    # if transform_unit returns (value, unit)
+                    _tmp_val, unit = self.transform_unit(value=0.0, impact=imp)
+                except Exception:
+                    unit = ""
 
-        df = pd.DataFrame(data, index=self.iosystem.regions)
+            # Build column name with unit in parentheses (omit parentheses if empty)
+            colname = f"{imp} ({unit})" if unit else f"{imp}"
+            data[colname] = converted
+            colnames.append(colname)
+
+        # Use EXIOBASE region index for alignment/consistency with world map
+        df = pd.DataFrame(data, index=self.iosystem.regions_exiobase)
 
         if save_to_excel:
             df.to_excel(save_to_excel)
-        else:
-            return df
+            return None
+        return df
 
     def plot_worldmap_by_subcontractors(
             self,
@@ -827,7 +839,7 @@ class SupplyChain:
         # Unit transformation
         values = [self.transform_unit(value=value, impact=impact)[0] for value in values]
 
-        df = pd.DataFrame({'Impact': values}, index=self.iosystem.regions_exiobase)
+        df = pd.DataFrame({impact: values}, index=self.iosystem.regions_exiobase)
 
         if title is None:
             general_dict = self.iosystem.index.general_dict
@@ -1034,7 +1046,7 @@ class SupplyChain:
                     label = f"{column} [{units}]"
                 elif hasattr(units, "__len__") and len(set(units)) == 1:
                     label = f"{column} [{list(set(units))[0]}]"
-                cbar.set_label(f"{label} (binned)")
+                cbar.set_label(f"{label}")
 
         else:
             raise ValueError('mode must be "continuous" or "binned"')
@@ -1128,10 +1140,6 @@ class SupplyChain:
         - continuous: shows absolute values with unit (if provided).
         - binned: handled in _plot_worldmap_by_data (this helper is used for continuous).
         """
-        import numpy as np
-        import matplotlib as mpl
-        import matplotlib.colors as mcolors
-        import matplotlib.pyplot as plt
 
         cmap = plt.get_cmap(color_map)
 

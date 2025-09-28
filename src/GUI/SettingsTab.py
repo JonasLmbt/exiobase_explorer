@@ -78,7 +78,7 @@ class SettingsTab(QWidget):
 
         self._init_ui(show_indices_state)
 
-    def _get_text(self, key, fallback):
+    def _translate(self, key, fallback):
         """Get text from general_dict with fallback."""
         return self.general_dict.get(key, fallback)
 
@@ -124,16 +124,16 @@ class SettingsTab(QWidget):
         options_group = self._create_options_group(show_indices_state)
         layout.addWidget(options_group)
 
-        console_group = QGroupBox(self._get_text("Console Output", "Console Output"))
+        console_group = QGroupBox(self._translate("Console Output", "Console Output"))
         console_layout = QVBoxLayout(console_group)
         console_layout.addWidget(self.log_handler.widget)
         layout.addWidget(console_group)
 
     def _create_general_settings_group(self):
-        group = QGroupBox(self._get_text("General Settings", "General Settings"))
+        group = QGroupBox(self._translate("General Settings", "General Settings"))
         layout = QHBoxLayout(group)
 
-        language_label = QLabel(f"{self._get_text('Language', 'Language')}:")
+        language_label = QLabel(f"{self._translate('Language', 'Language')}:")
         self.language_combo = QComboBox()
         self.language_combo.addItems(self.languages)
         self.language_combo.setCurrentText(self.current_language)
@@ -141,7 +141,7 @@ class SettingsTab(QWidget):
         layout.addWidget(language_label)
         layout.addWidget(self.language_combo)
 
-        year_label = QLabel(f"{self._get_text('Year', 'Year')}:")
+        year_label = QLabel(f"{self._translate('Year', 'Year')}:")
         self.year_combo = QComboBox()
         self.year_combo.addItems(self.years)
         self.year_combo.setCurrentText(self.current_year)
@@ -152,11 +152,11 @@ class SettingsTab(QWidget):
         return group
 
     def _create_options_group(self, show_indices_state=None):
-        group = QGroupBox(self._get_text("Options", "Options"))
+        group = QGroupBox(self._translate("Options", "Options"))
         layout = QVBoxLayout(group)
 
         first_row = QHBoxLayout()
-        self.show_indices_checkbox = QCheckBox(self._get_text("Show Indices", "Show Indices"))
+        self.show_indices_checkbox = QCheckBox(self._translate("Show Indices", "Show Indices"))
         if show_indices_state is not None:
             self.show_indices_checkbox.setChecked(show_indices_state)
         else:
@@ -166,12 +166,12 @@ class SettingsTab(QWidget):
 
         theme_row = QHBoxLayout()
 
-        theme_label = QLabel(f"{self._get_text('Theme', 'Theme')}:")
+        theme_label = QLabel(f"{self._translate('Theme', 'Theme')}:")
         self.theme_combo = QComboBox()
         self.theme_combo.addItems([
-            self._get_text("System Default", "System Default"),
-            self._get_text("Custom Light Mode", "Custom Light Mode"),
-            self._get_text("Custom Dark Mode", "Custom Dark Mode")
+            self._translate("System Default", "System Default"),
+            self._translate("Custom Light Mode", "Custom Light Mode"),
+            self._translate("Custom Dark Mode", "Custom Dark Mode")
         ])
         # Setze den aktuellen Theme-Namen korrekt
         theme_name = self._get_current_theme_name()
@@ -191,7 +191,7 @@ class SettingsTab(QWidget):
         if self._current_theme is not None:
             return self._current_theme
         # Fallback: System Default
-        return self._get_text("System Default", "System Default")
+        return self._translate("System Default", "System Default")
 
     def _on_language_changed(self, text):
         try:
@@ -221,10 +221,10 @@ class SettingsTab(QWidget):
             if app is None:
                 return
 
-            if theme_text == self._get_text("Custom Dark Mode", "Custom Dark Mode"):
+            if theme_text == self._translate("Custom Dark Mode", "Custom Dark Mode"):
                 app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
                 logging.info("Applied qdarktheme dark theme")
-            elif theme_text == self._get_text("Custom Light Mode", "Custom Light Mode"):
+            elif theme_text == self._translate("Custom Light Mode", "Custom Light Mode"):
                 app.setStyleSheet(qdarktheme.load_stylesheet("light"))
                 logging.info("Applied qdarktheme light theme")
             else:  # System Default

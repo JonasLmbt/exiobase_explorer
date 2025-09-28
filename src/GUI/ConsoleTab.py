@@ -47,7 +47,7 @@ class ConsoleTab(QWidget):
         # Initialize UI
         self._init_ui()
 
-    def _get_text(self, key, fallback):
+    def _translate(self, key, fallback):
         """Get text from general_dict with fallback."""
         return self.general_dict.get(key, fallback)
 
@@ -56,11 +56,11 @@ class ConsoleTab(QWidget):
         layout = QVBoxLayout(self)
 
         # Console description
-        description_group = QGroupBox(self._get_text("Interactive Console", "Interactive Console"))
+        description_group = QGroupBox(self._translate("Interactive Console", "Interactive Console"))
         description_layout = QVBoxLayout(description_group)
         # Improved user instruction
         description_layout.addWidget(
-            QLabel(self._get_text("Enter Python code below. Press <b>Enter</b> to execute, use <b>Shift+Enter</b> for a new line within a multi-line statement.",
+            QLabel(self._translate("Enter Python code below. Press <b>Enter</b> to execute, use <b>Shift+Enter</b> for a new line within a multi-line statement.",
                                   "Enter Python code below. Press <b>Enter</b> to execute, use <b>Shift+Enter</b> for a new line within a multi-line statement."))
         )
         layout.addWidget(description_group)
@@ -84,7 +84,7 @@ class ConsoleTab(QWidget):
 
     def _create_output_widget(self):
         """Create the output display widget."""
-        output_group = QGroupBox(self._get_text("Output", "Output"))
+        output_group = QGroupBox(self._translate("Output", "Output"))
         output_layout = QVBoxLayout(output_group)
 
         self.output = QTextEdit()
@@ -102,7 +102,7 @@ class ConsoleTab(QWidget):
         output_layout.addWidget(self.output)
 
         # Clear button
-        clear_button = QPushButton(self._get_text("Clear Output", "Clear Output"))
+        clear_button = QPushButton(self._translate("Clear Output", "Clear Output"))
         clear_button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         clear_button.clicked.connect(self.clear_output)
         output_layout.addWidget(clear_button)
@@ -111,7 +111,7 @@ class ConsoleTab(QWidget):
 
     def _create_input_widget(self):
         """Create the input area widget."""
-        input_group = QGroupBox(self._get_text("Input", "Input"))
+        input_group = QGroupBox(self._translate("Input", "Input"))
         input_layout = QVBoxLayout(input_group)
 
         # Input text area
@@ -128,7 +128,7 @@ class ConsoleTab(QWidget):
         input_layout.addWidget(self.input)
 
         # Execute button
-        self.execute_button = QPushButton(self._get_text("Execute", "Execute"))
+        self.execute_button = QPushButton(self._translate("Execute", "Execute"))
         self.execute_button.clicked.connect(self.execute_code)
         # Apply consistent size policy
         self.execute_button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -247,7 +247,7 @@ class ConsoleTab(QWidget):
         self.in_multiline = False
 
         # Add welcome message
-        welcome_msg = self._get_text("Python Console - Ready", "Python Console - Ready")
+        welcome_msg = self._translate("Python Console - Ready", "Python Console - Ready")
         self.output.append(welcome_msg)
         self.output.append("=" * 40)
 
