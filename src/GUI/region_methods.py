@@ -129,7 +129,7 @@ class TopNMethod(AnalysisMethod):
         ax = fig.add_subplot(111)
         ax.bar(df["region"], df["value"])
         ax.set_ylabel(unit or "")
-        title = f"{parent_view._get_text(self.label, self.label)} {self.n} – {impact_choice}"
+        title = f"{parent_view._translate(self.label, self.label)} {self.n} – {impact_choice}"
         ax.set_title(title)
         ax.set_xticklabels(df["region"], rotation=45, ha="right")
         fig.tight_layout()
@@ -161,7 +161,7 @@ class FlopNMethod(AnalysisMethod):
         ax = fig.add_subplot(111)
         ax.bar(df["region"], df["value"])
         ax.set_ylabel(unit or "")
-        title = f"{parent_view._get_text(self.label, self.label)} {self.n} – {impact_choice}"
+        title = f"{parent_view._translate(self.label, self.label)} {self.n} – {impact_choice}"
         ax.set_title(title)
         ax.set_xticklabels(df["region"], rotation=45, ha="right")
         fig.tight_layout()
@@ -190,14 +190,14 @@ class PieChartMethod(AnalysisMethod):
         unit = str(df["unit"].iloc[0]) if "unit" in df.columns and len(df) else ""
 
         # i18n für 'Others'
-        others_key = parent_view._get_text("Others", "Others")
+        others_key = parent_view._translate("Others", "Others")
         if "label" in df.columns:
             df.loc[df["label"].astype(str).str.lower() == "others", "label"] = others_key
 
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.pie(df["value"], labels=df["label"], autopct="%1.1f%%")
-        ax.set_title(f'{parent_view._get_text(self.label, self.label)} – {impact_choice}')
+        ax.set_title(f'{parent_view._translate(self.label, self.label)} – {impact_choice}')
         ax.axis("equal")
         fig.tight_layout()
         return fig

@@ -11,9 +11,10 @@ from .stage_methods import StageAnalysisRegistry, StageAnalysisMethod
 from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog,
     QGraphicsOpacityEffect, QLabel, QSizePolicy,
-    QDialog, QApplication, QToolButton, QComboBox,
+    QDialog, QApplication, QToolButton, QComboBox, QStyle,
     QTabBar, QMessageBox, QCheckBox, QDialogButtonBox, QSpinBox, QDoubleSpinBox, QPushButton, QTreeWidget, QTreeWidgetItem
 )
+
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QPixmap
 from shapely.geometry import Point
@@ -48,9 +49,12 @@ class VisualisationTab(QWidget):
 
         self._init_ui()
 
-    def _get_text(self, key, fallback):
-        """Get text from general_dict with fallback."""
-        return self.general_dict.get(key, fallback)
+    def _translate(self, key: str, fallback: str) -> str:
+        """Return localized string; always cast to str to avoid non-str labels."""
+        val = self.general_dict.get(key, fallback)
+        if val is None:
+            return str(fallback)
+        return str(val)
 
     def _init_ui(self):
         """Initialize the user interface."""
@@ -62,11 +66,11 @@ class VisualisationTab(QWidget):
         # Add visualization tabs
         self.inner_tab_widget.addTab(
             StageAnalysisTabContainer(ui=self.ui),
-            self._get_text("Stage Analysis", "Stage Analysis")  
+            self._translate("Stage Analysis", "Stage Analysis")  
         )
         self.inner_tab_widget.addTab(
             RegionAnalysisTabContainer(ui=self.ui),
-            self._get_text("Region Analysis", "Region Analysis") 
+            self._translate("Region Analysis", "Region Analysis") 
         )
         layout.addWidget(self.inner_tab_widget)
 
@@ -83,8 +87,12 @@ class StageAnalysisTabContainer(QWidget):
         self._adding_tab = False
         self._init_ui()
 
-    def _get_text(self, key, fallback):
-        return self.general_dict.get(key, fallback)
+    def _translate(self, key: str, fallback: str) -> str:
+        """Return localized string; always cast to str to avoid non-str labels."""
+        val = self.general_dict.get(key, fallback)
+        if val is None:
+            return str(fallback)
+        return str(val)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -164,7 +172,7 @@ class StageAnalysisViewTab(QWidget):
         self.ui = ui
         self.iosystem = self.ui.iosystem
         self.general_dict = self.iosystem.index.general_dict
-        self.name = self._get_text("Diagram", "Diagram")
+        self.name = self._translate("Bubble diagram", "Bubble diagram")
         self.tab_widget = parent if isinstance(parent, QTabWidget) else None
 
         # build impact hierarchy (from MultiIndex -> nested dict)
@@ -184,9 +192,13 @@ class StageAnalysisViewTab(QWidget):
         self._init_default_impacts()
         self._schedule_update()
 
-    def _get_text(self, key, fallback):
-        return self.general_dict.get(key, fallback)
-
+    def _translate(self, key: str, fallback: str) -> str:
+        """Return localized string; always cast to str to avoid non-str labels."""
+        val = self.general_dict.get(key, fallback)
+        if val is None:
+            return str(fallback)
+        return str(val)
+    
     # ---------------- UI ----------------
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -197,19 +209,19 @@ class StageAnalysisViewTab(QWidget):
 
         # method selector
         methods = StageAnalysisRegistry.all_methods()
-        self.method_selector = MethodSelectorWidget(methods, tr=self._get_text, parent=self)
+        self.method_selector = MethodSelectorWidget(methods, tr=self._translate, parent=self)
         self.method_selector.methodChanged.connect(self._on_method_changed)
         toolbar.addWidget(self.method_selector)
 
         # multi-impact selector button
-        self.impact_selector = ImpactMultiSelectorButton(self.impact_hierarchy, self._get_text, parent=self)
+        self.impact_selector = ImpactMultiSelectorButton(self.impact_hierarchy, self._translate, parent=self)
         self.impact_selector.impactsChanged.connect(self._on_impacts_changed)
         toolbar.addWidget(self.impact_selector)
 
         # settings gear (no settings for bubble yet; keep for future)
         self.settings_btn = QToolButton(self)
         self.settings_btn.setText("⚙")
-        self.settings_btn.setToolTip(self._get_text("Open settings", "Open settings"))
+        self.settings_btn.setToolTip(self._translate("Open settings", "Open settings"))
         self.settings_btn.setVisible(False)
         toolbar.addWidget(self.settings_btn)
 
@@ -222,10 +234,17 @@ class StageAnalysisViewTab(QWidget):
         self._create_placeholder()
         layout.addLayout(self.plot_area)
 
+        self.save_btn = QToolButton(self)
+        self.save_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        self.save_btn.setToolTip(self._translate("Save plot", "Save plot"))
+        self.save_btn.clicked.connect(self._save_high_quality)
+        self.save_btn.setEnabled(False)
+        toolbar.addWidget(self.save_btn)
+
     def _create_placeholder(self):
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, self._get_text("Waiting for update…", "Waiting for update…"),
+        ax.text(0.5, 0.5, self._translate("Waiting for update…", "Waiting for update…"),
                 ha='center', va='center', transform=ax.transAxes)
         ax.axis('off')
         self._set_canvas(fig)
@@ -245,6 +264,9 @@ class StageAnalysisViewTab(QWidget):
         self._setup_canvas_context_menu()
         self.plot_area.addWidget(self.canvas)
         self.canvas.draw()
+
+        if hasattr(self, "save_btn"):
+            self.save_btn.setEnabled(True)
 
     # ------------- default impacts -------------
     def _init_default_impacts(self):
@@ -291,7 +313,7 @@ class StageAnalysisViewTab(QWidget):
                 # Show a gentle hint instead of raising
                 fig = plt.figure()
                 ax = fig.add_subplot(111)
-                ax.text(0.5, 0.5, self._get_text("Please select impacts.", "Please select impacts."),
+                ax.text(0.5, 0.5, self._translate("Please select impacts.", "Please select impacts."),
                         ha='center', va='center', transform=ax.transAxes)
                 ax.axis('off')
                 self._set_canvas(fig)
@@ -303,7 +325,7 @@ class StageAnalysisViewTab(QWidget):
         except Exception as e:
             fig = plt.figure()
             ax = fig.add_subplot(111)
-            ax.text(0.5, 0.5, f"{self._get_text('Error', 'Error')}: {str(e)}",
+            ax.text(0.5, 0.5, f"{self._translate('Error', 'Error')}: {str(e)}",
                     ha='center', va='center', transform=ax.transAxes)
             ax.axis('off')
             self._set_canvas(fig)
@@ -337,7 +359,7 @@ class StageAnalysisViewTab(QWidget):
 
     def _show_context_menu(self, pos):
         menu = QMenu(self)
-        save_action = menu.addAction(self._get_text("Save plot", "Save plot"))
+        save_action = menu.addAction(self._translate("Save plot", "Save plot"))
         action = menu.exec_(self.canvas.mapToGlobal(pos))
         if action == save_action:
             self._save_high_quality()
@@ -352,11 +374,11 @@ class StageAnalysisViewTab(QWidget):
 
         fname, _ = QFileDialog.getSaveFileName(
             self,
-            self._get_text("Save plot", "Save plot"),
+            self._translate("Save plot", "Save plot"),
             full_default_path,
-            f"{self._get_text('PNG Files', 'PNG Files')} (*.png);;"
-            f"{self._get_text('PDF Files', 'PDF Files')} (*.pdf);;"
-            f"{self._get_text('SVG Files', 'SVG Files')} (*.svg)"
+            f"{self._translate('PNG Files', 'PNG Files')} (*.png);;"
+            f"{self._translate('PDF Files', 'PDF Files')} (*.pdf);;"
+            f"{self._translate('SVG Files', 'SVG Files')} (*.svg)"
         )
         if fname:
             try:
@@ -365,14 +387,14 @@ class StageAnalysisViewTab(QWidget):
                 self.canvas.figure.savefig(fname, **save_kwargs)
                 QMessageBox.information(
                     self,
-                    self._get_text("Success", "Success"),
-                    f"{self._get_text('Plot saved successfully', 'Plot saved successfully')}: {os.path.basename(fname)}"
+                    self._translate("Success", "Success"),
+                    f"{self._translate('Plot saved successfully', 'Plot saved successfully')}: {os.path.basename(fname)}"
                 )
             except Exception as e:
                 QMessageBox.warning(
                     self,
-                    self._get_text("Error", "Error"),
-                    f"{self._get_text('Error saving plot', 'Error saving plot')}: {str(e)}"
+                    self._translate("Error", "Error"),
+                    f"{self._translate('Error saving plot', 'Error saving plot')}: {str(e)}"
                 )
 
     def _generate_filename(self) -> str:
@@ -388,9 +410,9 @@ class StageAnalysisViewTab(QWidget):
 
     def _emit_title(self):
         m = self._current_method()
-        label = self._get_text(m.label, m.label) if m else self._get_text("Diagram", "Diagram")
+        label = self._translate(m.label, m.label) if m else self._translate("Diagram", "Diagram")
         n = len(self.impact_selector.selected_impacts())
-        sel = f"{self._get_text('Selected', 'Selected')} ({n})"
+        sel = f"{self._translate('Selected', 'Selected')} ({n})"
         self.titleChanged.emit(f"{label} – {sel}")
 
     def _optimize_margins(self, fig):
@@ -427,8 +449,12 @@ class RegionAnalysisTabContainer(QWidget):
         self._adding_tab = False
         self._init_ui()
 
-    def _get_text(self, key, fallback):
-        return self.general_dict.get(key, fallback)
+    def _translate(self, key: str, fallback: str) -> str:
+        """Return localized string; always cast to str to avoid non-str labels."""
+        val = self.general_dict.get(key, fallback)
+        if val is None:
+            return str(fallback)
+        return str(val)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -518,7 +544,7 @@ class RegionAnalysisViewTab(QWidget):
         self.ui = ui
         self.iosystem = self.ui.iosystem
         self.general_dict = self.iosystem.index.general_dict
-        self.name = self._get_text("Subcontractors", "Subcontractors")  # initial tab title
+        self.name = self._translate("Subcontractors", "Subcontractors")  # initial tab title
         self.tab_widget = parent if isinstance(parent, QTabWidget) else None
 
         # Latest data (df with region/value/percentage) to be reused by non-map methods
@@ -556,8 +582,12 @@ class RegionAnalysisViewTab(QWidget):
             }
         }
 
-    def _get_text(self, key, fallback):
-        return self.general_dict.get(key, fallback)
+    def _translate(self, key: str, fallback: str) -> str:
+        """Return localized string; always cast to str to avoid non-str labels."""
+        val = self.general_dict.get(key, fallback)
+        if val is None:
+            return str(fallback)
+        return str(val)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -568,12 +598,12 @@ class RegionAnalysisViewTab(QWidget):
 
         # Method selector from registry
         methods = RegionAnalysisRegistry.all_methods()
-        self.method_selector = MethodSelectorWidget(methods, tr=self._get_text, parent=self)
+        self.method_selector = MethodSelectorWidget(methods, tr=self._translate, parent=self)
         self.method_selector.methodChanged.connect(self._on_method_changed)
         toolbar.addWidget(self.method_selector)
 
         self.impact_selector = ImpactSelectorWidget(
-            self.iosystem.impacts, tr=self._get_text, include_subcontractors=True, parent=self
+            self.iosystem.impacts, tr=self._translate, include_subcontractors=True, parent=self
         )
         self.impact_selector.impactChanged.connect(self._on_impact_changed)
         toolbar.addWidget(self.impact_selector)
@@ -581,9 +611,17 @@ class RegionAnalysisViewTab(QWidget):
         # Optional: Settings button (only visible for methods with settings)
         self.settings_btn = QToolButton(self)
         self.settings_btn.setText("⚙")
-        self.settings_btn.setToolTip(self._get_text("Open settings", "Open settings"))
+        self.settings_btn.setToolTip(self._translate("Open settings", "Open settings"))
         self.settings_btn.clicked.connect(self._open_settings)
         toolbar.addWidget(self.settings_btn)
+
+        # --- Save button (icon only) ---
+        self.save_btn = QToolButton(self)
+        self.save_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        self.save_btn.setToolTip(self._translate("Save plot", "Save plot"))
+        self.save_btn.clicked.connect(self._save_high_quality)
+        self.save_btn.setEnabled(False)  # enabled after first figure arrives
+        toolbar.addWidget(self.save_btn)
 
         toolbar.addStretch(1)  # keep it tight to one line
 
@@ -602,7 +640,7 @@ class RegionAnalysisViewTab(QWidget):
         ax = fig.add_subplot(111)
         ax.text(
             0.5, 0.5,
-            self._get_text("Waiting for update…", "Waiting for update…"),
+            self._translate("Waiting for update…", "Waiting for update…"),
             ha='center', va='center', transform=ax.transAxes
         )
         ax.axis('off')
@@ -613,10 +651,19 @@ class RegionAnalysisViewTab(QWidget):
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
             self.canvas.deleteLater()
+
+        self._optimize_margins(fig)
+
         self.canvas = FigureCanvas(fig)
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas.updateGeometry()
         self._setup_canvas_context_menu()
         self.plot_area.addWidget(self.canvas)
         self.canvas.draw()
+
+        # enable Save now that a figure exists
+        if hasattr(self, "save_btn"):
+            self.save_btn.setEnabled(True)
 
     def _refresh_settings_button_visibility(self):
         method = self._current_method()
@@ -669,7 +716,7 @@ class RegionAnalysisViewTab(QWidget):
         except Exception as e:
             fig = plt.figure()
             ax = fig.add_subplot(111)
-            ax.text(0.5, 0.5, f"{self._get_text('Error', 'Error')}: {str(e)}",
+            ax.text(0.5, 0.5, f"{self._translate('Error', 'Error')}: {str(e)}",
                     ha='center', va='center', transform=ax.transAxes)
             ax.axis('off')
             self._set_canvas(fig)
@@ -772,9 +819,9 @@ class RegionAnalysisViewTab(QWidget):
         percentage = hit.get("percentage", 0)
         unit = hit.get("unit", "")
         text = (
-            f'{self._get_text("Region", "Region")}: {hit.get("region", "-")}\n'
+            f'{self._translate("Region", "Region")}: {hit.get("region", "-")}\n'
             f'{self._current_choice}: {self._format_value(value)} {unit}\n'
-            f'{self._get_text("Global share", "Global share")}: {self._format_value(percentage)} %'
+            f'{self._translate("Global share", "Global share")}: {self._format_value(percentage)} %'
         )
         QToolTip.showText(self.canvas.mapToGlobal(event.guiEvent.pos()), text, widget=self.canvas)
 
@@ -794,7 +841,7 @@ class RegionAnalysisViewTab(QWidget):
 
     def _show_context_menu(self, pos):
         menu = QMenu(self)
-        save_action = menu.addAction(self._get_text("Save plot", "Save plot"))
+        save_action = menu.addAction(self._translate("Save plot", "Save plot"))
         action = menu.exec_(self.canvas.mapToGlobal(pos))
         if action == save_action:
             self._save_high_quality()
@@ -809,11 +856,11 @@ class RegionAnalysisViewTab(QWidget):
 
         fname, _ = QFileDialog.getSaveFileName(
             self,
-            self._get_text("Save plot", "Save plot"),
+            self._translate("Save plot", "Save plot"),
             full_default_path,
-            f"{self._get_text('PNG Files', 'PNG Files')} (*.png);;"
-            f"{self._get_text('PDF Files', 'PDF Files')} (*.pdf);;"
-            f"{self._get_text('SVG Files', 'SVG Files')} (*.svg)"
+            f"{self._translate('PNG Files', 'PNG Files')} (*.png);;"
+            f"{self._translate('PDF Files', 'PDF Files')} (*.pdf);;"
+            f"{self._translate('SVG Files', 'SVG Files')} (*.svg)"
         )
         if fname:
             try:
@@ -822,14 +869,14 @@ class RegionAnalysisViewTab(QWidget):
                 self.canvas.figure.savefig(fname, **save_kwargs)
                 QMessageBox.information(
                     self,
-                    self._get_text("Success", "Success"),
-                    f"{self._get_text('Plot saved successfully', 'Plot saved successfully')}: {os.path.basename(fname)}"
+                    self._translate("Success", "Success"),
+                    f"{self._translate('Plot saved successfully', 'Plot saved successfully')}: {os.path.basename(fname)}"
                 )
             except Exception as e:
                 QMessageBox.warning(
                     self,
-                    self._get_text("Error", "Error"),
-                    f"{self._get_text('Error saving plot', 'Error saving plot')}: {str(e)}"
+                    self._translate("Error", "Error"),
+                    f"{self._translate('Error saving plot', 'Error saving plot')}: {str(e)}"
                 )
 
     def _generate_filename(self) -> str:
@@ -1003,8 +1050,8 @@ class RegionAnalysisViewTab(QWidget):
 
     def _emit_title(self):
         method = self._current_method()
-        method_label = self._get_text(method.label, method.label) if method else self._get_text("Method", "Method")
-        impact_disp = self.impact_selector.current_display() or self._get_text("Impact", "Impact")
+        method_label = self._translate(method.label, method.label) if method else self._translate("Method", "Method")
+        impact_disp = self.impact_selector.current_display() or self._translate("Impact", "Impact")
         title = f"{method_label} – {impact_disp}"
         self.titleChanged.emit(title)
 
@@ -1025,7 +1072,7 @@ class RegionAnalysisViewTab(QWidget):
         if not method or not method.supports_settings:
             return
         current = dict(self.method_state.get("world_map", {}))
-        dlg = WorldMapSettingsDialog(current, self._get_text, parent=self)
+        dlg = WorldMapSettingsDialog(current, self._translate, parent=self)
         if dlg.exec_() == dlg.Accepted:
             self.method_state["world_map"] = dlg.get_settings()
             self._schedule_update()
@@ -1038,8 +1085,30 @@ class RegionAnalysisViewTab(QWidget):
         if raw == "subcontractors":
             return True
         # localized display (zur Sicherheit, falls irgendwo doch die Anzeige ankommt)
-        loc = str(self._get_text("Subcontractors", "Subcontractors")).strip().lower()
+        loc = str(self._translate("Subcontractors", "Subcontractors")).strip().lower()
         return raw == loc
+
+    def _optimize_margins(self, fig):
+        """
+        Make the plot look centered without clipping colorbars.
+        If the figure already has its own colorbar axes, avoid tight_layout.
+        """
+        if getattr(fig, "_has_colorbar", False):
+            try:
+                # Lass rundum etwas Luft, aber kein tight_layout (clips cax)
+                fig.subplots_adjust(left=0.02, right=0.98, bottom=0.06, top=0.94)
+            except Exception:
+                pass
+            return
+
+        try:
+            has_suptitle = getattr(fig, "_suptitle", None) is not None
+            if has_suptitle:
+                fig.tight_layout(rect=[0.02, 0.06, 0.94, 0.94], pad=0.4)  # rechts etwas kleiner
+            else:
+                fig.tight_layout(rect=[0.02, 0.06, 0.96, 0.98], pad=0.4)
+        except Exception:
+            pass
 
 
 class CountryInfoDialog(QDialog):
@@ -1052,7 +1121,7 @@ class CountryInfoDialog(QDialog):
         self.general_dict = self.iosystem.index.general_dict
 
         # Dialog configuration
-        self.setWindowTitle(self._get_text("Info", "Info"))
+        self.setWindowTitle(self._translate("Info", "Info"))
         self.setFixedSize(320, 220)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
@@ -1088,7 +1157,7 @@ class CountryInfoDialog(QDialog):
             f'<div style="color: #000; font-size:16px;">'
             f'<b>{country.get("region", "-")}</b><br>'
             f'{choice}: {round(float(country.get("value", "-")), 3)} {country.get("unit", "-")}<br>'
-            f'{self._get_text("Global share", "Global share")}: {round(float(country.get("percentage", "-")), 2)} %'
+            f'{self._translate("Global share", "Global share")}: {round(float(country.get("percentage", "-")), 2)} %'
             f'</div>'
         )
         text_label = QLabel(text, self)
@@ -1096,10 +1165,13 @@ class CountryInfoDialog(QDialog):
         text_label.setWordWrap(True)
         stack.addWidget(text_label)
 
-    def _get_text(self, key, fallback):
-        """Get text from general_dict with fallback."""
-        return self.general_dict.get(key, fallback)
-
+    def _translate(self, key: str, fallback: str) -> str:
+        """Return localized string; always cast to str to avoid non-str labels."""
+        val = self.general_dict.get(key, fallback)
+        if val is None:
+            return str(fallback)
+        return str(val)
+    
     def mousePressEvent(self, event):
         """Close dialog on mouse click."""
         self.accept()
@@ -1196,142 +1268,31 @@ class ImpactSelectorWidget(QWidget):
 
 class WorldMapSettingsDialog(QDialog):
     """
-    Comprehensive settings dialog for the World Map method.
+    Settings dialog for the World Map method.
 
     Exposes:
-      - Colormap (color)
-      - Relative normalization (relative)
-      - Legend visibility (show_legend)
-      - Title (title)
+      - color (colormap) [+ reverse]
+      - relative (bool)
+      - show_legend (bool)
+      - title (str)
 
       Classification:
         - mode: "binned" | "continuous"
-        - k: number of classes (binned)
-        - custom_bins: explicit breaks (comma-separated floats; overrides 'k' if provided)
-        - norm_mode (continuous): "linear" | "log" | "power"
-        - robust (continuous): quantile clipping in %, e.g. 2 -> [2%, 98%]
-        - gamma (continuous): gamma for PowerNorm
-
-      Advanced (stored for future use / overlays):
-        - draw_borders (bool)
-        - label_density (int)
-        - projection (str)
-
-    The dialog is initialized with a settings dict and will return an updated
-    settings dict via `get_settings()`.
+        - k: int (binned)
+        - custom_bins: List[float] | None (overrides k)
+        - norm_mode: "linear" | "log" | "power" (continuous)
+        - robust: float in % (continuous)
+        - gamma: float (continuous)
     """
 
-    def __init__(self, settings: dict, tr: Callable[[str, str], str], parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(tr("World Map Settings", "World Map Settings"))
-        self.setModal(True)
-        self._tr = tr
+    # ---------- utils ----------
+    def _t(self, key: str, fallback: str) -> str:
+        """Translate via provided callback; always return a string."""
+        try:
+            return str(self._tr(key, fallback))
+        except Exception:
+            return str(fallback)
 
-        # --- Current state (copy to avoid mutating caller until accepted) ---
-        self._settings = dict(settings or {})
-
-        v = QVBoxLayout(self)
-
-        # --- Basic ---
-        # Colormap
-        v.addWidget(QLabel(tr("Colormap", "Colormap")))
-        self.cmap = QComboBox(self)
-        for cm in ["Reds", "Blues", "Greens", "Purples", "Oranges", "viridis", "plasma", "magma", "cividis"]:
-            self.cmap.addItem(cm)
-        self.cmap.setCurrentText(self._settings.get("color", "Reds"))
-        v.addWidget(self.cmap)
-
-        # Legend
-        self.legend = QCheckBox(tr("Show legend", "Show legend"), self)
-        self.legend.setChecked(bool(self._settings.get("show_legend", False)))
-        v.addWidget(self.legend)
-
-        # Title
-        v.addWidget(QLabel(tr("Title (optional)", "Title (optional)")))
-        self.title = QComboBox(self)  # use editable combo for quick reuse
-        self.title.setEditable(True)
-        self.title.setInsertPolicy(QComboBox.InsertPolicy.InsertAtTop)
-        self.title.setCurrentText(self._settings.get("title", "") or "")
-        v.addWidget(self.title)
-
-        # --- Classification ---
-        v.addWidget(QLabel(tr("Classification", "Classification")))
-        row1 = QHBoxLayout()
-        v.addLayout(row1)
-
-        self.mode = QComboBox(self)
-        self.mode.addItems(["binned", "continuous"])
-        self.mode.setCurrentText(self._settings.get("mode", "binned"))
-        row1.addWidget(QLabel(tr("Mode", "Mode")))
-        row1.addWidget(self.mode)
-
-        # Binned controls
-        row_binned = QHBoxLayout()
-        v.addLayout(row_binned)
-        row_binned.addWidget(QLabel(tr("Classes (k)", "Classes (k)")))
-        self.k = QSpinBox(self)
-        self.k.setRange(2, 12)
-        self.k.setValue(int(self._settings.get("k", 7)))
-        row_binned.addWidget(self.k)
-
-        row_bins = QHBoxLayout()
-        v.addLayout(row_bins)
-        row_bins.addWidget(QLabel(tr("Custom bins (comma-separated)", "Custom bins (comma-separated)")))
-        self.custom_bins = QComboBox(self)
-        self.custom_bins.setEditable(True)
-        self.custom_bins.setCurrentText(self._format_bins_for_edit(self._settings.get("custom_bins")))
-        row_bins.addWidget(self.custom_bins)
-
-        # Continuous controls
-        v.addWidget(QLabel(tr("Normalization (continuous mode)", "Normalization (continuous mode)")))
-        row_norm = QHBoxLayout()
-        v.addLayout(row_norm)
-
-        self.norm_mode = QComboBox(self)
-        self.norm_mode.addItems(["linear", "log", "power"])
-        self.norm_mode.setCurrentText(self._settings.get("norm_mode", "linear"))
-        row_norm.addWidget(QLabel(tr("Norm", "Norm")))
-        row_norm.addWidget(self.norm_mode)
-
-        row_robust = QHBoxLayout()
-        v.addLayout(row_robust)
-        row_robust.addWidget(QLabel(tr("Robust clipping (%)", "Robust clipping (%)")))
-        self.robust = QDoubleSpinBox(self)
-        self.robust.setSuffix(" %")
-        self.robust.setRange(0.0, 20.0)
-        self.robust.setSingleStep(0.5)
-        self.robust.setValue(float(self._settings.get("robust", 2.0)))
-        row_robust.addWidget(self.robust)
-
-        row_gamma = QHBoxLayout()
-        v.addLayout(row_gamma)
-        row_gamma.addWidget(QLabel(tr("Gamma (power norm)", "Gamma (power norm)")))
-        self.gamma = QDoubleSpinBox(self)
-        self.gamma.setRange(0.1, 5.0)
-        self.gamma.setSingleStep(0.1)
-        self.gamma.setValue(float(self._settings.get("gamma", 0.7)))
-        row_gamma.addWidget(self.gamma)
-
-        # Enable/disable controls depending on mode
-        def _refresh_visibility():
-            is_binned = self.mode.currentText() == "binned"
-            self.k.setEnabled(is_binned)
-            self.custom_bins.setEnabled(is_binned)
-            is_cont = not is_binned
-            self.norm_mode.setEnabled(is_cont)
-            self.robust.setEnabled(is_cont)
-            self.gamma.setEnabled(is_cont)
-
-        self.mode.currentIndexChanged.connect(_refresh_visibility)
-        _refresh_visibility()
-
-        # Buttons
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        v.addWidget(buttons)
-
-    # ----------------- helpers -----------------
     def _format_bins_for_edit(self, bins):
         if not bins:
             return ""
@@ -1349,14 +1310,171 @@ class WorldMapSettingsDialog(QDialog):
             vals = [float(p) for p in parts if p]
             return vals if vals else None
         except Exception:
-            # Silently ignore malformed bins → caller will fallback to k
             return None
 
+    # ---------- colormap combo ----------
+    def _fill_colormap_combo(self):
+        """Fill self.cmap with grouped, translated labels and internal names in userData."""
+        self.cmap.clear()
+
+        groups = [
+            ("cm.group.perceptual", "Perceptual",
+             ["viridis", "plasma", "inferno", "magma", "cividis", "turbo"]),
+            ("cm.group.sequential", "Sequential",
+             ["Reds", "Oranges", "Greens", "Blues", "Purples", "Greys",
+              "YlGn", "YlGnBu", "GnBu", "BuGn", "PuBu", "BuPu",
+              "OrRd", "PuRd", "RdPu", "YlOrBr", "YlOrRd"]),
+            ("cm.group.diverging", "Diverging",
+             ["BrBG", "PiYG", "PRGn", "PuOr", "RdBu", "RdGy", "RdYlBu", "RdYlGn",
+              "Spectral", "coolwarm", "bwr", "seismic"]),
+            ("cm.group.cyclic", "Cyclic", ["twilight", "twilight_shifted", "hsv"]),
+            ("cm.group.qualitative", "Qualitative",
+             ["tab10", "tab20", "tab20b", "tab20c", "Set1", "Set2", "Set3",
+              "Pastel1", "Pastel2", "Accent", "Dark2", "Paired"]),
+        ]
+
+        for gi, (gkey, gname, names) in enumerate(groups):
+            # Header (disabled)
+            header = self._t(gkey, gname)
+            self.cmap.addItem(header)
+            idx = self.cmap.count() - 1
+            item = self.cmap.model().item(idx)
+            item.setFlags(Qt.NoItemFlags)
+            item.setData(True, Qt.UserRole + 1)
+
+            # Items
+            for name in names:
+                label = self._t(f"cmap.{name}", name)
+                self.cmap.addItem(label, userData=name)
+
+            # Separator between groups (not after the last one)
+            if gi < len(groups) - 1:
+                self.cmap.insertSeparator(self.cmap.count())
+
+        # current selection (support saved *_r)
+        saved = str(self._settings.get("color", "Reds"))
+        is_rev = saved.endswith("_r")
+        base = saved[:-2] if is_rev else saved
+        i = self.cmap.findData(base)
+        if i != -1:
+            self.cmap.setCurrentIndex(i)
+        self.reverse_cb.setChecked(bool(self._settings.get("cmap_reverse", is_rev)))
+
+    # ---------- init ----------
+    def __init__(self, settings: dict, tr: Callable[[str, str], str], parent=None):
+        super().__init__(parent)
+        self._tr = tr
+        self.setWindowTitle(self._t("World Map Settings", "World Map Settings"))
+        self.setModal(True)
+
+        # Copy settings to avoid side effects until accepted
+        self._settings = dict(settings or {})
+
+        v = QVBoxLayout(self)
+
+        # --- Basic ---
+        v.addWidget(QLabel(self._t("Colormap", "Colormap")))
+        row_cmap = QHBoxLayout()
+        self.cmap = QComboBox(self)
+        self.reverse_cb = QCheckBox(self._t("cm.reverse", "Reverse"), self)
+        row_cmap.addWidget(self.cmap)
+        row_cmap.addWidget(self.reverse_cb)
+        v.addLayout(row_cmap)
+
+        # Relative (%)
+        self.relative = QCheckBox(self._t("Relative (%)", "Relative (%)"), self)
+        self.relative.setChecked(bool(self._settings.get("relative", True)))
+        v.addWidget(self.relative)
+
+        # Legend
+        self.legend = QCheckBox(self._t("Show legend", "Show legend"), self)
+        self.legend.setChecked(bool(self._settings.get("show_legend", False)))
+        v.addWidget(self.legend)
+
+        # Title
+        v.addWidget(QLabel(self._t("Title (optional)", "Title (optional)")))
+        self.title = QComboBox(self)
+        self.title.setEditable(True)
+        self.title.setInsertPolicy(QComboBox.InsertAtTop)
+        self.title.setCurrentText(self._settings.get("title", "") or "")
+        v.addWidget(self.title)
+
+        # --- Classification ---
+        v.addWidget(QLabel(self._t("Classification", "Classification")))
+        row1 = QHBoxLayout(); v.addLayout(row1)
+        row1.addWidget(QLabel(self._t("Mode", "Mode")))
+        self.mode = QComboBox(self)
+        self.mode.addItems(["binned", "continuous"])
+        self.mode.setCurrentText(self._settings.get("mode", "binned"))
+        row1.addWidget(self.mode)
+
+        # Binned
+        row_binned = QHBoxLayout(); v.addLayout(row_binned)
+        row_binned.addWidget(QLabel(self._t("Classes (k)", "Classes (k)")))
+        self.k = QSpinBox(self); self.k.setRange(2, 12)
+        self.k.setValue(int(self._settings.get("k", 7)))
+        row_binned.addWidget(self.k)
+
+        row_bins = QHBoxLayout(); v.addLayout(row_bins)
+        row_bins.addWidget(QLabel(self._t("Custom bins (comma-separated)", "Custom bins (comma-separated)")))
+        self.custom_bins = QComboBox(self); self.custom_bins.setEditable(True)
+        self.custom_bins.setCurrentText(self._format_bins_for_edit(self._settings.get("custom_bins")))
+        row_bins.addWidget(self.custom_bins)
+
+        # Continuous
+        v.addWidget(QLabel(self._t("Normalization (continuous mode)", "Normalization (continuous mode)")))
+        row_norm = QHBoxLayout(); v.addLayout(row_norm)
+        row_norm.addWidget(QLabel(self._t("Norm", "Norm")))
+        self.norm_mode = QComboBox(self)
+        self.norm_mode.addItems(["linear", "log", "power"])
+        self.norm_mode.setCurrentText(self._settings.get("norm_mode", "linear"))
+        row_norm.addWidget(self.norm_mode)
+
+        row_robust = QHBoxLayout(); v.addLayout(row_robust)
+        row_robust.addWidget(QLabel(self._t("Robust clipping (%)", "Robust clipping (%)")))
+        self.robust = QDoubleSpinBox(self)
+        self.robust.setSuffix(" %"); self.robust.setRange(0.0, 20.0); self.robust.setSingleStep(0.5)
+        self.robust.setValue(float(self._settings.get("robust", 2.0)))
+        row_robust.addWidget(self.robust)
+
+        row_gamma = QHBoxLayout(); v.addLayout(row_gamma)
+        row_gamma.addWidget(QLabel(self._t("Gamma (power norm)", "Gamma (power norm)")))
+        self.gamma = QDoubleSpinBox(self)
+        self.gamma.setRange(0.1, 5.0); self.gamma.setSingleStep(0.1)
+        self.gamma.setValue(float(self._settings.get("gamma", 0.7)))
+        row_gamma.addWidget(self.gamma)
+
+        # Visibility sync
+        def _refresh_visibility():
+            is_binned = self.mode.currentText() == "binned"
+            self.k.setEnabled(is_binned); self.custom_bins.setEnabled(is_binned)
+            is_cont = not is_binned
+            self.norm_mode.setEnabled(is_cont); self.robust.setEnabled(is_cont); self.gamma.setEnabled(is_cont)
+        self.mode.currentIndexChanged.connect(_refresh_visibility); _refresh_visibility()
+
+        # Fill colormap list last (needs widgets)
+        self._fill_colormap_combo()
+
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        v.addWidget(buttons)
+
+    # ---------- public ----------
     def get_settings(self) -> dict:
-        """Return a dict of all settings for the world map method."""
+        """
+        Collect all settings from the dialog into a dict.
+        Colormap returns the internal name (e.g. 'Reds' or 'Reds_r').
+        """
+        cmap_internal = self.cmap.currentData() or self.cmap.currentText()
+        if self.reverse_cb.isChecked() and not cmap_internal.endswith("_r"):
+            cmap_internal = f"{cmap_internal}_r"
+
         return {
-            "color": self.cmap.currentText(),
-            "show_legend": self.legend.isChecked(),
+            "color": cmap_internal,
+            "relative": bool(self.relative.isChecked()),
+            "show_legend": bool(self.legend.isChecked()),
             "title": self.title.currentText().strip() or "",
             "mode": self.mode.currentText(),
             "k": int(self.k.value()),
@@ -1364,6 +1482,8 @@ class WorldMapSettingsDialog(QDialog):
             "norm_mode": self.norm_mode.currentText(),
             "robust": float(self.robust.value()),
             "gamma": float(self.gamma.value()),
+            # keep reverse separately too (useful for UI state persistence)
+            "cmap_reverse": bool(self.reverse_cb.isChecked()),
         }
 
 

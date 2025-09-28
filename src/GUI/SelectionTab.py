@@ -56,7 +56,7 @@ class SelectionTab(QWidget):
         # Initialize UI
         self.init_ui()
 
-    def _get_text(self, key, fallback):
+    def _translate(self, key, fallback):
         """Get text from general_dict with fallback."""
         return self.general_dict.get(key, fallback)
 
@@ -97,7 +97,7 @@ class SelectionTab(QWidget):
 
     def _create_region_widget(self):
         """Create the region selection widget."""
-        region_group = QGroupBox(self._get_text("Region Selection", "Region Selection"))
+        region_group = QGroupBox(self._translate("Region Selection", "Region Selection"))
         layout = QVBoxLayout(region_group)
 
         # Region tree with scroll area for long lists
@@ -114,8 +114,8 @@ class SelectionTab(QWidget):
 
         # Region buttons
         button_layout = QHBoxLayout()
-        clear_btn = QPushButton(self._get_text("Clear", "Clear"))
-        select_all_btn = QPushButton(self._get_text("Select All", "Select All"))
+        clear_btn = QPushButton(self._translate("Clear", "Clear"))
+        select_all_btn = QPushButton(self._translate("Select All", "Select All"))
         clear_btn.clicked.connect(self.clear_region_selection)
         select_all_btn.clicked.connect(self.select_all_regions)
 
@@ -131,7 +131,7 @@ class SelectionTab(QWidget):
 
     def _create_sector_widget(self):
         """Create the sector selection widget."""
-        sector_group = QGroupBox(self._get_text("Sector Selection", "Sector Selection"))
+        sector_group = QGroupBox(self._translate("Sector Selection", "Sector Selection"))
         layout = QVBoxLayout(sector_group)
 
         # Sector tree with scroll area for long lists
@@ -148,8 +148,8 @@ class SelectionTab(QWidget):
 
         # Sector buttons
         button_layout = QHBoxLayout()
-        clear_btn = QPushButton(self._get_text("Clear", "Clear"))
-        select_all_btn = QPushButton(self._get_text("Select All", "Select All"))
+        clear_btn = QPushButton(self._translate("Clear", "Clear"))
+        select_all_btn = QPushButton(self._translate("Select All", "Select All"))
         clear_btn.clicked.connect(self.clear_sector_selection)
         select_all_btn.clicked.connect(self.select_all_sectors)
 
@@ -165,11 +165,11 @@ class SelectionTab(QWidget):
 
     def _create_summary_widget(self):
         """Create the selection summary widget."""
-        self.summary_group = QGroupBox(self._get_text("Selection Summary", "Selection Summary"))
+        self.summary_group = QGroupBox(self._translate("Selection Summary", "Selection Summary"))
         layout = QVBoxLayout(self.summary_group)
 
         # Summary label in scroll area for long text
-        self.selection_label = QLabel(self._get_text("No selection made", "No selection made"))
+        self.selection_label = QLabel(self._translate("No selection made", "No selection made"))
         self.selection_label.setWordWrap(True)
         self.selection_label.setAlignment(Qt.AlignTop)
 
@@ -180,8 +180,8 @@ class SelectionTab(QWidget):
 
         # Action buttons
         button_layout = QHBoxLayout()
-        self.apply_button = QPushButton(self._get_text("Apply Selection", "Apply Selection"))
-        self.reset_button = QPushButton(self._get_text("Reset All Selections", "Reset All Selections"))
+        self.apply_button = QPushButton(self._translate("Apply Selection", "Apply Selection"))
+        self.reset_button = QPushButton(self._translate("Reset All Selections", "Reset All Selections"))
 
         # Set button size policies
         self.apply_button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -331,33 +331,33 @@ class SelectionTab(QWidget):
 
     def _build_summary_text(self, region_strings, sector_strings):
         """Build the summary text for display."""
-        text = f"<b>{self._get_text('Regions', 'Regions')}:</b><br>"
+        text = f"<b>{self._translate('Regions', 'Regions')}:</b><br>"
 
         if not self.region_indices:
-            text += f"{self._get_text('No regions selected', 'No regions selected')}.<br><br>"
+            text += f"{self._translate('No regions selected', 'No regions selected')}.<br><br>"
         elif len(self.region_indices) == len(self.iosystem.index.region_multiindex):
-            text += f"{self._get_text('All regions selected (Global view)', 'All regions selected (Global view)')}.<br><br>"
+            text += f"{self._translate('All regions selected (Global view)', 'All regions selected (Global view)')}.<br><br>"
         else:
             # Limit display length for very long lists
             display_regions = region_strings[:10]  # Show first 10
             text += ", ".join(display_regions)
             if len(region_strings) > 10:
-                text += f", ... {self._get_text('and', 'and')} {len(region_strings) - 10} {self._get_text('more', 'more')}"
-            text += f"<br><i>{self._get_text('Count', 'Count')}:</i> {len(self.region_indices)}<br><br>"
+                text += f", ... {self._translate('and', 'and')} {len(region_strings) - 10} {self._translate('more', 'more')}"
+            text += f"<br><i>{self._translate('Count', 'Count')}:</i> {len(self.region_indices)}<br><br>"
 
-        text += f"<b>{self._get_text('Sectors', 'Sectors')}:</b><br>"
+        text += f"<b>{self._translate('Sectors', 'Sectors')}:</b><br>"
 
         if not self.sector_indices:
-            text += f"{self._get_text('No sectors selected', 'No sectors selected')}.<br><br>"
+            text += f"{self._translate('No sectors selected', 'No sectors selected')}.<br><br>"
         elif len(self.sector_indices) == len(self.iosystem.index.sector_multiindex_per_region):
-            text += f"{self._get_text('All sectors selected (Global view)', 'All sectors selected (Global view)')}.<br><br>"
+            text += f"{self._translate('All sectors selected (Global view)', 'All sectors selected (Global view)')}.<br><br>"
         else:
             # Limit display length for very long lists
             display_sectors = sector_strings[:10]  # Show first 10
             text += ", ".join(display_sectors)
             if len(sector_strings) > 10:
-                text += f", ... {self._get_text('and', 'and')} {len(sector_strings) - 10} {self._get_text('more', 'more')}"
-            text += f"<br><i>{self._get_text('Count', 'Count')}:</i> {len(self.sector_indices)}<br><br>"
+                text += f", ... {self._translate('and', 'and')} {len(sector_strings) - 10} {self._translate('more', 'more')}"
+            text += f"<br><i>{self._translate('Count', 'Count')}:</i> {len(self.sector_indices)}<br><br>"
 
         return text
 
@@ -400,5 +400,5 @@ class SelectionTab(QWidget):
         """Reset all selections."""
         self.clear_region_selection()
         self.clear_sector_selection()
-        self.selection_label.setText(self._get_text("No selection made", "No selection made"))
-        self.summary_group.setTitle(self._get_text("Selection Summary", "Selection Summary"))
+        self.selection_label.setText(self._translate("No selection made", "No selection made"))
+        self.summary_group.setTitle(self._translate("Selection Summary", "Selection Summary"))
