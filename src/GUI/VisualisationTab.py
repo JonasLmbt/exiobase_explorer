@@ -3,46 +3,20 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from datetime import datetime
+from typing import Optional, Tuple, List, Dict, Callable
+
+from .region_methods import RegionAnalysisRegistry, AnalysisMethod, WorldMapMethod
+from .stage_methods import StageAnalysisRegistry, StageAnalysisMethod
 
 from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog,
-    QGraphicsOpacityEffect, QGroupBox, QLabel, QPushButton, QSizePolicy,
-    QTreeWidget, QTreeWidgetItem, QDialogButtonBox, QDialog, QApplication,
-    QComboBox, QTabBar, QToolTip, QMessageBox
+    QGraphicsOpacityEffect, QLabel, QSizePolicy,
+    QDialog, QApplication, QToolButton, QComboBox,
+    QTabBar, QMessageBox, QCheckBox, QDialogButtonBox, QSpinBox, QDoubleSpinBox, QPushButton, QTreeWidget, QTreeWidgetItem
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QPixmap
 from shapely.geometry import Point
-
-
-# region_view.py (new file) OR replace your MapConfigTab class in-place
-
-from typing import Optional, Tuple
-
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog, QMessageBox,
-    QPushButton, QTabWidget, QToolTip, QToolButton
-)
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-
-from .widgets_analysis import MethodSelectorWidget, ImpactSelectorWidget, WorldMapSettingsDialog, ImpactMultiSelectorButton
-
-from .analysis_methods import RegionAnalysisRegistry, AnalysisMethod, WorldMapMethod
-from .stage_methods import StageAnalysisRegistry, StageAnalysisMethod
-
-from typing import Optional, List, Dict
-
-import os
-import matplotlib.pyplot as plt
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog, QMessageBox,
-    QTabWidget, QToolButton
-)
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-
 
 
 def multiindex_to_nested_dict(multiindex: pd.MultiIndex) -> dict:
@@ -88,13 +62,12 @@ class VisualisationTab(QWidget):
         # Add visualization tabs
         self.inner_tab_widget.addTab(
             StageAnalysisTabContainer(ui=self.ui),
-            self._get_text("Diagram", "Diagram")
+            self._get_text("Stage Analysis", "Stage Analysis")  
         )
         self.inner_tab_widget.addTab(
             RegionAnalysisTabContainer(ui=self.ui),
-            self._get_text("World Map", "World Map")
+            self._get_text("Region Analysis", "Region Analysis") 
         )
-
         layout.addWidget(self.inner_tab_widget)
 
 
@@ -155,12 +128,22 @@ class StageAnalysisTabContainer(QWidget):
 
     def _add_view_tab(self):
         new_tab = StageAnalysisViewTab(self.ui, parent=self.tabs)
+        new_tab.titleChanged.connect(lambda t, w=new_tab: self._set_tab_title(w, t))
+
         insert_at = max(0, self.tabs.count() - 1)
         idx = self.tabs.insertTab(insert_at, new_tab, new_tab.name)
         self.tabs.setCurrentIndex(idx)
+
+        new_tab._emit_title()
+
         plus_idx = self.tabs.count() - 1
         if plus_idx >= 0 and self.tabs.tabText(plus_idx) == "+":
             self._remove_close_button(plus_idx)
+
+    def _set_tab_title(self, widget: QWidget, title: str):
+        idx = self.tabs.indexOf(widget)
+        if idx != -1:
+            self.tabs.setTabText(idx, title)
 
 
 class StageAnalysisViewTab(QWidget):
@@ -174,7 +157,8 @@ class StageAnalysisViewTab(QWidget):
 
     Rendering is delegated to the selected StageAnalysisMethod.
     """
-
+    titleChanged = pyqtSignal(str)
+    stateChanged = pyqtSignal(dict)
     def __init__(self, ui, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.ui = ui
@@ -213,7 +197,7 @@ class StageAnalysisViewTab(QWidget):
 
         # method selector
         methods = StageAnalysisRegistry.all_methods()
-        self.method_selector = MethodSelectorWidget(methods, parent=self)
+        self.method_selector = MethodSelectorWidget(methods, tr=self._get_text, parent=self)
         self.method_selector.methodChanged.connect(self._on_method_changed)
         toolbar.addWidget(self.method_selector)
 
@@ -251,7 +235,13 @@ class StageAnalysisViewTab(QWidget):
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
             self.canvas.deleteLater()
+        # Ränder optimieren, bevor gerendert wird
+        self._optimize_margins(fig)
+
         self.canvas = FigureCanvas(fig)
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas.updateGeometry()
+
         self._setup_canvas_context_menu()
         self.plot_area.addWidget(self.canvas)
         self.canvas.draw()
@@ -273,24 +263,16 @@ class StageAnalysisViewTab(QWidget):
 
     # ------------- events -------------
     def _on_method_changed(self, method_id: str):
-        # update tab title to method label for clarity
         m = StageAnalysisRegistry.get(method_id)
-        if m and self.tab_widget:
-            idx = self.tab_widget.indexOf(self)
-            if idx != -1:
-                self.tab_widget.setTabText(idx, m.label)
-        # (optional) toggle settings button if some methods support settings later
         self.settings_btn.setVisible(bool(m and m.supports_settings))
+        self._emit_title()
         self._schedule_update()
+        self.stateChanged.emit(self.get_state())
 
     def _on_impacts_changed(self, _impacts: List[str]):
-        # keep title readable; you can also show count like "Bubble (5)"
-        m = StageAnalysisRegistry.get(self.method_selector.current_method())
-        if m and self.tab_widget:
-            idx = self.tab_widget.indexOf(self)
-            if idx != -1:
-                self.tab_widget.setTabText(idx, m.label)
+        self._emit_title()
         self._schedule_update()
+        self.stateChanged.emit(self.get_state())
 
     # ------------- update loop -------------
     def _schedule_update(self):
@@ -327,6 +309,26 @@ class StageAnalysisViewTab(QWidget):
             self._set_canvas(fig)
         finally:
             QApplication.restoreOverrideCursor()
+
+    def get_state(self) -> dict:
+        return {
+            "method_id": self.method_selector.current_method(),
+            "impacts": list(self.impact_selector.selected_impacts()),
+            # placeholder for future per-method settings:
+            "method_state": {},
+        }
+
+    def set_state(self, state: dict) -> None:
+        if not state:
+            return
+        mid = state.get("method_id")
+        if mid:
+            self.method_selector.set_current_method(mid)
+        imps = state.get("impacts")
+        if isinstance(imps, list):
+            self.impact_selector.set_selected_impacts(imps)
+        self._emit_title()
+        self._schedule_update()
 
     # ------------- context menu -------------
     def _setup_canvas_context_menu(self):
@@ -383,6 +385,31 @@ class StageAnalysisViewTab(QWidget):
     def _current_method(self) -> Optional[StageAnalysisMethod]:
         mid = self.method_selector.current_method()
         return StageAnalysisRegistry.get(mid)
+
+    def _emit_title(self):
+        m = self._current_method()
+        label = self._get_text(m.label, m.label) if m else self._get_text("Diagram", "Diagram")
+        n = len(self.impact_selector.selected_impacts())
+        sel = f"{self._get_text('Selected', 'Selected')} ({n})"
+        self.titleChanged.emit(f"{label} – {sel}")
+
+    def _optimize_margins(self, fig):
+        """
+        Make the plot look centered without clipping the suptitle/labels.
+        Use ONLY tight_layout with a safe 'rect' that leaves headroom.
+        """
+        try:
+            has_suptitle = getattr(fig, "_suptitle", None) is not None
+            if has_suptitle:
+                # left, bottom, right, top
+                # -> oben ~6% frei lassen für den Suptitel
+                fig.tight_layout(rect=[0.02, 0.06, 0.98, 0.94], pad=0.4)
+            else:
+                # ohne Suptitel etwas mehr Top-Space
+                fig.tight_layout(rect=[0.02, 0.06, 0.98, 0.98], pad=0.4)
+        except Exception:
+            # Fallback: lieber nichts tun, als zu schneiden
+            pass
 
 
 class RegionAnalysisTabContainer(QWidget):
@@ -446,16 +473,26 @@ class RegionAnalysisTabContainer(QWidget):
         self.map_tabs.removeTab(index)
 
     def _add_map_tab(self):
-        """Add a new region analysis tab just before the '+' tab."""
         new_tab = RegionAnalysisViewTab(self.ui, parent=self.map_tabs)
-        insert_at = max(0, self.map_tabs.count() - 1)  # before '+'
+
+        # Listen to title/state updates
+        new_tab.titleChanged.connect(lambda t, w=new_tab: self._set_tab_title(w, t))
+
+        insert_at = self.map_tabs.count() - 1
         idx = self.map_tabs.insertTab(insert_at, new_tab, new_tab.name)
         self.map_tabs.setCurrentIndex(idx)
 
-        # keep '+' tab without close button
+        # Initialize title once
+        new_tab._emit_title()
+
         plus_tab_index = self.map_tabs.count() - 1
         if plus_tab_index >= 0 and self.map_tabs.tabText(plus_tab_index) == "+":
             self._remove_close_button(plus_tab_index)
+
+    def _set_tab_title(self, widget: QWidget, title: str):
+        idx = self.map_tabs.indexOf(widget)
+        if idx != -1:
+            self.map_tabs.setTabText(idx, title)
 
 
 class RegionAnalysisViewTab(QWidget):
@@ -472,6 +509,8 @@ class RegionAnalysisViewTab(QWidget):
     requiring backend changes: we fetch df via existing worldmap functions with
     `return_data=True`, then render alternative plots from that dataframe.
     """
+    titleChanged = pyqtSignal(str)
+    stateChanged = pyqtSignal(dict)
 
     def __init__(self, ui, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -502,6 +541,7 @@ class RegionAnalysisViewTab(QWidget):
         self._world_sindex = None    # spatial index
         self._current_choice = None  # remember current impact/mode for tooltips/dialog
         self._map_ax = None  # matplotlib Axes that holds the world map
+
         self.method_state = {
             "world_map": {
                 "color": "Reds",
@@ -528,12 +568,13 @@ class RegionAnalysisViewTab(QWidget):
 
         # Method selector from registry
         methods = RegionAnalysisRegistry.all_methods()
-        self.method_selector = MethodSelectorWidget(methods, parent=self)
+        self.method_selector = MethodSelectorWidget(methods, tr=self._get_text, parent=self)
         self.method_selector.methodChanged.connect(self._on_method_changed)
         toolbar.addWidget(self.method_selector)
 
-        # Impact selector (incl. subcontractors like before)
-        self.impact_selector = ImpactSelectorWidget(self.iosystem.impacts, include_subcontractors=True, parent=self)
+        self.impact_selector = ImpactSelectorWidget(
+            self.iosystem.impacts, tr=self._get_text, include_subcontractors=True, parent=self
+        )
         self.impact_selector.impactChanged.connect(self._on_impact_changed)
         toolbar.addWidget(self.impact_selector)
 
@@ -577,30 +618,9 @@ class RegionAnalysisViewTab(QWidget):
         self.plot_area.addWidget(self.canvas)
         self.canvas.draw()
 
-    def _on_method_changed(self, method_id: str):
-        self._refresh_settings_button_visibility()
-        self._schedule_update()
-
-    def _on_impact_changed(self, impact: str):
-        # keep tab title aligned with impact (as in your original map tab)
-        self._update_tab_name(impact)
-        self._schedule_update()
-
     def _refresh_settings_button_visibility(self):
         method = self._current_method()
         self.settings_btn.setVisible(bool(method and method.supports_settings))
-
-    def _open_settings(self):
-        method = self._current_method()
-        if not method or not method.supports_settings:
-            return
-        # Build dialog with current state
-        current = dict(self.method_state.get("world_map", {}))
-        dlg = WorldMapSettingsDialog(current, self._get_text, parent=self)
-        if dlg.exec_() == dlg.Accepted:
-            # Save back and update
-            self.method_state["world_map"] = dlg.get_settings()
-            self._schedule_update()
 
     def _schedule_update(self):
         self._debounce.start()
@@ -609,7 +629,7 @@ class RegionAnalysisViewTab(QWidget):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             method = self._current_method()
-            impact = self.impact_selector.current_impact()
+            impact = self.impact_selector.current_value()
 
             if not method:
                 raise RuntimeError("No analysis method selected.")
@@ -657,7 +677,7 @@ class RegionAnalysisViewTab(QWidget):
             QApplication.restoreOverrideCursor()
 
     def _get_world_df_for_impact(self, impact_choice: str) -> Tuple[pd.DataFrame, str]:
-        if impact_choice == self._get_text("Subcontractors", "Subcontractors"):
+        if self._is_subcontractors(impact_choice):
             fig, world = self.ui.supplychain.plot_worldmap_by_subcontractors(
                 color="Blues", relative=True, return_data=True, title=None
             )
@@ -697,7 +717,7 @@ class RegionAnalysisViewTab(QWidget):
             gamma=float(s.get("gamma", 0.7)),
         )
 
-        if impact_choice == self._get_text("Subcontractors", "Subcontractors"):
+        if self._is_subcontractors(impact_choice): 
             fig, world = self.ui.supplychain.plot_worldmap_by_subcontractors(**common_kwargs)
         else:
             fig, world = self.ui.supplychain.plot_worldmap_by_impact(impact_choice, **common_kwargs)
@@ -705,12 +725,11 @@ class RegionAnalysisViewTab(QWidget):
         unit = self._extract_unit(world)
 
         # Update caches for interactivity/other methods
-        import pandas as pd
+        unit = self._extract_unit(world)
         df = pd.DataFrame(world)
         self._set_latest_world_df(df, unit)
         self._update_geospatial_index(world)
         self._current_choice = impact_choice
-
         return fig, df, unit
 
     def _wire_worldmap_interactions(self):
@@ -814,7 +833,7 @@ class RegionAnalysisViewTab(QWidget):
                 )
 
     def _generate_filename(self) -> str:
-        impact = self.impact_selector.current_impact()
+        impact = self.impact_selector.current_value()
         method = RegionAnalysisRegistry.get(self.method_selector.current_method())
         method_part = (method.label if method else "Method").replace(" ", "")
         impact_part = self._clean_filename(impact) if impact else "Impact"
@@ -842,7 +861,7 @@ class RegionAnalysisViewTab(QWidget):
 
     def _current_method(self) -> Optional[AnalysisMethod]:
         mid = self.method_selector.current_method()
-        from .analysis_methods import RegionAnalysisRegistry
+        from .region_methods import RegionAnalysisRegistry
         return RegionAnalysisRegistry.get(mid)
 
     def _update_geospatial_index(self, gdf_like):
@@ -946,6 +965,81 @@ class RegionAnalysisViewTab(QWidget):
         except Exception:
             return ""
 
+    def get_state(self) -> dict:
+        """
+        Return a minimal, serializable state of this tab:
+        - method_id
+        - impact (raw)
+        - method_state (per-method settings dicts)
+        """
+        return {
+            "method_id": self.method_selector.current_method(),
+            "impact": self.impact_selector.current_value(),
+            "method_state": dict(self.method_state),  # shallow copy
+        }
+
+    def set_state(self, state: dict) -> None:
+        """
+        Restore a previously saved state. Will trigger a redraw.
+        """
+        if not state:
+            return
+        ms = state.get("method_state")
+        if isinstance(ms, dict):
+            self.method_state.update(ms)
+
+        mid = state.get("method_id")
+        if mid:
+            self.method_selector.set_current_method(mid)
+
+        imp = state.get("impact")
+        if imp:
+            self.impact_selector.set_current_impact(imp)
+
+        # Ensure UI reflects the state
+        self._refresh_settings_button_visibility()
+        self._emit_title()
+        self._schedule_update()
+
+    def _emit_title(self):
+        method = self._current_method()
+        method_label = self._get_text(method.label, method.label) if method else self._get_text("Method", "Method")
+        impact_disp = self.impact_selector.current_display() or self._get_text("Impact", "Impact")
+        title = f"{method_label} – {impact_disp}"
+        self.titleChanged.emit(title)
+
+    def _on_method_changed(self, method_id: str):
+        self._refresh_settings_button_visibility()
+        self._emit_title()
+        self._schedule_update()
+        self.stateChanged.emit(self.get_state())
+
+    def _on_impact_changed(self, impact: str):
+        self._update_tab_name(self.impact_selector.current_display())  # optional: keeps old behavior
+        self._emit_title()
+        self._schedule_update()
+        self.stateChanged.emit(self.get_state())
+
+    def _open_settings(self):
+        method = self._current_method()
+        if not method or not method.supports_settings:
+            return
+        current = dict(self.method_state.get("world_map", {}))
+        dlg = WorldMapSettingsDialog(current, self._get_text, parent=self)
+        if dlg.exec_() == dlg.Accepted:
+            self.method_state["world_map"] = dlg.get_settings()
+            self._schedule_update()
+            self.stateChanged.emit(self.get_state())
+
+    def _is_subcontractors(self, value) -> bool:
+        """Return True if 'value' denotes the special 'Subcontractors' choice."""
+        raw = str(value).strip().lower()
+        # raw keyword
+        if raw == "subcontractors":
+            return True
+        # localized display (zur Sicherheit, falls irgendwo doch die Anzeige ankommt)
+        loc = str(self._get_text("Subcontractors", "Subcontractors")).strip().lower()
+        return raw == loc
 
 
 class CountryInfoDialog(QDialog):
@@ -1010,3 +1104,381 @@ class CountryInfoDialog(QDialog):
         """Close dialog on mouse click."""
         self.accept()
 
+
+class MethodSelectorWidget(QWidget):
+    """
+    One-line drop-down to select an analysis method.
+
+    - Shows localized labels (via `tr`).
+    - Keeps stable `method_id` in userData.
+    - Emits methodChanged(method_id) on change.
+    """
+    methodChanged = pyqtSignal(str)
+
+    def __init__(self, methods: Dict[str, object], tr: Callable[[str, str], str], parent=None):
+        super().__init__(parent)
+        self._methods = methods
+        self._tr = tr
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.combo = QComboBox(self)
+        for mid, m in self._methods.items():
+            label = self._tr(getattr(m, "label", str(mid)), getattr(m, "label", str(mid)))
+            self.combo.addItem(label, userData=mid)
+        self.combo.currentIndexChanged.connect(self._emit_change)
+        layout.addWidget(self.combo)
+
+    def _emit_change(self, *_):
+        mid = self.combo.currentData()
+        if mid:
+            self.methodChanged.emit(mid)
+
+    def set_current_method(self, method_id: str) -> None:
+        idx = self.combo.findData(method_id)
+        if idx >= 0:
+            self.combo.setCurrentIndex(idx)
+
+    def current_method(self) -> str:
+        return self.combo.currentData()
+
+    def current_label(self) -> str:
+        return self.combo.currentText()
+
+
+class ImpactSelectorWidget(QWidget):
+    """
+    One-line impact selector.
+
+    - Displays localized labels (via `tr`), keeps raw impact names in userData.
+    - current_value(): raw impact name
+    - current_display(): localized display text
+    """
+    impactChanged = pyqtSignal(str)
+
+    def __init__(self, impacts: list[str], tr: Callable[[str, str], str],
+                 include_subcontractors: bool = True, parent=None):
+        super().__init__(parent)
+        self._tr = tr
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.combo = QComboBox(self)
+
+        if include_subcontractors:
+            raw = "Subcontractors"
+            self.combo.addItem(self._tr(raw, raw), userData=raw)
+
+        for imp in impacts:
+            self.combo.addItem(self._tr(imp, imp), userData=imp)
+
+        self.combo.currentIndexChanged.connect(self._emit_change)
+        layout.addWidget(self.combo)
+
+    def _emit_change(self, *_):
+        val = self.current_value()
+        if val is not None:
+            self.impactChanged.emit(val)
+
+    def set_current_impact(self, impact_name: str) -> None:
+        idx = self.combo.findData(impact_name)
+        if idx >= 0:
+            self.combo.setCurrentIndex(idx)
+
+    def current_value(self) -> str:
+        return self.combo.currentData()
+
+    def current_display(self) -> str:
+        return self.combo.currentText()
+
+
+class WorldMapSettingsDialog(QDialog):
+    """
+    Comprehensive settings dialog for the World Map method.
+
+    Exposes:
+      - Colormap (color)
+      - Relative normalization (relative)
+      - Legend visibility (show_legend)
+      - Title (title)
+
+      Classification:
+        - mode: "binned" | "continuous"
+        - k: number of classes (binned)
+        - custom_bins: explicit breaks (comma-separated floats; overrides 'k' if provided)
+        - norm_mode (continuous): "linear" | "log" | "power"
+        - robust (continuous): quantile clipping in %, e.g. 2 -> [2%, 98%]
+        - gamma (continuous): gamma for PowerNorm
+
+      Advanced (stored for future use / overlays):
+        - draw_borders (bool)
+        - label_density (int)
+        - projection (str)
+
+    The dialog is initialized with a settings dict and will return an updated
+    settings dict via `get_settings()`.
+    """
+
+    def __init__(self, settings: dict, tr: Callable[[str, str], str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("World Map Settings", "World Map Settings"))
+        self.setModal(True)
+        self._tr = tr
+
+        # --- Current state (copy to avoid mutating caller until accepted) ---
+        self._settings = dict(settings or {})
+
+        v = QVBoxLayout(self)
+
+        # --- Basic ---
+        # Colormap
+        v.addWidget(QLabel(tr("Colormap", "Colormap")))
+        self.cmap = QComboBox(self)
+        for cm in ["Reds", "Blues", "Greens", "Purples", "Oranges", "viridis", "plasma", "magma", "cividis"]:
+            self.cmap.addItem(cm)
+        self.cmap.setCurrentText(self._settings.get("color", "Reds"))
+        v.addWidget(self.cmap)
+
+        # Legend
+        self.legend = QCheckBox(tr("Show legend", "Show legend"), self)
+        self.legend.setChecked(bool(self._settings.get("show_legend", False)))
+        v.addWidget(self.legend)
+
+        # Title
+        v.addWidget(QLabel(tr("Title (optional)", "Title (optional)")))
+        self.title = QComboBox(self)  # use editable combo for quick reuse
+        self.title.setEditable(True)
+        self.title.setInsertPolicy(QComboBox.InsertPolicy.InsertAtTop)
+        self.title.setCurrentText(self._settings.get("title", "") or "")
+        v.addWidget(self.title)
+
+        # --- Classification ---
+        v.addWidget(QLabel(tr("Classification", "Classification")))
+        row1 = QHBoxLayout()
+        v.addLayout(row1)
+
+        self.mode = QComboBox(self)
+        self.mode.addItems(["binned", "continuous"])
+        self.mode.setCurrentText(self._settings.get("mode", "binned"))
+        row1.addWidget(QLabel(tr("Mode", "Mode")))
+        row1.addWidget(self.mode)
+
+        # Binned controls
+        row_binned = QHBoxLayout()
+        v.addLayout(row_binned)
+        row_binned.addWidget(QLabel(tr("Classes (k)", "Classes (k)")))
+        self.k = QSpinBox(self)
+        self.k.setRange(2, 12)
+        self.k.setValue(int(self._settings.get("k", 7)))
+        row_binned.addWidget(self.k)
+
+        row_bins = QHBoxLayout()
+        v.addLayout(row_bins)
+        row_bins.addWidget(QLabel(tr("Custom bins (comma-separated)", "Custom bins (comma-separated)")))
+        self.custom_bins = QComboBox(self)
+        self.custom_bins.setEditable(True)
+        self.custom_bins.setCurrentText(self._format_bins_for_edit(self._settings.get("custom_bins")))
+        row_bins.addWidget(self.custom_bins)
+
+        # Continuous controls
+        v.addWidget(QLabel(tr("Normalization (continuous mode)", "Normalization (continuous mode)")))
+        row_norm = QHBoxLayout()
+        v.addLayout(row_norm)
+
+        self.norm_mode = QComboBox(self)
+        self.norm_mode.addItems(["linear", "log", "power"])
+        self.norm_mode.setCurrentText(self._settings.get("norm_mode", "linear"))
+        row_norm.addWidget(QLabel(tr("Norm", "Norm")))
+        row_norm.addWidget(self.norm_mode)
+
+        row_robust = QHBoxLayout()
+        v.addLayout(row_robust)
+        row_robust.addWidget(QLabel(tr("Robust clipping (%)", "Robust clipping (%)")))
+        self.robust = QDoubleSpinBox(self)
+        self.robust.setSuffix(" %")
+        self.robust.setRange(0.0, 20.0)
+        self.robust.setSingleStep(0.5)
+        self.robust.setValue(float(self._settings.get("robust", 2.0)))
+        row_robust.addWidget(self.robust)
+
+        row_gamma = QHBoxLayout()
+        v.addLayout(row_gamma)
+        row_gamma.addWidget(QLabel(tr("Gamma (power norm)", "Gamma (power norm)")))
+        self.gamma = QDoubleSpinBox(self)
+        self.gamma.setRange(0.1, 5.0)
+        self.gamma.setSingleStep(0.1)
+        self.gamma.setValue(float(self._settings.get("gamma", 0.7)))
+        row_gamma.addWidget(self.gamma)
+
+        # Enable/disable controls depending on mode
+        def _refresh_visibility():
+            is_binned = self.mode.currentText() == "binned"
+            self.k.setEnabled(is_binned)
+            self.custom_bins.setEnabled(is_binned)
+            is_cont = not is_binned
+            self.norm_mode.setEnabled(is_cont)
+            self.robust.setEnabled(is_cont)
+            self.gamma.setEnabled(is_cont)
+
+        self.mode.currentIndexChanged.connect(_refresh_visibility)
+        _refresh_visibility()
+
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        v.addWidget(buttons)
+
+    # ----------------- helpers -----------------
+    def _format_bins_for_edit(self, bins):
+        if not bins:
+            return ""
+        try:
+            return ", ".join(str(float(b)) for b in bins)
+        except Exception:
+            return str(bins)
+
+    def _parse_bins(self) -> Optional[list]:
+        text = self.custom_bins.currentText().strip()
+        if not text:
+            return None
+        try:
+            parts = [p.strip() for p in text.replace(";", ",").split(",")]
+            vals = [float(p) for p in parts if p]
+            return vals if vals else None
+        except Exception:
+            # Silently ignore malformed bins → caller will fallback to k
+            return None
+
+    def get_settings(self) -> dict:
+        """Return a dict of all settings for the world map method."""
+        return {
+            "color": self.cmap.currentText(),
+            "show_legend": self.legend.isChecked(),
+            "title": self.title.currentText().strip() or "",
+            "mode": self.mode.currentText(),
+            "k": int(self.k.value()),
+            "custom_bins": self._parse_bins(),
+            "norm_mode": self.norm_mode.currentText(),
+            "robust": float(self.robust.value()),
+            "gamma": float(self.gamma.value()),
+        }
+
+
+class ImpactMultiSelectorButton(QWidget):
+    """
+    Compact one-line multi-impact selector with a button that opens a tree dialog.
+
+    Usage:
+      - Instantiate with a nested impact hierarchy (dict[str, dict, ...]).
+      - Call set_defaults(list[str]) to define initially selected impacts.
+      - Connect to impactsChanged(list[str]) to react to changes.
+      - The button text shows "Selected (n)".
+    """
+    impactsChanged = pyqtSignal(list)
+
+    def __init__(self, nested_hierarchy: Dict, tr, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._tr = tr  # translation callable
+        self._hierarchy = nested_hierarchy or {}
+        self._selected = set()
+        self._defaults = set()
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+        self.btn = QPushButton(self)
+        self.btn.clicked.connect(self._open_dialog)
+        lay.addWidget(self.btn)
+
+        self._update_button_text()
+
+    def set_defaults(self, defaults: List[str]) -> None:
+        """Define default selection; also sets current selection to these defaults."""
+        self._defaults = set(defaults or [])
+        self._selected = set(defaults or [])
+        self._update_button_text()
+
+    def selected_impacts(self) -> List[str]:
+        """Return the current selection as a list (order not guaranteed)."""
+        return list(self._selected)
+
+    def set_selected_impacts(self, impacts: List[str]) -> None:
+        self._selected = set(impacts or [])
+        self._update_button_text()
+        self.impactsChanged.emit(self.selected_impacts())
+
+    # ---------------- internal ----------------
+    def _update_button_text(self) -> None:
+        count = len(self._selected)
+        self.btn.setText(f"{self._tr('Selected', 'Selected')} ({count})")
+
+    def _open_dialog(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle(self._tr("Select Impacts", "Select Impacts"))
+        dlg.setMinimumSize(350, 300)
+        v = QVBoxLayout(dlg)
+
+        v.addWidget(QLabel(f"{self._tr('Select Impacts', 'Select Impacts')}:"))
+
+        tree = QTreeWidget(dlg)
+        tree.setHeaderHidden(True)
+        tree.setSelectionMode(QTreeWidget.NoSelection)
+        v.addWidget(tree)
+
+        # populate
+        def add_items(parent_item, data_dict, level=0):
+            for key, val in data_dict.items():
+                item = QTreeWidgetItem(parent_item)
+                # store raw key, display localized text
+                item.setData(0, Qt.UserRole + 1, key)
+                item.setText(0, self._tr(key, key))
+                item.setData(0, Qt.UserRole, level)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                item.setCheckState(0, Qt.Checked if key in self._selected else Qt.Unchecked)
+                if isinstance(val, dict) and val:
+                    add_items(item, val, level + 1)
+                    
+        add_items(tree, self._hierarchy)
+
+        # buttons row
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
+        row = QHBoxLayout()
+        reset_btn = QPushButton(self._tr("Reset to Defaults", "Reset to Defaults"), dlg)
+        reset_btn.clicked.connect(lambda: self._reset_to_defaults(tree))
+        row.addWidget(reset_btn)
+        row.addStretch(1)
+        row.addWidget(buttons)
+        v.addLayout(row)
+
+        buttons.accepted.connect(lambda: self._accept_dialog(tree, dlg))
+        buttons.rejected.connect(dlg.reject)
+
+        dlg.exec_()
+
+    def _reset_to_defaults(self, tree: QTreeWidget):
+        def walk(item: QTreeWidgetItem):
+            raw = item.data(0, Qt.UserRole + 1)
+            item.setCheckState(0, Qt.Checked if raw in self._defaults else Qt.Unchecked)
+            for i in range(item.childCount()):
+                walk(item.child(i))
+        for i in range(tree.topLevelItemCount()):
+            walk(tree.topLevelItem(i))
+
+    def _accept_dialog(self, tree: QTreeWidget, dlg: QDialog):
+        new_sel = set()
+        def collect(item: QTreeWidgetItem):
+            raw = item.data(0, Qt.UserRole + 1)
+            if raw is not None and (item.flags() & Qt.ItemIsUserCheckable) and item.checkState(0) == Qt.Checked:
+                new_sel.add(raw)
+            for i in range(item.childCount()):
+                collect(item.child(i))
+        for i in range(tree.topLevelItemCount()):
+            collect(tree.topLevelItem(i))
+
+        self._selected = new_sel
+        self._update_button_text()
+        self.impactsChanged.emit(self.selected_impacts())
+        dlg.accept()
