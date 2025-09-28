@@ -1219,3 +1219,4 @@ class SupplyChain:
                 " | ".join(title_parts) +
                 f' ({self.iosystem.year})'
         )
+    
