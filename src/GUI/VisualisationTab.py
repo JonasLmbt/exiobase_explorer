@@ -546,6 +546,7 @@ class RegionAnalysisViewTab(QWidget):
         self.general_dict = self.iosystem.index.general_dict
         self.name = self._translate("Subcontractors", "Subcontractors")  # initial tab title
         self.tab_widget = parent if isinstance(parent, QTabWidget) else None
+        self._extra_impacts: list[str] = []   # stores additional impacts (max 3), canonical keys
 
         # Latest data (df with region/value/percentage) to be reused by non-map methods
         self._latest_df: Optional[pd.DataFrame] = None
@@ -608,6 +609,15 @@ class RegionAnalysisViewTab(QWidget):
         self.impact_selector.impactChanged.connect(self._on_impact_changed)
         toolbar.addWidget(self.impact_selector)
 
+        self.extra_impacts_btn = QPushButton(self._translate("Compare impacts", "Compare impacts"), self)
+        self.extra_impacts_btn.setToolTip(
+            self._translate("Select up to 3 additional impacts to compare (does not affect ranking).",
+                        "Select up to 3 additional impacts to compare (does not affect ranking).")
+        )
+        self.extra_impacts_btn.clicked.connect(self._open_extra_impacts_dialog)
+        toolbar.addWidget(self.extra_impacts_btn)
+        self._update_extra_button_text()
+
         # Optional: Settings button (only visible for methods with settings)
         self.settings_btn = QToolButton(self)
         self.settings_btn.setText("⚙")
@@ -626,6 +636,8 @@ class RegionAnalysisViewTab(QWidget):
         toolbar.addStretch(1)  # keep it tight to one line
 
         layout.addLayout(toolbar)
+
+        self._refresh_toolbar_visibility()
 
         # Plot area
         self.canvas = None
@@ -676,7 +688,7 @@ class RegionAnalysisViewTab(QWidget):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             method = self._current_method()
-            impact = self.impact_selector.current_value()
+            impact = self.impact_selector.current_impact()
 
             if not method:
                 raise RuntimeError("No analysis method selected.")
@@ -880,7 +892,7 @@ class RegionAnalysisViewTab(QWidget):
                 )
 
     def _generate_filename(self) -> str:
-        impact = self.impact_selector.current_value()
+        impact = self.impact_selector.current_impact()
         method = RegionAnalysisRegistry.get(self.method_selector.current_method())
         method_part = (method.label if method else "Method").replace(" ", "")
         impact_part = self._clean_filename(impact) if impact else "Impact"
@@ -1021,7 +1033,7 @@ class RegionAnalysisViewTab(QWidget):
         """
         return {
             "method_id": self.method_selector.current_method(),
-            "impact": self.impact_selector.current_value(),
+            "impact": self.impact_selector.current_impact(),
             "method_state": dict(self.method_state),  # shallow copy
         }
 
@@ -1050,33 +1062,77 @@ class RegionAnalysisViewTab(QWidget):
 
     def _emit_title(self):
         method = self._current_method()
-        method_label = self._translate(method.label, method.label) if method else self._translate("Method", "Method")
-        impact_disp = self.impact_selector.current_display() or self._translate("Impact", "Impact")
-        title = f"{method_label} – {impact_disp}"
-        self.titleChanged.emit(title)
+        if not method:
+            return
+        mid = getattr(method, "id", "")
+        st = self.method_state.get(mid, {})
+        # label
+        if mid == "topn":
+            n = int(st.get("n", 10))
+            method_label = f'{self._translate("Top", "Top")} {n}'
+        elif mid == "flopn":
+            n = int(st.get("n", 10))
+            method_label = f'{self._translate("Flop", "Flop")} {n}'
+        else:
+            base = getattr(method, "label_key", getattr(method, "label", getattr(method, "id", "Method")))
+            method_label = self._translate(base, base)
+
+        # impacts im Titel (aus Settings oder aktuellem Impact)
+        imps = list(st.get("impacts") or [self.impact_selector.current_impact()])
+        impacts_txt = ", ".join(imps[:3])
+
+        title = f"{method_label} – {impacts_txt}" if impacts_txt else method_label
+
+        # Tabtext setzen
+        if self.tab_widget:
+            idx = self.tab_widget.indexOf(self)
+            if idx != -1:
+                self.tab_widget.setTabText(idx, title)
 
     def _on_method_changed(self, method_id: str):
         self._refresh_settings_button_visibility()
+        self._refresh_toolbar_visibility()
         self._emit_title()
         self._schedule_update()
+        if hasattr(self, "_emit_title"):
+            self._emit_title()
         self.stateChanged.emit(self.get_state())
 
     def _on_impact_changed(self, impact: str):
-        self._update_tab_name(self.impact_selector.current_display())  # optional: keeps old behavior
+        self._update_tab_name(self.impact_selector.current_text())  # optional: keeps old behavior
         self._emit_title()
         self._schedule_update()
+        if hasattr(self, "_emit_title"):
+            self._emit_title()
         self.stateChanged.emit(self.get_state())
 
     def _open_settings(self):
         method = self._current_method()
         if not method or not method.supports_settings:
             return
-        current = dict(self.method_state.get("world_map", {}))
-        dlg = WorldMapSettingsDialog(current, self._translate, parent=self)
-        if dlg.exec_() == dlg.Accepted:
-            self.method_state["world_map"] = dlg.get_settings()
+        mid = getattr(method, "id", None)
+        state = self.method_state.get(mid, {})
+
+        dlg = None
+        if mid == "worldmap":
+            dlg = WorldMapSettingsDialog(state, self._translate, parent=self)
+
+        elif mid == "pie":
+            dlg = PieChartSettingsDialog(state, self._translate, parent=self)
+
+        elif mid in ("topn", "flopn"):
+            dlg = TopFlopSettingsDialog(
+                settings=self.method_state.get(mid, {}),
+                tr=self._translate,             
+                iosystem=self.iosystem,         
+                parent=self
+            )
+
+        if dlg and dlg.exec_() == dlg.Accepted:
+            self.method_state[mid] = dlg.get_settings()
+            if hasattr(self, "_emit_title"):
+                self._emit_title()
             self._schedule_update()
-            self.stateChanged.emit(self.get_state())
 
     def _is_subcontractors(self, value) -> bool:
         """Return True if 'value' denotes the special 'Subcontractors' choice."""
@@ -1084,7 +1140,6 @@ class RegionAnalysisViewTab(QWidget):
         # raw keyword
         if raw == "subcontractors":
             return True
-        # localized display (zur Sicherheit, falls irgendwo doch die Anzeige ankommt)
         loc = str(self._translate("Subcontractors", "Subcontractors")).strip().lower()
         return raw == loc
 
@@ -1109,6 +1164,158 @@ class RegionAnalysisViewTab(QWidget):
                 fig.tight_layout(rect=[0.02, 0.06, 0.96, 0.98], pad=0.4)
         except Exception:
             pass
+
+    def _current_impact_key(self) -> str:
+        """Canonical key of the primary impact from the single-select widget."""
+        for attr in ("current_impact", "current_value", "currentText", "current_text"):
+            f = getattr(self.impact_selector, attr, None)
+            if callable(f):
+                try:
+                    return f()
+                except Exception:
+                    pass
+        return ""
+
+    def get_extra_impacts(self) -> list[str]:
+        """Return up to 3 additional impacts, excluding the current primary if present."""
+        primary = self._current_impact_key()
+        return [i for i in self._extra_impacts if i and i != primary][:3]
+
+    def _update_extra_button_text(self):
+        n = len(self.get_extra_impacts())
+        self.extra_impacts_btn.setText(f'{self._translate("Compare impacts", "Compare impacts")} ({n})')
+
+    def _open_extra_impacts_dialog(self):
+        """
+        Open a tree dialog to pick up to 3 additional impacts (like the bubble tab).
+        Primary impact is shown but cannot be selected.
+        """
+        # Build nested hierarchy from impact_multiindex
+        try:
+            hierarchy = {}
+            mi = getattr(self.iosystem.index, "impact_multiindex", None)
+            if mi is not None:
+                for keys in mi:
+                    cur = hierarchy
+                    for key in keys:
+                        cur = cur.setdefault(str(key), {})
+            else:
+                # fallback: flat list
+                hierarchy = {"Impacts": {str(k): {} for k in self.iosystem.impacts}}
+        except Exception:
+            hierarchy = {"Impacts": {str(k): {} for k in self.iosystem.impacts}}
+
+        # Create dialog
+        dlg = QDialog(self); dlg.setWindowTitle(self._translate("Select Impacts", "Select Impacts"))
+        dlg.setMinimumSize(360, 420)
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel(self._translate("Choose up to 3 comparison impacts (sorting uses the main impact).",
+                                        "Choose up to 3 comparison impacts (sorting uses the main impact).")))
+        tree = QTreeWidget(dlg)
+        tree.setHeaderHidden(True)
+        tree.setSelectionMode(QTreeWidget.NoSelection)
+        v.addWidget(tree)
+
+        primary = self._current_impact_key()
+        preselected = set(self._extra_impacts)
+
+        # populate tree
+        def add_items(parent, d: dict):
+            for key, child in d.items():
+                it = QTreeWidgetItem(parent)
+                it.setText(0, key)
+                it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                # If this is a leaf (no children) and equals primary, disable selection
+                is_leaf = not bool(child)
+                if is_leaf and key == primary:
+                    it.setCheckState(0, Qt.Unchecked)
+                    it.setFlags(it.flags() & ~Qt.ItemIsUserCheckable)
+                    it.setDisabled(True)
+                    it.setToolTip(0, self._translate("Primary impact (sorting); cannot be selected here.",
+                                                    "Primary impact (sorting); cannot be selected here."))
+                else:
+                    it.setCheckState(0, Qt.Checked if key in preselected else Qt.Unchecked)
+                if child:
+                    add_items(it, child)
+
+        add_items(tree, hierarchy)
+
+        # Enforce max 3 checked leaves
+        def _leaf_checked_count() -> int:
+            cnt = 0
+            def walk(item):
+                nonlocal cnt
+                if item.childCount() == 0 and (item.flags() & Qt.ItemIsUserCheckable):
+                    if item.checkState(0) == Qt.Checked:
+                        cnt += 1
+                for i in range(item.childCount()):
+                    walk(item.child(i))
+            for i in range(tree.topLevelItemCount()):
+                walk(tree.topLevelItem(i))
+            return cnt
+
+        def _on_item_changed(item, col):
+            # Only enforce on leaves
+            if item.childCount() > 0:
+                return
+            if not (item.flags() & Qt.ItemIsUserCheckable):
+                return
+            if item.checkState(0) == Qt.Checked:
+                if _leaf_checked_count() > 3:
+                    # revert this check
+                    item.setCheckState(0, Qt.Unchecked)
+                    QMessageBox.warning(
+                        dlg,
+                        self._translate("Limit exceeded", "Limit exceeded"),
+                        self._translate("Please select at most 3 impacts.", "Please select at most 3 impacts.")
+                    )
+
+        tree.itemChanged.connect(_on_item_changed)
+
+        # Buttons
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
+        v.addWidget(btns)
+
+        def _collect_selection() -> list[str]:
+            picked = []
+            def walk(item):
+                if item.childCount() == 0 and (item.flags() & Qt.ItemIsUserCheckable):
+                    if item.checkState(0) == Qt.Checked:
+                        picked.append(item.text(0))
+                for i in range(item.childCount()):
+                    walk(item.child(i))
+            for i in range(tree.topLevelItemCount()):
+                walk(tree.topLevelItem(i))
+            # ensure primary excluded and limit 3
+            return [x for x in picked if x != primary][:3]
+
+        def _ok():
+            self._extra_impacts = _collect_selection()
+            self._update_extra_button_text()
+            # persist in method_state for topn/flopn
+            for mid in ("topn", "flopn"):
+                st = self.method_state.get(mid, {})
+                st["impacts_extras"] = list(self._extra_impacts)
+                self.method_state[mid] = st
+            # update plot/title
+            if hasattr(self, "_emit_title"):
+                self._emit_title()
+            self._schedule_update()
+            dlg.accept()
+
+        btns.accepted.connect(_ok)
+        btns.rejected.connect(dlg.reject)
+        dlg.exec_()
+
+    def _refresh_toolbar_visibility(self):
+        """Show/hide toolbar widgets depending on selected method."""
+        method = self._current_method()
+        mid = getattr(method, "id", "")
+        is_topflop = mid in ("topn", "flopn")
+        if hasattr(self, "extra_impacts_btn"):
+            self.extra_impacts_btn.setVisible(is_topflop)
+        # Settings-Button wie gehabt:
+        self.settings_btn.setVisible(bool(method and method.supports_settings))
 
 
 class CountryInfoDialog(QDialog):
@@ -1220,50 +1427,51 @@ class MethodSelectorWidget(QWidget):
 
 
 class ImpactSelectorWidget(QWidget):
-    """
-    One-line impact selector.
-
-    - Displays localized labels (via `tr`), keeps raw impact names in userData.
-    - current_value(): raw impact name
-    - current_display(): localized display text
-    """
     impactChanged = pyqtSignal(str)
-
-    def __init__(self, impacts: list[str], tr: Callable[[str, str], str],
-                 include_subcontractors: bool = True, parent=None):
+    ...
+    def __init__(self, impacts, include_subcontractors=True, parent=None, tr=lambda k,f: f):
         super().__init__(parent)
         self._tr = tr
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.combo = QComboBox(self)
+        self._combo = QComboBox(self)
+        lay = QHBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.addWidget(self._combo)
 
         if include_subcontractors:
-            raw = "Subcontractors"
-            self.combo.addItem(self._tr(raw, raw), userData=raw)
+            lbl = self._tr("Subcontractors", "Subcontractors")
+            self._combo.addItem(lbl, userData="Subcontractors")
 
-        for imp in impacts:
-            self.combo.addItem(self._tr(imp, imp), userData=imp)
+        for key in list(impacts):
+            lbl = self._tr(key, key)
+            self._combo.addItem(lbl, userData=key)
 
-        self.combo.currentIndexChanged.connect(self._emit_change)
-        layout.addWidget(self.combo)
+        self._combo.currentIndexChanged.connect(self._emit_change)
 
     def _emit_change(self, *_):
-        val = self.current_value()
-        if val is not None:
-            self.impactChanged.emit(val)
+        self.impactChanged.emit(self.current_impact())
 
-    def set_current_impact(self, impact_name: str) -> None:
-        idx = self.combo.findData(impact_name)
+    def current_impact(self) -> str:
+        """Return canonical impact key from userData; fallback to text."""
+        data = self._combo.currentData()
+        return data if isinstance(data, str) and data else self._combo.currentText()
+
+    def set_current_impact(self, key_or_label: str) -> None:
+        """Select by canonical key (preferred) or by visible text."""
+        for i in range(self._combo.count()):
+            if self._combo.itemData(i) == key_or_label:
+                self._combo.setCurrentIndex(i)
+                return
+        idx = self._combo.findText(key_or_label)
         if idx >= 0:
-            self.combo.setCurrentIndex(idx)
+            self._combo.setCurrentIndex(idx)
 
-    def current_value(self) -> str:
-        return self.combo.currentData()
+    def current_text(self) -> str:
+        """Visible label (translated)."""
+        return self._combo.currentText()
 
-    def current_display(self) -> str:
-        return self.combo.currentText()
+    def set_current_display(self, label: str) -> None:
+        """Alias: select by visible label."""
+        idx = self._combo.findText(label)
+        if idx >= 0:
+            self._combo.setCurrentIndex(idx)
 
 
 class WorldMapSettingsDialog(QDialog):
@@ -1381,11 +1589,6 @@ class WorldMapSettingsDialog(QDialog):
         row_cmap.addWidget(self.reverse_cb)
         v.addLayout(row_cmap)
 
-        # Relative (%)
-        self.relative = QCheckBox(self._t("Relative (%)", "Relative (%)"), self)
-        self.relative.setChecked(bool(self._settings.get("relative", True)))
-        v.addWidget(self.relative)
-
         # Legend
         self.legend = QCheckBox(self._t("Show legend", "Show legend"), self)
         self.legend.setChecked(bool(self._settings.get("show_legend", False)))
@@ -1473,7 +1676,6 @@ class WorldMapSettingsDialog(QDialog):
 
         return {
             "color": cmap_internal,
-            "relative": bool(self.relative.isChecked()),
             "show_legend": bool(self.legend.isChecked()),
             "title": self.title.currentText().strip() or "",
             "mode": self.mode.currentText(),
@@ -1484,6 +1686,223 @@ class WorldMapSettingsDialog(QDialog):
             "gamma": float(self.gamma.value()),
             # keep reverse separately too (useful for UI state persistence)
             "cmap_reverse": bool(self.reverse_cb.isChecked()),
+        }
+
+
+class PieChartSettingsDialog(QDialog):
+    """Settings dialog for the Pie chart (i18n colormap groups + reverse)."""
+
+    def __init__(self, settings: dict, tr: Callable[[str, str], str], parent=None):
+        super().__init__(parent)
+        self._tr = tr
+        self._s = dict(settings or {})
+        self.setWindowTitle(self._t("Pie chart settings", "Pie chart settings"))
+        self.setModal(True)
+
+        v = QVBoxLayout(self)
+
+        # Top slices
+        row_top = QHBoxLayout(); v.addLayout(row_top)
+        row_top.addWidget(QLabel(self._t("Top slices", "Top slices")))
+        self.top_slices = QSpinBox(self); self.top_slices.setRange(1, 50)
+        self.top_slices.setValue(int(self._s.get("top_slices", 10)))
+        row_top.addWidget(self.top_slices)
+
+        # Min percentage
+        row_min = QHBoxLayout(); v.addLayout(row_min)
+        row_min.addWidget(QLabel(self._t("Minimum share (%)", "Minimum share (%)")))
+        self.min_pct = QDoubleSpinBox(self); self.min_pct.setRange(0.0, 100.0); self.min_pct.setSingleStep(0.5)
+        self.min_pct.setSuffix(" %")
+        self.min_pct.setValue(float(self._s.get("min_pct", 0.0) or 0.0))
+        row_min.addWidget(self.min_pct)
+
+        # Sort order
+        row_sort = QHBoxLayout(); v.addLayout(row_sort)
+        row_sort.addWidget(QLabel(self._t("Sort slices", "Sort slices")))
+        self.sort_slices = QComboBox(self)
+        self.sort_slices.addItems(["desc", "asc", "original"])
+        self.sort_slices.setCurrentText(self._s.get("sort_slices", "desc"))
+        row_sort.addWidget(self.sort_slices)
+
+        # Title
+        v.addWidget(QLabel(self._t("Title (optional)", "Title (optional)")))
+        self.title = QComboBox(self); self.title.setEditable(True)
+        self.title.setInsertPolicy(QComboBox.InsertAtTop)
+        self.title.setCurrentText(self._s.get("title", "") or "")
+        v.addWidget(self.title)
+
+        # Angle & direction
+        row_ang = QHBoxLayout(); v.addLayout(row_ang)
+        row_ang.addWidget(QLabel(self._t("Start angle", "Start angle")))
+        self.start_angle = QSpinBox(self); self.start_angle.setRange(0, 360)
+        self.start_angle.setValue(int(self._s.get("start_angle", 90)))
+        row_ang.addWidget(self.start_angle)
+
+        self.counterclockwise = QCheckBox(self._t("Counterclockwise", "Counterclockwise"))
+        self.counterclockwise.setChecked(bool(self._s.get("counterclockwise", True)))
+        row_ang.addWidget(self.counterclockwise)
+
+        # Colormap (+ reverse), mit Gruppen & i18n
+        v.addWidget(QLabel(self._t("Colormap", "Colormap")))
+        row_cmap = QHBoxLayout(); v.addLayout(row_cmap)
+        self.cmap = QComboBox(self)
+        self.reverse_cb = QCheckBox(self._t("cm.reverse", "Reverse"))
+        row_cmap.addWidget(self.cmap)
+        row_cmap.addWidget(self.reverse_cb)
+        self._fill_colormap_combo()  # setzt auch current & reverse
+
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        v.addWidget(buttons)
+
+    # ---- helpers ----
+    def _t(self, key, fallback): 
+        try: return str(self._tr(key, fallback))
+        except Exception: return str(fallback)
+
+    def _fill_colormap_combo(self):
+        """Füllt Combo mit gruppierten, übersetzten Namen; interner Name in userData."""
+        self.cmap.clear()
+
+        groups = [
+            ("cm.group.perceptual", "Perceptual",
+             ["viridis", "plasma", "inferno", "magma", "cividis", "turbo"]),
+            ("cm.group.sequential", "Sequential",
+             ["Reds", "Oranges", "Greens", "Blues", "Purples", "Greys",
+              "YlGn", "YlGnBu", "GnBu", "BuGn", "PuBu", "BuPu",
+              "OrRd", "PuRd", "RdPu", "YlOrBr", "YlOrRd"]),
+            ("cm.group.diverging", "Diverging",
+             ["BrBG", "PiYG", "PRGn", "PuOr", "RdBu", "RdGy", "RdYlBu", "RdYlGn",
+              "Spectral", "coolwarm", "bwr", "seismic"]),
+            ("cm.group.cyclic", "Cyclic", ["twilight", "twilight_shifted", "hsv"]),
+            ("cm.group.qualitative", "Qualitative",
+             ["tab10", "tab20", "tab20b", "tab20c", "Set1", "Set2", "Set3",
+              "Pastel1", "Pastel2", "Accent", "Dark2", "Paired"]),
+        ]
+
+        for gi, (gkey, gname, names) in enumerate(groups):
+            # Header (deaktiviert)
+            header = self._t(gkey, gname)
+            self.cmap.addItem(header)
+            idx = self.cmap.count() - 1
+            item = self.cmap.model().item(idx)
+            item.setFlags(Qt.NoItemFlags)
+            item.setData(True, Qt.UserRole + 1)
+
+            # Items mit übersetztem Label, internem Namen in userData
+            for name in names:
+                label = self._t(f"cmap.{name}", name)
+                self.cmap.addItem(label, userData=name)
+
+            if gi < len(groups) - 1:
+                self.cmap.insertSeparator(self.cmap.count())
+
+        # gespeicherten Zustand anwenden (unterstützt *_r)
+        saved = str(self._s.get("color_map", "tab20"))
+        is_rev = saved.endswith("_r")
+        base = saved[:-2] if is_rev else saved
+        i = self.cmap.findData(base)
+        if i != -1:
+            self.cmap.setCurrentIndex(i)
+        self.reverse_cb.setChecked(bool(self._s.get("cmap_reverse", is_rev)))
+
+    def get_settings(self) -> dict:
+        """Sammelt alle Settings (color_map liefert internen Namen, ggf. mit _r)."""
+        cmap_name = self.cmap.currentData() or self.cmap.currentText()
+        if self.reverse_cb.isChecked() and not str(cmap_name).endswith("_r"):
+            cmap_name = f"{cmap_name}_r"
+
+        return {
+            "top_slices": int(self.top_slices.value()),
+            "min_pct": float(self.min_pct.value()) if self.min_pct.value() > 0 else None,
+            "sort_slices": self.sort_slices.currentText(),
+            "title": self.title.currentText().strip() or "",
+            "start_angle": int(self.start_angle.value()),
+            "counterclockwise": bool(self.counterclockwise.isChecked()),
+            "color_map": str(cmap_name),
+            "cmap_reverse": bool(self.reverse_cb.isChecked()),
+        }
+    
+
+class TopFlopSettingsDialog(QDialog):
+    """Settings dialog for Top/Flop with multi-impact selector (max 3 enforced here)."""
+
+    def __init__(self, settings: dict, tr: Callable[[str, str], str], iosystem, parent=None):
+        super().__init__(parent)
+        self._tr = tr
+        self._s = dict(settings or {})
+        self.setWindowTitle(self._t("Top/Flop settings", "Top/Flop settings"))
+        self.setModal(True)
+
+        v = QVBoxLayout(self)
+
+        # n
+        row_n = QHBoxLayout(); v.addLayout(row_n)
+        row_n.addWidget(QLabel(self._t("Count (n)", "Count (n)")))
+        self.n = QSpinBox(self); self.n.setRange(1, 50)
+        self.n.setValue(int(self._s.get("n", 10)))
+        row_n.addWidget(self.n)
+
+        # Title
+        v.addWidget(QLabel(self._t("Title (optional)", "Title (optional)")))
+        self.title = QComboBox(self); self.title.setEditable(True)
+        self.title.setInsertPolicy(QComboBox.InsertAtTop)
+        self.title.setCurrentText(self._s.get("title", "") or "")
+        v.addWidget(self.title)
+
+        # Orientation
+        row_or = QHBoxLayout(); v.addLayout(row_or)
+        row_or.addWidget(QLabel(self._t("Orientation", "Orientation")))
+        self.orientation = QComboBox(self)
+        self.orientation.addItems(["vertical", "horizontal"])
+        self.orientation.setCurrentText(self._s.get("orientation", "vertical"))
+        row_or.addWidget(self.orientation)
+
+        # Relative
+        self.relative = QCheckBox(self._t("Relative (%)", "Relative (%)"))
+        self.relative.setChecked(bool(self._s.get("relative", True)))
+        v.addWidget(self.relative)
+
+        # bar color / width
+        row_c = QHBoxLayout(); v.addLayout(row_c)
+        row_c.addWidget(QLabel(self._t("Bar color / Colormap", "Bar color / Colormap")))
+        self.bar_color = QComboBox(self)
+        for name in ["tab10","tab20","viridis","plasma","magma","cividis","turbo",
+                     "tab:blue","tab:orange","tab:green","tab:red","tab:purple","tab:brown"]:
+            self.bar_color.addItem(name)
+        self.bar_color.setEditable(True)
+        self.bar_color.setCurrentText(self._s.get("bar_color", "tab10"))
+        row_c.addWidget(self.bar_color)
+
+        row_w = QHBoxLayout(); v.addLayout(row_w)
+        row_w.addWidget(QLabel(self._t("Bar width", "Bar width")))
+        self.bar_width = QDoubleSpinBox(self); self.bar_width.setRange(0.1, 1.2); self.bar_width.setSingleStep(0.05)
+        self.bar_width.setValue(float(self._s.get("bar_width", 0.8)))
+        row_w.addWidget(self.bar_width)
+
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        v.addWidget(buttons)
+
+    def _t(self, key, fallback):
+        try: return str(self._tr(key, fallback))
+        except Exception: return str(fallback)
+
+    def accept(self):
+        super().accept()
+
+    def get_settings(self) -> dict:
+        return {
+            "n": int(self.n.value()),
+            "title": self.title.currentText().strip() or "",
+            "orientation": self.orientation.currentText(),
+            "relative": bool(self.relative.isChecked()),
+            "bar_color": self.bar_color.currentText(),
+            "bar_width": float(self.bar_width.value()),
         }
 
 
