@@ -91,6 +91,7 @@ class WorldMapMethod(AnalysisMethod):
     """
     id = "world_map"
     label = "World Map"
+    label_key = "World Map"
     supports_settings = True
 
     def render(self, parent_view, impact_choice, get_world_data):
@@ -101,106 +102,115 @@ class WorldMapMethod(AnalysisMethod):
 
 
 class TopNMethod(AnalysisMethod):
-    """
-    Top-N regions by value. Uses SupplyChain.plot_topn_by_impact(data-only).
-    """
-    id = "top_n"
+    id = "topn"
     label = "Top n"
+    label_key = "Top n"
+    supports_settings = True
 
-    def __init__(self, n: int = 10):
-        self.n = n
+    def render(self, view, impact: str, get_world_df):
+        st = {
+            "n": 10,
+            "title": "",                # optional custom title; empty -> backend auto-title
+            "orientation": "vertical",
+            "bar_color": "tab10",
+            "bar_width": 0.8,
+            "relative": True,
+            **view.method_state.get(self.id, {}),
+        }
 
-    def render(self, parent_view, impact_choice, _get_world_df):
-        # Respect world-map setting 'relative' so Top/Flop basieren auf der gleichen Basis
-        s = parent_view.method_state.get("world_map", {})
-        relative = bool(s.get("relative", True))
+        # primärer Impact (sortiert danach) + bis zu 3 Vergleichsimpacts
+        primary = view._current_impact_key()
+        extras  = list(view.get_extra_impacts())
+        imps    = [primary] + [e for e in extras if e != primary][:3]
 
-        # Daten vom Backend holen (return_data=True, Figure ignorieren)
-        _fig, df = parent_view.ui.supplychain.plot_topn_by_impact(
-            impact_choice, n=self.n, relative=relative, return_data=True
+        # WICHTIG: leer/None übergeben -> Backend baut Titel (lokalisiert)
+        user_title = (st.get("title") or "").strip()
+        title = user_title if user_title else None
+
+        return view.ui.supplychain.plot_topn_by_impacts(
+            impacts=imps,
+            n=int(st.get("n", 10)),
+            relative=bool(st.get("relative", True)),
+            orientation=st.get("orientation", "vertical"),
+            bar_color=st.get("bar_color", "tab10"),
+            bar_width=float(st.get("bar_width", 0.8)),
+            title=title,                 # None/"" => Auto-Titel im Backend
+            return_data=False,
         )
-
-        # Robust konvertieren
-        df = pd.DataFrame(df)
-        unit = str(df["unit"].iloc[0]) if "unit" in df.columns and len(df) else ""
-
-        # Frontend-Plot (i18n-sicher)
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.bar(df["region"], df["value"])
-        ax.set_ylabel(unit or "")
-        title = f"{parent_view._translate(self.label, self.label)} {self.n} – {impact_choice}"
-        ax.set_title(title)
-        ax.set_xticklabels(df["region"], rotation=45, ha="right")
-        fig.tight_layout()
-        return fig
 
 
 class FlopNMethod(AnalysisMethod):
-    """
-    Flop-N regions (smallest values). Uses SupplyChain.plot_flopn_by_impact(data-only).
-    """
-    id = "flop_n"
+    id = "flopn"
     label = "Flop n"
+    label_key = "Flop n"
+    supports_settings = True
 
-    def __init__(self, n: int = 10):
-        self.n = n
+    def render(self, view, impact: str, get_world_df):
+        st = {
+            "n": 10,
+            "title": "",
+            "orientation": "vertical",
+            "bar_color": "tab10",
+            "bar_width": 0.8,
+            "relative": True,
+            **view.method_state.get(self.id, {}),
+        }
 
-    def render(self, parent_view, impact_choice, _get_world_df):
-        s = parent_view.method_state.get("world_map", {})
-        relative = bool(s.get("relative", True))
+        primary = view._current_impact_key()
+        extras  = list(view.get_extra_impacts())
+        imps    = [primary] + [e for e in extras if e != primary][:3]
 
-        _fig, df = parent_view.ui.supplychain.plot_flopn_by_impact(
-            impact_choice, n=self.n, relative=relative, return_data=True
+        user_title = (st.get("title") or "").strip()
+        title = user_title if user_title else None
+
+        return view.ui.supplychain.plot_flopn_by_impacts(
+            impacts=imps,
+            n=int(st.get("n", 10)),
+            relative=bool(st.get("relative", True)),
+            orientation=st.get("orientation", "vertical"),
+            bar_color=st.get("bar_color", "tab10"),
+            bar_width=float(st.get("bar_width", 0.8)),
+            title=title,                 # None/"" => Auto-Titel im Backend
+            return_data=False,
         )
-
-        df = pd.DataFrame(df)
-        unit = str(df["unit"].iloc[0]) if "unit" in df.columns and len(df) else ""
-
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.bar(df["region"], df["value"])
-        ax.set_ylabel(unit or "")
-        title = f"{parent_view._translate(self.label, self.label)} {self.n} – {impact_choice}"
-        ax.set_title(title)
-        ax.set_xticklabels(df["region"], rotation=45, ha="right")
-        fig.tight_layout()
-        return fig
 
 
 class PieChartMethod(AnalysisMethod):
-    """
-    Pie chart over regions. Uses SupplyChain.plot_pie_by_impact(data-only).
-    """
     id = "pie"
-    label = "Pie chart"
+    label = "Pie chart"          
+    label_key = "Pie chart"
+    supports_settings = True
 
-    def __init__(self, top_slices: int = 10):
-        self.top_slices = top_slices
+    def render(self, view, impact: str, get_world_df):
+        state = {
+            "top_slices": 10,
+            "min_pct": None,
+            "sort_slices": "desc",
+            "title": "",
+            "start_angle": 90,
+            "counterclockwise": True,
+            "color_map": "tab20",
+            "cmap_reverse": False,
+            **view.method_state.get(self.id, {})
+        }
 
-    def render(self, parent_view, impact_choice, _get_world_df):
-        s = parent_view.method_state.get("world_map", {})
-        relative = bool(s.get("relative", True))
+        color_name = state["color_map"]
+        if state.get("cmap_reverse") and not str(color_name).endswith("_r"):
+            color_name = f"{color_name}_r"
 
-        _fig, df = parent_view.ui.supplychain.plot_pie_by_impact(
-            impact_choice, top_slices=self.top_slices, relative=relative, return_data=True
+        title = state["title"] or f'{view._translate("Pie chart", "Pie chart")} – {impact}'
+
+        return view.ui.supplychain.plot_pie_by_impact(
+            impact,
+            top_slices=state["top_slices"],
+            min_pct=state["min_pct"],
+            sort_slices=state["sort_slices"],
+            title=title,
+            start_angle=state["start_angle"],
+            counterclockwise=state["counterclockwise"],
+            color_map=color_name,
+            return_data=False
         )
-
-        df = pd.DataFrame(df)
-        unit = str(df["unit"].iloc[0]) if "unit" in df.columns and len(df) else ""
-
-        # i18n für 'Others'
-        others_key = parent_view._translate("Others", "Others")
-        if "label" in df.columns:
-            df.loc[df["label"].astype(str).str.lower() == "others", "label"] = others_key
-
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.pie(df["value"], labels=df["label"], autopct="%1.1f%%")
-        ax.set_title(f'{parent_view._translate(self.label, self.label)} – {impact_choice}')
-        ax.axis("equal")
-        fig.tight_layout()
-        return fig
 
 
 # Register built-in methods

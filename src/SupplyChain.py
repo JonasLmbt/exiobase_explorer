@@ -13,9 +13,8 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from matplotlib.ticker import MaxNLocator
-
+from matplotlib.cm import get_cmap
+import re
 
 
 
@@ -697,56 +696,23 @@ class SupplyChain:
                 fontweight="bold"
             )
 
-    def return_impact_per_region_data(
-            self, 
-            impact,
-            save_to_excel: Optional[str] = None
-        ):
+    def return_impact_per_region_data(self, impact, save_to_excel: str | None = None):
         """
         Returns a DataFrame (index: EXIOBASE regions) with one column per impact.
         The column name includes the unit in parentheses, e.g. "Water consumption (m³)".
 
         If 'save_to_excel' is provided, writes the file and returns None.
         """
-        # Normalize to list
-        impacts = [impact] if isinstance(impact, str) else list(impact)
-
-        data = {}
-        colnames = []
-
-        for imp in impacts:
-            # Aggregate values for the current selection of indices
-            vals = (
-                self.iosystem.impact.total.loc[imp]
-                .iloc[:, self.indices]
-                .sum(axis=1)
-                .to_numpy(dtype="float64")
-            )
-
-            # Convert unit (fallback: per-value transform, if no vectorized factor available)
-            converted = [self.transform_unit(value=v, impact=imp)[0] for v in vals]
-
-            # Get unit string (prefer official unit; fallback to transform_unit’s return, if provided)
-            try:
-                unit = self.iosystem.impact.get_unit(imp)
-            except Exception:
-                try:
-                    # if transform_unit returns (value, unit)
-                    _tmp_val, unit = self.transform_unit(value=0.0, impact=imp)
-                except Exception:
-                    unit = ""
-
-            # Build column name with unit in parentheses (omit parentheses if empty)
-            colname = f"{imp} ({unit})" if unit else f"{imp}"
-            data[colname] = converted
-            colnames.append(colname)
-
-        # Use EXIOBASE region index for alignment/consistency with world map
-        df = pd.DataFrame(data, index=self.iosystem.regions_exiobase)
-
+        res = self.impact_per_region_df(
+            impacts=impact,
+            relative=False,
+            include_units_in_cols=True,
+            localize_cols=True,
+            save_to_excel=save_to_excel,
+        )
         if save_to_excel:
-            df.to_excel(save_to_excel)
             return None
+        df, _units = res
         return df
 
     def plot_worldmap_by_subcontractors(
@@ -782,7 +748,7 @@ class SupplyChain:
         )
 
         # Build DataFrame with a clear column name
-        df = pd.DataFrame({"Subcontractors": values}, index=self.iosystem.regions_exiobase)
+        df = pd.DataFrame({f"{self.iosystem.index.general_dict['Subcontractors']}": values}, index=self.iosystem.regions_exiobase)
 
         # Title
         if title is None:
@@ -795,7 +761,7 @@ class SupplyChain:
         return self._plot_worldmap_by_data(
             df=df,
             units=unit_scalar,              # scalar unit
-            column="Subcontractors",
+            column=f"{self.iosystem.index.general_dict['Subcontractors']}",
             color_map=color,
             relative=relative,
             title=title,
@@ -1055,6 +1021,388 @@ class SupplyChain:
         plt.close(fig)
         return (fig, world) if return_data else fig
 
+    def plot_pie_by_impact(
+        self,
+        impact: str,
+        *,
+        top_slices: int = 10,
+        min_pct: float | None = None,             # no top_slices
+        sort_slices: str = "desc",                # "desc" | "asc" | "original"
+        title: str | None = None,
+        start_angle: int = 90,
+        counterclockwise: bool = True,
+        color_map: str = "tab20",                 # z. B. "tab20", "tab20_r", "viridis"
+        relative: bool = True,                    
+        return_data: bool = False
+    ) -> plt.Figure | tuple[plt.Figure, pd.DataFrame]:
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from matplotlib.cm import get_cmap
+
+        # 1) Datengrundlage (gleich wie Worldmap)
+        df, unit = self._sc__world_df(
+            impact,
+            relative=relative,
+            color="Reds", title=None,
+            mode="binned", k=7, custom_bins=None, norm_mode="linear", robust=2.0, gamma=0.7
+        )
+
+        s = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
+        base = pd.DataFrame({"region": df["region"], "value": s})
+
+        # 2) Sortierung
+        if sort_slices == "asc":
+            base = base.sort_values("value", ascending=True, kind="mergesort")
+        elif sort_slices == "original":
+            pass
+        else:  # "desc" (Default)
+            base = base.sort_values("value", ascending=False, kind="mergesort")
+
+        total = float(base["value"].sum())
+        if total <= 0:
+            # Leeres Fallback
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, self.iosystem.index.general_dict.get("No data", "No data"),
+                    ha="center", va="center", transform=ax.transAxes)
+            ax.axis("off")
+            return (fig, base.assign(unit=unit)) if return_data else fig
+
+        # 3) Auswahl + Others
+        others_label = self.iosystem.index.general_dict.get("Others", "Others")
+
+        if min_pct is not None:
+            thr = total * (float(min_pct) / 100.0)
+            top = base[base["value"] >= thr].copy()
+            others_val = total - float(top["value"].sum())
+        else:
+            k = max(1, int(top_slices))
+            top = base.head(k).copy()
+            others_val = base["value"].iloc[k:].sum()
+
+        pie_df = top.rename(columns={"region": "label"})[["label", "value"]]
+        if others_val > 0:
+            pie_df = pd.concat(
+                [pie_df, pd.DataFrame([{"label": others_label, "value": float(others_val)}])],
+                ignore_index=True
+            )
+
+        # 4) Farben: "Others" garantiert ≠ größte Scheibe
+        cmap = get_cmap(color_map)
+        n = len(pie_df)
+        # Basis-Farben gleichmäßig aus dem Colormap ziehen
+        if n == 1:
+            cols = [cmap(0.15)]
+        else:
+            cols = [cmap(i / max(n - 1, 1)) for i in range(n)]
+
+        # Falls letzte Scheibe "Others" ist, ersetze deren Farbe durch eine neutrale,
+        # die NICHT der ersten (größten) entspricht.
+        if pie_df.iloc[-1]["label"] == others_label:
+            others_color = cmap(0.85)
+            # Falls zufällig gleich (bei diskreten Maps sehr selten): auf Grau gehen
+            if n >= 1 and np.allclose(others_color, cols[0]):
+                others_color = (0.7, 0.7, 0.7, 1.0)
+            cols[-1] = others_color
+
+        # 5) Plot
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        wedges, _texts, autotexts = ax.pie(
+            pie_df["value"].to_numpy(),
+            labels=None,
+            startangle=int(start_angle),
+            counterclock=bool(counterclockwise),       # <-- korrekt
+            autopct="%1.1f%%"
+        )
+        for w, c in zip(wedges, cols):
+            w.set_facecolor(c)
+
+        # Legende (Namen neben dem Plot, ordentlich)
+        ax.legend(wedges, pie_df["label"].tolist(), loc="center left", bbox_to_anchor=(1.0, 0.5))
+        if title:
+            ax.set_title(title)
+        ax.axis("equal")
+        fig.tight_layout()
+
+        pie_df["unit"] = unit
+        return (fig, pie_df) if return_data else fig
+
+    def _canon_impact(self, impact: str) -> str:
+        """
+        Map localized names to canonical keys (e.g., 'Zulieferer' -> 'Subcontractors').
+        Falls keine Abbildung nötig ist, gib den Input zurück.
+        """
+        if not isinstance(impact, str):
+            return impact
+        key = impact.strip()
+        low = key.casefold()
+
+        gd = getattr(self.iosystem.index, "general_dict", {}) or {}
+        sub_local = [gd.get("Subcontractors", ""), gd.get("Zulieferer", "")]
+        sub_local = [s.casefold() for s in sub_local if s]
+
+        if low == "subcontractors" or low in sub_local:
+            return "Subcontractors"
+        return key
+
+    def impact_per_region_df(
+        self,
+        impacts,
+        *,
+        relative: bool = False,
+        include_units_in_cols: bool = True,
+        localize_cols: bool = True,
+        save_to_excel: str | None = None,
+    ):
+        """
+        Einheitliche Datenquelle: Werte pro EXIOBASE-Region für 1..n Impacts.
+
+        Parameters
+        ----------
+        impacts : str | list[str]
+            Einzelner Impact oder Liste (z. B. ["Value added","Labour time","Subcontractors"])
+        relative : bool
+            True -> Prozentanteile je Impact (Summe 100); False -> absolute Werte
+        include_units_in_cols : bool
+            Ob Spaltennamen die Einheit in Klammern tragen ("Water (m³)")
+        localize_cols : bool
+            Ob (falls möglich) lokalisierte Anzeigenamen in den Spalten verwendet werden
+        save_to_excel : str | None
+            Wenn gesetzt, wird die Datei geschrieben und None zurückgegeben.
+
+        Returns
+        -------
+        (df, units_map) | None
+            df: Index = EXIOBASE-Regions (self.iosystem.regions_exiobase),
+                Spalten = Impactnamen (ggf. mit Einheit)
+            units_map: {col_name -> unit_string}
+        """
+        import numpy as np
+        import pandas as pd
+
+        # Normalize list
+        imp_list = [impacts] if isinstance(impacts, str) else list(impacts)
+        imp_list = [self._canon_impact(i) for i in imp_list if i]
+
+        gd = getattr(self.iosystem.index, "general_dict", {}) or {}
+        regions = self.iosystem.regions_exiobase
+
+        data = {}
+        units_map = {}
+
+        for imp in imp_list:
+            if imp == "Subcontractors":
+                # Aggregation analog zur Weltkarte
+                vals = (
+                    self.iosystem.L.iloc[:, self.indices]
+                    .groupby(level=self.iosystem.index.region_classification[-1], sort=False)
+                    .sum()
+                    .sum(axis=1)
+                ).to_numpy(dtype="float64")
+                unit = ""  # keine spezifische Einheit
+                display = gd.get("Subcontractors", "Subcontractors")
+            else:
+                # Impact-Werte aggregieren
+                vals = (
+                    self.iosystem.impact.total.loc[imp]
+                    .iloc[:, self.indices]
+                    .sum(axis=1)
+                    .to_numpy(dtype="float64")
+                )
+                # Einheiten-Umrechnung (scalar pro Wert)
+                vals = [self.transform_unit(value=v, impact=imp)[0] for v in vals]
+                # Einheit ermitteln
+                try:
+                    unit = self.iosystem.impact.get_unit(imp) or ""
+                except Exception:
+                    try:
+                        _tmp, unit = self.transform_unit(value=0.0, impact=imp)
+                    except Exception:
+                        unit = ""
+                display = gd.get(imp, imp) if localize_cols else imp
+
+            # Relative Anteile je Impact, wenn gewünscht
+            if relative:
+                s = float(np.nansum(vals))
+                vals = (np.array(vals, dtype="float64") / s * 100.0) if s != 0.0 else np.zeros_like(vals)
+                unit_for_col = "%"  # relative Einheit
+            else:
+                unit_for_col = unit
+
+            colname = f"{display} ({unit_for_col})" if (include_units_in_cols and unit_for_col) else str(display)
+            data[colname] = vals
+            units_map[colname] = unit_for_col
+
+        df = pd.DataFrame(data, index=regions)
+
+        if save_to_excel:
+            df.to_excel(save_to_excel)
+            return None
+
+        return df, units_map
+
+    def plot_topn_by_impacts(
+        self,
+        impacts: list,
+        n: int = 10,
+        *,
+        relative: bool = True,
+        orientation: str = "vertical",
+        bar_color: str = "tab10",
+        bar_width: float = 0.8,
+        title: str = "",
+        return_data: bool = False,
+    ):
+        gd = getattr(self.iosystem.index, "general_dict", {}) or {}
+
+        def _canon(imp: str) -> str:
+            try:
+                return self._canon_impact(imp)
+            except Exception:
+                return imp
+
+        def _disp(imp: str) -> str:
+            # lokalisierter Anzeigename
+            ci = _canon(imp)
+            return gd.get("Subcontractors", "Subcontractors") if ci == "Subcontractors" else gd.get(ci, ci)
+
+        def _strip_unit(col: str) -> str:
+            # "Wasser (m³)" -> "Wasser"
+            return re.sub(r"\s*\([^)]*\)\s*$", "", str(col)).strip()
+
+        def _resolve_col(df: pd.DataFrame, imp: str) -> str:
+            """Finde die tatsächliche Spalte für 'imp' (kanonisch oder lokalisiert, mit/ohne (unit))."""
+            ci = _canon(imp)
+            li = _disp(imp)
+            for key in (ci, li):
+                if key in df.columns:
+                    return key
+            stripped = {_strip_unit(c).casefold(): c for c in df.columns}
+            for key in (ci, li):
+                c = stripped.get(key.casefold())
+                if c:
+                    return c
+            for c in df.columns:
+                if str(c).casefold().startswith(ci.casefold()):
+                    return c
+                if str(c).casefold().startswith(li.casefold()):
+                    return c
+            raise KeyError(ci)
+
+        if isinstance(impacts, str):
+            impacts = [impacts]
+        impacts = [i for i in impacts if i]
+
+        try:
+            df_vals, units_map = self.impact_per_region_df(
+                impacts=impacts,
+                relative=relative,
+                include_units_in_cols=False,   
+                localize_cols=False
+            )
+        except Exception:
+            df_vals = self.return_impact_per_region_data(impacts)
+            units_map = {}
+
+        primary = impacts[0]
+        col_primary = _resolve_col(df_vals, primary)
+
+        s_primary = pd.to_numeric(df_vals[col_primary], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+        top_idx = s_primary.sort_values(ascending=False).head(max(1, int(n))).index
+
+        cols = [_resolve_col(df_vals, imp) for imp in impacts]
+        mat = df_vals.loc[top_idx, cols].astype(float)
+        legend_labels = [_disp(imp) for imp in impacts]
+
+        def _color_list(name: str, k: int):
+            try:
+                cmap = get_cmap(name)
+                import numpy as np
+                return [cmap(i) for i in np.linspace(0.15, 0.85, k)]
+            except Exception:
+                return [name] * k
+
+        colors = _color_list(bar_color, len(impacts))
+        fig = plt.figure(); ax = fig.add_subplot(111)
+
+        idx = np.arange(len(top_idx)); m = len(impacts); width = (bar_width / m)
+
+        code2name = dict(zip(self.iosystem.regions_exiobase, self.iosystem.regions))
+
+        if orientation == "horizontal":
+            for j in range(m):
+                offs = (-bar_width/2) + (j + 0.5) * width
+                ax.barh(idx + offs, mat.iloc[:, j].values, height=width, label=legend_labels[j], color=colors[j])
+            ax.set_yticks(idx)
+            ax.set_yticklabels([code2name.get(code, code) for code in top_idx])
+            ax.set_xlabel("%" if relative else units_map.get(cols[0], gd.get("Value", "Value")))
+        else:
+            for j in range(m):
+                offs = (-bar_width/2) + (j + 0.5) * width
+                ax.bar(idx + offs, mat.iloc[:, j].values, width=width, label=legend_labels[j], color=colors[j])
+            ax.set_xticks(idx)
+            ax.set_xticklabels([code2name.get(code, code) for code in top_idx], rotation=45, ha="right")
+            ax.set_ylabel("%" if relative else units_map.get(cols[0], gd.get("Value", "Value")))
+
+        ax.legend(title=gd.get("Impacts", "Impacts"), loc="best")
+
+        if not title:
+            ax.set_title(f'{gd.get("Top","Top")} {int(n)} – {_disp(primary)}')
+        else:
+            ax.set_title(title)
+
+        fig.tight_layout()
+        return (fig, mat) if return_data else fig
+
+    def plot_flopn_by_impacts(self, impacts: list, **kwargs):
+        """
+        Flop-N wrapper: compute ranking on the first impact ascending=True.
+        """
+
+        # ensure list
+        if isinstance(impacts, str):
+            impacts = [impacts]
+
+        # We can reuse the same function by negating values for ranking, but simpler:
+        # Temporarily set n, relative etc. and compute with a small tweak:
+        # Compute top of the *negative* primary, then plot with original values.
+        # For clarity, just copy the logic:
+
+        # -- ranking with ascending --
+        def _series_for(impact):
+            df, unit = self._sc__world_df(impact, relative=kwargs.get("relative", True))
+            s = df["percentage"] if kwargs.get("relative", True) else df["value"]
+            return s.astype(float), (unit or "")
+
+        s_primary, _ = _series_for(impacts[0])
+        s_primary = s_primary.replace([np.inf, -np.inf], np.nan).dropna()
+        n = max(1, int(kwargs.get("n", 10)))
+        flop_idx = s_primary.sort_values(ascending=True).head(n).index
+
+        # re-use the topn function but with explicit index order preserved
+        fig, mat = self.plot_topn_by_impacts(
+            impacts,
+            n=n,
+            return_data=True,
+            **{k: v for k, v in kwargs.items() if k != "n"}
+        )
+        # reorder to flop order
+        mat = mat.reindex(flop_idx)
+        # redraw quickly
+        plt.close(fig)
+        return self.plot_topn_by_impacts(
+            impacts=list(mat.columns),
+            n=n,
+            return_data=kwargs.get("return_data", False),
+            relative=kwargs.get("relative", True),
+            orientation=kwargs.get("orientation", "vertical"),
+            bar_color=kwargs.get("bar_color", "tab10"),
+            bar_width=kwargs.get("bar_width", 0.8),
+            title=kwargs.get("title", ""),
+        )
+
     def _add_world_metadata(
             self,
             world: pd.DataFrame,
@@ -1292,137 +1640,3 @@ class SupplyChain:
 
         return df, unit
 
-    def plot_topn_by_impact(self,
-                            impact: str,
-                            n: int = 10,
-                            *,
-                            ascending: bool = False,
-                            relative: bool = True,
-                            color: str = "tab:blue",
-                            title: Optional[str] = None,
-                            label_rotation: int = 45,
-                            return_data: bool = False,
-                            # Klassifizierungs-Args durchreichen (werden für Daten nicht benötigt,
-                            # bleiben aber API-kompatibel zur Worldmap)
-                            mode: str = "binned",
-                            k: int = 7,
-                            custom_bins: Optional[List[float]] = None,
-                            norm_mode: str = "linear",
-                            robust: float = 2.0,
-                            gamma: float = 0.7
-                        ) -> Union[plt.Figure, Tuple[plt.Figure, pd.DataFrame]]:
-        """
-        Bar chart of Top/Flop regions by impact value.
-
-        Args:
-            impact: Impact name, or 'Subcontractors' for supplier counts.
-            n: Number of bars.
-            ascending: False -> Top N (largest first), True -> Flop N (smallest first).
-            relative: Use relative normalization consistent with world map data.
-            color, title, label_rotation: Plot appearance.
-            return_data: If True, returns (fig, df); otherwise only fig.
-
-        Returns:
-            Figure or (Figure, DataFrame with columns: region, value, unit).
-        """
-        df, unit = self._sc__world_df(impact, relative=relative, color="Reds", title=None,
-                                    mode=mode, k=k, custom_bins=custom_bins,
-                                    norm_mode=norm_mode, robust=robust, gamma=gamma)
-
-        # Werte bereinigen & sortieren
-        s = pd.to_numeric(df["value"], errors="coerce")
-        take = df.loc[s.notna(), ["region"]].copy()
-        take["value"] = s.loc[s.notna()]
-        take = take.sort_values("value", ascending=ascending).head(max(1, int(n)))
-        take["unit"] = unit
-
-        # Plot
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.bar(take["region"], take["value"], color=color)
-        ax.set_ylabel(unit or "")
-        if title:
-            ax.set_title(title)
-        ax.set_xticklabels(take["region"], rotation=label_rotation, ha="right")
-        fig.tight_layout()
-
-        return (fig, take) if return_data else fig
-
-    def plot_flopn_by_impact(self, impact: str, n: int = 10, **kwargs):
-        """
-        Convenience wrapper for the N smallest (Flop N). Identisch zu:
-        plot_topn_by_impact(..., ascending=True).
-        """
-        kwargs = dict(kwargs)
-        kwargs["ascending"] = True
-        return self.plot_topn_by_impact(impact, n, **kwargs)
-
-    def plot_pie_by_impact(self,
-                        impact: str,
-                        top_slices: int = 10,
-                        *,
-                        relative: bool = True,
-                        title: Optional[str] = None,
-                        return_data: bool = False,
-                        colors: Optional[List[str]] = None,
-                        # Klassifizierungs-Args (nur zur API-Gleichheit)
-                        mode: str = "binned",
-                        k: int = 7,
-                        custom_bins: Optional[List[float]] = None,
-                        norm_mode: str = "linear",
-                        robust: float = 2.0,
-                        gamma: float = 0.7
-                        ) -> Union[plt.Figure, Tuple[plt.Figure, pd.DataFrame]]:
-        """
-        Pie chart über Regionen: Top 'top_slices' einzeln, Rest als 'Others'.
-
-        Args:
-            impact: Impact name, oder 'Subcontractors'.
-            top_slices: Anzahl der benannten Segmente, der Rest -> 'Others'.
-            relative: Datenbasis wie in der Worldmap (True/False).
-            title: Optionaler Titel.
-            return_data: Wenn True, (fig, df) zurück – df hat Spalten: label, value, unit.
-            colors: Optional Liste von Farben für die Slices.
-
-        Returns:
-            Figure oder (Figure, DataFrame).
-        """
-        df, unit = self._sc__world_df(impact, relative=relative, color="Reds", title=None,
-                                    mode=mode, k=k, custom_bins=custom_bins,
-                                    norm_mode=norm_mode, robust=robust, gamma=gamma)
-
-        s = pd.to_numeric(df["value"], errors="coerce")
-        base = df.loc[s.notna(), ["region"]].copy()
-        base["value"] = s.loc[s.notna()]
-        base = base.sort_values("value", ascending=False)
-
-        top = base.head(max(1, int(top_slices))).copy()
-        others_val = base["value"].iloc[int(top_slices):].sum() if len(base) > top_slices else 0.0
-
-        pie_df = top.rename(columns={"region": "label"})
-        if others_val > 0:
-            pie_df = pd.concat([pie_df, pd.DataFrame([{"label": "Others", "value": others_val}])], ignore_index=True)
-        pie_df["unit"] = unit
-
-        # Plot
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.pie(pie_df["value"], labels=pie_df["label"], autopct="%1.1f%%", colors=colors)
-        if title:
-            ax.set_title(title)
-        ax.axis("equal")  # nicer circle
-        fig.tight_layout()
-
-        return (fig, pie_df) if return_data else fig
-
-    def plot_topn_by_subcontractors(self, n: int = 10, **kwargs):
-        """Shortcut für Zulieferer: ruft plot_topn_by_impact('Subcontractors', ...)."""
-        return self.plot_topn_by_impact("Subcontractors", n, **kwargs)
-
-    def plot_flopn_by_subcontractors(self, n: int = 10, **kwargs):
-        """Shortcut für Zulieferer: ruft plot_flopn_by_impact('Subcontractors', ...)."""
-        return self.plot_flopn_by_impact("Subcontractors", n, **kwargs)
-
-    def plot_pie_by_subcontractors(self, top_slices: int = 10, **kwargs):
-        """Shortcut für Zulieferer: ruft plot_pie_by_impact('Subcontractors', ...)."""
-        return self.plot_pie_by_impact("Subcontractors", top_slices, **kwargs)
