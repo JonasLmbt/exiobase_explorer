@@ -1114,7 +1114,7 @@ class RegionAnalysisViewTab(QWidget):
         state = self.method_state.get(mid, {})
 
         dlg = None
-        if mid == "worldmap":
+        if mid == "world_map":
             dlg = WorldMapSettingsDialog(state, self._translate, parent=self)
 
         elif mid == "pie":
