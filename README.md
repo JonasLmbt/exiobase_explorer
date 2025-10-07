@@ -19,6 +19,8 @@ A Python tool for analyzing Exiobase data with modules for input-output systems,
 
     ```bash
     git clone https://github.com/JonasLmbt/exiobase_explorer.git
+    ```
+    ```bash
     cd exiobase_explorer
     ```
 
