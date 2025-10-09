@@ -11,7 +11,7 @@ from .stage_methods import StageAnalysisRegistry, StageAnalysisMethod
 from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog,
     QGraphicsOpacityEffect, QLabel, QSizePolicy,
-    QDialog, QApplication, QToolButton, QComboBox, QStyle,
+    QDialog, QApplication, QToolButton, QComboBox, QStyle, QToolTip,
     QTabBar, QMessageBox, QCheckBox, QDialogButtonBox, QSpinBox, QDoubleSpinBox, QPushButton, QTreeWidget, QTreeWidgetItem
 )
 
@@ -694,16 +694,12 @@ class RegionAnalysisViewTab(QWidget):
                 raise RuntimeError("No analysis method selected.")
 
             if isinstance(method, WorldMapMethod):
-                # 1) Render figure (stellt auch _latest_df und GeoIndex via _render_world_map_figure ein)
                 fig = method.render(self, impact, self._get_world_df_for_impact)
 
-                # 2) Canvas ERST setzen ...
                 self._set_canvas(fig)
 
-                # 3) ... und JETZT die Karten-Achse aus der aktuellen Figure ermitteln
                 try:
                     axes = self.canvas.figure.axes
-                    # Bevorzugt die erste Achse mit Daten (häufig die Karte, nicht die Colorbar)
                     self._map_ax = None
                     for ax in axes:
                         if getattr(ax, "has_data", lambda: True)() and len(getattr(ax, "patches", [])) >= 0:
@@ -714,11 +710,9 @@ class RegionAnalysisViewTab(QWidget):
                 except Exception:
                     self._map_ax = None
 
-                # 4) Interaktionen NACH dem Setzen der Canvas verbinden
                 self._wire_worldmap_interactions()
 
             else:
-                # Nicht-WorldMap-Methoden: Daten updaten, rendern, Canvas setzen, Interaktionen trennen
                 df, unit = self._get_world_df_for_impact(impact)
                 self._set_latest_world_df(df, unit)
                 fig = method.render(self, impact, self._get_world_df_for_impact)
@@ -816,7 +810,6 @@ class RegionAnalysisViewTab(QWidget):
             pass  # safe to ignore
 
     def _on_hover(self, event):
-        from PyQt5.QtWidgets import QToolTip
         if (event.inaxes is None or self._map_ax is None or event.inaxes is not self._map_ax
             or event.xdata is None or event.ydata is None):
             QToolTip.hideText()

@@ -1254,40 +1254,51 @@ class SupplyChain:
         bar_width: float = 0.8,
         title: str = "",
         return_data: bool = False,
+        ascending: bool = False,  
     ):
+        """
+        Grouped bar chart of Top/Flop regions across 1..3 impacts.
+
+        Args:
+            impacts: primary impact first (sort key), plus up to 2 comparators.
+            n: number of regions.
+            relative: True -> percentages, False -> absolute.
+            orientation: "vertical" or "horizontal".
+            bar_color: matplotlib colormap name or single color.
+            bar_width: total group width.
+            title: optional plot title (backend will auto-generate if empty).
+            return_data: return (fig, DataFrame) if True.
+            ascending: False -> Top n (largest first), True -> Flop n (smallest first).
+        """
+        import re
+        import numpy as np
+        from matplotlib.cm import get_cmap
+        import pandas as pd
+        import matplotlib.pyplot as plt
+
         gd = getattr(self.iosystem.index, "general_dict", {}) or {}
 
         def _canon(imp: str) -> str:
-            try:
-                return self._canon_impact(imp)
-            except Exception:
-                return imp
+            try: return self._canon_impact(imp)
+            except Exception: return imp
 
         def _disp(imp: str) -> str:
-            # lokalisierter Anzeigename
             ci = _canon(imp)
             return gd.get("Subcontractors", "Subcontractors") if ci == "Subcontractors" else gd.get(ci, ci)
 
         def _strip_unit(col: str) -> str:
-            # "Wasser (m³)" -> "Wasser"
             return re.sub(r"\s*\([^)]*\)\s*$", "", str(col)).strip()
 
         def _resolve_col(df: pd.DataFrame, imp: str) -> str:
-            """Finde die tatsächliche Spalte für 'imp' (kanonisch oder lokalisiert, mit/ohne (unit))."""
-            ci = _canon(imp)
-            li = _disp(imp)
+            ci, li = _canon(imp), _disp(imp)
             for key in (ci, li):
-                if key in df.columns:
-                    return key
+                if key in df.columns: return key
             stripped = {_strip_unit(c).casefold(): c for c in df.columns}
             for key in (ci, li):
                 c = stripped.get(key.casefold())
-                if c:
-                    return c
+                if c: return c
             for c in df.columns:
-                if str(c).casefold().startswith(ci.casefold()):
-                    return c
-                if str(c).casefold().startswith(li.casefold()):
+                if str(c).casefold().startswith(ci.casefold()) or str(c).casefold().startswith(li.casefold()):
                     return c
             raise KeyError(ci)
 
@@ -1295,12 +1306,11 @@ class SupplyChain:
             impacts = [impacts]
         impacts = [i for i in impacts if i]
 
+        # Datenquelle versuchen: neue (val, unit)-DF; Fallback: alte Funktion ohne units_map
         try:
             df_vals, units_map = self.impact_per_region_df(
-                impacts=impacts,
-                relative=relative,
-                include_units_in_cols=False,   
-                localize_cols=False
+                impacts=impacts, relative=relative,
+                include_units_in_cols=False, localize_cols=False
             )
         except Exception:
             df_vals = self.return_impact_per_region_data(impacts)
@@ -1310,25 +1320,24 @@ class SupplyChain:
         col_primary = _resolve_col(df_vals, primary)
 
         s_primary = pd.to_numeric(df_vals[col_primary], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
-        top_idx = s_primary.sort_values(ascending=False).head(max(1, int(n))).index
+        n = max(1, int(n))
+        # ascending steuert Top/Flop Auswahl
+        take_idx = s_primary.sort_values(ascending=ascending).head(n).index
 
         cols = [_resolve_col(df_vals, imp) for imp in impacts]
-        mat = df_vals.loc[top_idx, cols].astype(float)
+        mat = df_vals.loc[take_idx, cols].astype(float)
         legend_labels = [_disp(imp) for imp in impacts]
 
         def _color_list(name: str, k: int):
             try:
-                cmap = get_cmap(name)
-                import numpy as np
-                return [cmap(i) for i in np.linspace(0.15, 0.85, k)]
+                cmap = get_cmap(name); return [cmap(t) for t in np.linspace(0.15, 0.85, k)]
             except Exception:
                 return [name] * k
 
         colors = _color_list(bar_color, len(impacts))
-        fig = plt.figure(); ax = fig.add_subplot(111)
+        fig, ax = plt.subplots(figsize=(12, 6))
 
-        idx = np.arange(len(top_idx)); m = len(impacts); width = (bar_width / m)
-
+        idx = np.arange(len(take_idx)); m = len(impacts); width = (bar_width / m)
         code2name = dict(zip(self.iosystem.regions_exiobase, self.iosystem.regions))
 
         if orientation == "horizontal":
@@ -1336,71 +1345,55 @@ class SupplyChain:
                 offs = (-bar_width/2) + (j + 0.5) * width
                 ax.barh(idx + offs, mat.iloc[:, j].values, height=width, label=legend_labels[j], color=colors[j])
             ax.set_yticks(idx)
-            ax.set_yticklabels([code2name.get(code, code) for code in top_idx])
+            ax.set_yticklabels([code2name.get(code, code) for code in take_idx])
             ax.set_xlabel("%" if relative else units_map.get(cols[0], gd.get("Value", "Value")))
+            ax.grid(axis='x', alpha=0.2)
         else:
             for j in range(m):
                 offs = (-bar_width/2) + (j + 0.5) * width
                 ax.bar(idx + offs, mat.iloc[:, j].values, width=width, label=legend_labels[j], color=colors[j])
             ax.set_xticks(idx)
-            ax.set_xticklabels([code2name.get(code, code) for code in top_idx], rotation=45, ha="right")
+            ax.set_xticklabels([code2name.get(code, code) for code in take_idx], rotation=45, ha="right")
             ax.set_ylabel("%" if relative else units_map.get(cols[0], gd.get("Value", "Value")))
+            ax.grid(axis='y', alpha=0.2)
 
-        ax.legend(title=gd.get("Impacts", "Impacts"), loc="best")
-
+        # Auto-Titel im Backend
         if not title:
-            ax.set_title(f'{gd.get("Top","Top")} {int(n)} – {_disp(primary)}')
+            rank_word = gd.get("Flop", "Flop") if ascending else gd.get("Top", "Top")
+            ax.set_title(f"{rank_word} {n} – {_disp(primary)}")
         else:
             ax.set_title(title)
 
+        ax.legend(title=gd.get("Impacts", "Impacts"), loc="best")
         fig.tight_layout()
+
         return (fig, mat) if return_data else fig
 
-    def plot_flopn_by_impacts(self, impacts: list, **kwargs):
+    def plot_flopn_by_impacts(
+        self,
+        impacts: list,
+        n: int = 10,
+        *,
+        relative: bool = True,
+        orientation: str = "vertical",
+        bar_color: str = "tab10",
+        bar_width: float = 0.8,
+        title: str = "",
+        return_data: bool = False,
+    ):
         """
-        Flop-N wrapper: compute ranking on the first impact ascending=True.
+        Flop-N als dünner Wrapper um plot_topn_by_impacts(..., ascending=True).
         """
-
-        # ensure list
-        if isinstance(impacts, str):
-            impacts = [impacts]
-
-        # We can reuse the same function by negating values for ranking, but simpler:
-        # Temporarily set n, relative etc. and compute with a small tweak:
-        # Compute top of the *negative* primary, then plot with original values.
-        # For clarity, just copy the logic:
-
-        # -- ranking with ascending --
-        def _series_for(impact):
-            df, unit = self._sc__world_df(impact, relative=kwargs.get("relative", True))
-            s = df["percentage"] if kwargs.get("relative", True) else df["value"]
-            return s.astype(float), (unit or "")
-
-        s_primary, _ = _series_for(impacts[0])
-        s_primary = s_primary.replace([np.inf, -np.inf], np.nan).dropna()
-        n = max(1, int(kwargs.get("n", 10)))
-        flop_idx = s_primary.sort_values(ascending=True).head(n).index
-
-        # re-use the topn function but with explicit index order preserved
-        fig, mat = self.plot_topn_by_impacts(
-            impacts,
-            n=n,
-            return_data=True,
-            **{k: v for k, v in kwargs.items() if k != "n"}
-        )
-        # reorder to flop order
-        mat = mat.reindex(flop_idx)
-        # redraw quickly
-        plt.close(fig)
         return self.plot_topn_by_impacts(
-            impacts=list(mat.columns),
+            impacts=impacts,
             n=n,
-            return_data=kwargs.get("return_data", False),
-            relative=kwargs.get("relative", True),
-            orientation=kwargs.get("orientation", "vertical"),
-            bar_color=kwargs.get("bar_color", "tab10"),
-            bar_width=kwargs.get("bar_width", 0.8),
-            title=kwargs.get("title", ""),
+            relative=relative,
+            orientation=orientation,
+            bar_color=bar_color,
+            bar_width=bar_width,
+            title=title,
+            return_data=return_data,
+            ascending=True,  # <- hier passiert die Magie
         )
 
     def _add_world_metadata(

@@ -170,7 +170,7 @@ class FlopNMethod(AnalysisMethod):
             orientation=st.get("orientation", "vertical"),
             bar_color=st.get("bar_color", "tab10"),
             bar_width=float(st.get("bar_width", 0.8)),
-            title=title,                 # None/"" => Auto-Titel im Backend
+            title=title,                
             return_data=False,
         )
 
