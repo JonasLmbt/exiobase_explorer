@@ -1179,41 +1179,33 @@ class SupplyChain:
                 Spalten = Impactnamen (ggf. mit Einheit)
             units_map: {col_name -> unit_string}
         """
-        import numpy as np
-        import pandas as pd
-
-        # Normalize list
         imp_list = [impacts] if isinstance(impacts, str) else list(impacts)
         imp_list = [self._canon_impact(i) for i in imp_list if i]
 
         gd = getattr(self.iosystem.index, "general_dict", {}) or {}
-        regions = self.iosystem.regions_exiobase
+        regions = self.iosystem.regions
 
         data = {}
         units_map = {}
 
         for imp in imp_list:
             if imp == "Subcontractors":
-                # Aggregation analog zur Weltkarte
                 vals = (
                     self.iosystem.L.iloc[:, self.indices]
                     .groupby(level=self.iosystem.index.region_classification[-1], sort=False)
                     .sum()
                     .sum(axis=1)
                 ).to_numpy(dtype="float64")
-                unit = ""  # keine spezifische Einheit
+                unit = ""  
                 display = gd.get("Subcontractors", "Subcontractors")
             else:
-                # Impact-Werte aggregieren
                 vals = (
                     self.iosystem.impact.total.loc[imp]
                     .iloc[:, self.indices]
                     .sum(axis=1)
                     .to_numpy(dtype="float64")
                 )
-                # Einheiten-Umrechnung (scalar pro Wert)
                 vals = [self.transform_unit(value=v, impact=imp)[0] for v in vals]
-                # Einheit ermitteln
                 try:
                     unit = self.iosystem.impact.get_unit(imp) or ""
                 except Exception:
@@ -1223,11 +1215,10 @@ class SupplyChain:
                         unit = ""
                 display = gd.get(imp, imp) if localize_cols else imp
 
-            # Relative Anteile je Impact, wenn gewünscht
             if relative:
                 s = float(np.nansum(vals))
                 vals = (np.array(vals, dtype="float64") / s * 100.0) if s != 0.0 else np.zeros_like(vals)
-                unit_for_col = "%"  # relative Einheit
+                unit_for_col = "%"  
             else:
                 unit_for_col = unit
 
@@ -1270,12 +1261,6 @@ class SupplyChain:
             return_data: return (fig, DataFrame) if True.
             ascending: False -> Top n (largest first), True -> Flop n (smallest first).
         """
-        import re
-        import numpy as np
-        from matplotlib.cm import get_cmap
-        import pandas as pd
-        import matplotlib.pyplot as plt
-
         gd = getattr(self.iosystem.index, "general_dict", {}) or {}
 
         def _canon(imp: str) -> str:
@@ -1306,7 +1291,6 @@ class SupplyChain:
             impacts = [impacts]
         impacts = [i for i in impacts if i]
 
-        # Datenquelle versuchen: neue (val, unit)-DF; Fallback: alte Funktion ohne units_map
         try:
             df_vals, units_map = self.impact_per_region_df(
                 impacts=impacts, relative=relative,
@@ -1321,7 +1305,6 @@ class SupplyChain:
 
         s_primary = pd.to_numeric(df_vals[col_primary], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
         n = max(1, int(n))
-        # ascending steuert Top/Flop Auswahl
         take_idx = s_primary.sort_values(ascending=ascending).head(n).index
 
         cols = [_resolve_col(df_vals, imp) for imp in impacts]
@@ -1357,7 +1340,7 @@ class SupplyChain:
             ax.set_ylabel("%" if relative else units_map.get(cols[0], gd.get("Value", "Value")))
             ax.grid(axis='y', alpha=0.2)
 
-        # Auto-Titel im Backend
+
         if not title:
             rank_word = gd.get("Flop", "Flop") if ascending else gd.get("Top", "Top")
             ax.set_title(f"{rank_word} {n} – {_disp(primary)}")
@@ -1381,9 +1364,7 @@ class SupplyChain:
         title: str = "",
         return_data: bool = False,
     ):
-        """
-        Flop-N als dünner Wrapper um plot_topn_by_impacts(..., ascending=True).
-        """
+
         return self.plot_topn_by_impacts(
             impacts=impacts,
             n=n,
@@ -1393,7 +1374,7 @@ class SupplyChain:
             bar_width=bar_width,
             title=title,
             return_data=return_data,
-            ascending=True,  # <- hier passiert die Magie
+            ascending=True, 
         )
 
     def _add_world_metadata(

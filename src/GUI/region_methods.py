@@ -9,16 +9,16 @@ import pandas as pd
 
 class AnalysisMethod(ABC):
     """
-    Abstract base class for an analysis method used in RegionAnalysisViewTab.
+    Abstract base class for region analysis methods used in RegionAnalysisViewTab.
 
-    Each method is responsible for rendering its visualization given a data provider and
-    the currently selected impact. Methods can optionally provide a settings dialog and
-    inline controls (e.g., a spin box for Top-N).
+    Each method renders a visualization given a data provider and the currently
+    selected impact. Implementations may optionally expose a settings dialog
+    and/or a small inline controls widget for the one-line toolbar.
     """
 
-    #: Globally unique identifier for the method (used in registry & saving state)
+    #: Globally unique identifier for the method (used in registry & state)
     id: str
-    #: Human-readable label shown to the user in the method selector
+    #: Human-readable label shown in method selectors
     label: str
     #: Whether this method offers an external settings dialog
     supports_settings: bool = False
@@ -33,31 +33,39 @@ class AnalysisMethod(ABC):
         """
         Render the visualization for the given impact.
 
-        Parameters
-        ----------
-        parent_view : QWidget
-            The calling view (RegionAnalysisViewTab); can be used to access UI state.
-        impact_choice : str
-            The selected impact (or 'Subcontractors').
-        get_world_data : Callable[[str], Tuple[pd.DataFrame, str]]
-            A callable returning a tuple (df, unit) for the given impact, where df has at least:
-            ['region', 'value', 'percentage'] and possibly 'geometry' for world map.
+        Args:
+            parent_view (QWidget): The calling RegionAnalysisViewTab (access to UI/state).
+            impact_choice (str): Selected impact identifier (or 'Subcontractors').
+            get_world_data (Callable[[str], Tuple[pd.DataFrame, str]]): Provider returning
+                (df, unit) for the given impact. The DataFrame includes at least
+                ['region', 'value', 'percentage'] (and optionally 'geometry').
 
-        Returns
-        -------
-        matplotlib.figure.Figure
-            The rendered figure (caller will place it on the canvas).
+        Returns:
+            matplotlib.figure.Figure: The rendered figure placed later by the caller.
         """
         raise NotImplementedError
 
     def create_settings_dialog(self, parent: QWidget) -> Optional[QDialog]:
-        """Return a settings dialog if the method supports settings, else None."""
+        """
+        Optionally return a settings dialog for this method.
+
+        Args:
+            parent (QWidget): Parent widget for modality/ownership.
+
+        Returns:
+            Optional[QDialog]: A dialog if settings are supported, else None.
+        """
         return None
 
     def get_inline_controls(self, parent: QWidget) -> Optional[QWidget]:
         """
-        Return a small inline widget with controls (e.g., Top-N spin box) that fits the one-line toolbar.
-        Return None if no inline controls are needed.
+        Optionally return a compact inline controls widget (fits the one-line toolbar).
+
+        Args:
+            parent (QWidget): Parent widget for the controls.
+
+        Returns:
+            Optional[QWidget]: Inline controls widget, or None if not needed.
         """
         return None
 
@@ -66,20 +74,23 @@ class RegionAnalysisRegistry:
     """
     Registry for region-based analysis methods.
 
-    New methods can be added by calling `RegionAnalysisRegistry.register(method_cls)`.
+    Allows registering implementations, listing all, and retrieving by ID.
     """
     _methods: Dict[str, AnalysisMethod] = {}
 
     @classmethod
     def register(cls, method: AnalysisMethod) -> None:
+        """Register (or overwrite) a method instance under its `id`."""
         cls._methods[method.id] = method
 
     @classmethod
     def all_methods(cls) -> Dict[str, AnalysisMethod]:
+        """Return a shallow copy of all registered methods keyed by ID."""
         return dict(cls._methods)
 
     @classmethod
     def get(cls, method_id: str) -> Optional[AnalysisMethod]:
+        """Retrieve a method by ID, or None if it is not registered."""
         return cls._methods.get(method_id)
 
 
@@ -87,7 +98,7 @@ class WorldMapMethod(AnalysisMethod):
     """
     Render a choropleth world map for the selected impact or subcontractors.
 
-    Settings are held by RegionAnalysisViewTab (method_state['world_map']).
+    Settings are kept in RegionAnalysisViewTab under method_state['world_map'].
     """
     id = "world_map"
     label = "World Map"
@@ -95,22 +106,28 @@ class WorldMapMethod(AnalysisMethod):
     supports_settings = True
 
     def render(self, parent_view, impact_choice, get_world_data):
-        # Delegate rendering to the view; it reads method_state['world_map']
+        """
+        Delegate to the parent view's world-map renderer and store the latest df/unit.
+        """
         fig, world_df, unit = parent_view._render_world_map_figure(impact_choice)
         parent_view._set_latest_world_df(world_df, unit)
         return fig
 
 
 class TopNMethod(AnalysisMethod):
+    """Bar chart showing the Top-n regions by impact, with up to 3 comparison impacts."""
     id = "topn"
     label = "Top n"
     label_key = "Top n"
     supports_settings = True
 
     def render(self, view, impact: str, get_world_df):
+        """
+        Render Top-n using SupplyChain backend, merging view state with sensible defaults.
+        """
         st = {
             "n": 10,
-            "title": "",                # optional custom title; empty -> backend auto-title
+            "title": "",                # empty -> let backend auto-title (localized)
             "orientation": "vertical",
             "bar_color": "tab10",
             "bar_width": 0.8,
@@ -118,14 +135,13 @@ class TopNMethod(AnalysisMethod):
             **view.method_state.get(self.id, {}),
         }
 
-        # primärer Impact (sortiert danach) + bis zu 3 Vergleichsimpacts
+        # Primary impact defines sorting; add up to 3 extra comparison impacts
         primary = view._current_impact_key()
         extras  = list(view.get_extra_impacts())
         imps    = [primary] + [e for e in extras if e != primary][:3]
 
-        # WICHTIG: leer/None übergeben -> Backend baut Titel (lokalisiert)
         user_title = (st.get("title") or "").strip()
-        title = user_title if user_title else None
+        title = user_title if user_title else None  # None -> backend auto-title
 
         return view.ui.supplychain.plot_topn_by_impacts(
             impacts=imps,
@@ -134,18 +150,22 @@ class TopNMethod(AnalysisMethod):
             orientation=st.get("orientation", "vertical"),
             bar_color=st.get("bar_color", "tab10"),
             bar_width=float(st.get("bar_width", 0.8)),
-            title=title,                 # None/"" => Auto-Titel im Backend
+            title=title,
             return_data=False,
         )
 
 
 class FlopNMethod(AnalysisMethod):
+    """Bar chart showing the Flop-n regions (lowest values), with comparison impacts."""
     id = "flopn"
     label = "Flop n"
     label_key = "Flop n"
     supports_settings = True
 
     def render(self, view, impact: str, get_world_df):
+        """
+        Render Flop-n using SupplyChain backend, merging view state with defaults.
+        """
         st = {
             "n": 10,
             "title": "",
@@ -170,18 +190,22 @@ class FlopNMethod(AnalysisMethod):
             orientation=st.get("orientation", "vertical"),
             bar_color=st.get("bar_color", "tab10"),
             bar_width=float(st.get("bar_width", 0.8)),
-            title=title,                
+            title=title,
             return_data=False,
         )
 
 
 class PieChartMethod(AnalysisMethod):
+    """Pie chart of a single impact across regions (with sorting and thresholds)."""
     id = "pie"
-    label = "Pie chart"          
+    label = "Pie chart"
     label_key = "Pie chart"
     supports_settings = True
 
     def render(self, view, impact: str, get_world_df):
+        """
+        Render a pie chart using SupplyChain backend, applying view-managed state.
+        """
         state = {
             "top_slices": 10,
             "min_pct": None,
@@ -198,6 +222,7 @@ class PieChartMethod(AnalysisMethod):
         if state.get("cmap_reverse") and not str(color_name).endswith("_r"):
             color_name = f"{color_name}_r"
 
+        # If no custom title is provided, show a simple default with the current impact
         title = state["title"] or f'{view._translate("Pie chart", "Pie chart")} – {impact}'
 
         return view.ui.supplychain.plot_pie_by_impact(
