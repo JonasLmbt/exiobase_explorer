@@ -24,7 +24,7 @@ import pandas as pd
 logging.basicConfig(
     level=logging.INFO,
     format='%(levelname)s - %(message)s',
-    stream=sys.stdout  # Hier wird der Ausgabestrom explizit gesetzt
+    stream=sys.stdout 
 )
 
 class Index:
@@ -1465,3 +1465,4 @@ if __name__ == "__main__" and 1 == 2:  # This block is for testing purposes only
     print(f"Units ({len(io_system_instance.units)}): {io_system_instance.units}")
     print(f"Regions ({len(io_system_instance.regions)}): {io_system_instance.regions}")
     print(f"Sectors ({len(io_system_instance.sectors)}): {io_system_instance.sectors}")
+    
