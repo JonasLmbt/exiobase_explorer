@@ -16,8 +16,9 @@ from src.GUI.VisualisationTab import VisualisationTab
 from src.GUI.ConsoleTab import ConsoleTab
 
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
+    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QDesktopWidget,
 )
+
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
 
@@ -134,7 +135,6 @@ class UserInterface(QMainWindow):
             logger.warning(f"Icon file not found: {icon_path}")
 
         # Set flexible window sizing
-        from PyQt5.QtWidgets import QDesktopWidget
         screen = QDesktopWidget().availableGeometry()
 
         # Calculate initial size as percentage of screen
@@ -158,7 +158,6 @@ class UserInterface(QMainWindow):
 
     def _center_window(self) -> None:
         """Center the window on the screen."""
-        from PyQt5.QtWidgets import QDesktopWidget
         screen = QDesktopWidget().availableGeometry()
         window_geometry = self.frameGeometry()
 
