@@ -17,7 +17,6 @@ import re
 from matplotlib.colors import Normalize, BoundaryNorm
 
 
-
 class SupplyChain:
     """
     A class for analyzing environmental impacts along supply chains using input-output analysis.
@@ -946,7 +945,7 @@ class SupplyChain:
 
                 self._add_map_legend(
                     fig=fig, ax=ax, data=data, column=column, color_map=color_map,
-                    relative=False,  # legend should show absolute values
+                    relative=relative,
                     mode="continuous",
                     edges=None,
                     norm_mode=norm_mode,
@@ -1003,7 +1002,9 @@ class SupplyChain:
                 cbar.ax.set_yticklabels(tick_labels)
                 # If we have a single unit, display it in the label
                 label = column
-                if isinstance(units, str):
+                if relative == True:
+                    label += " [%]"
+                elif isinstance(units, str):
                     label = f"{column} [{units}]"
                 elif hasattr(units, "__len__") and len(set(units)) == 1:
                     label = f"{column} [{list(set(units))[0]}]"
@@ -1485,7 +1486,7 @@ class SupplyChain:
             cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
 
             # Absolute-value legend label with unit if available
-            cbar.set_label(f"{column} [{unit}]" if unit else f"{column}")
+            cbar.set_label(f"{column} [{unit}]" if unit != None and unit != "" else f"{column}")
         else:
             raise ValueError('Legend helper is meant for mode=\"continuous\" here.')
 
