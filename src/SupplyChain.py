@@ -697,6 +697,7 @@ class SupplyChain:
             )
 
     def return_impact_per_region_data(self, impact, save_to_excel: str | None = None):
+        # Remove function? Same as impact_per_region_df with different return type
         """
         Returns a DataFrame (index: EXIOBASE regions) with one column per impact.
         The column name includes the unit in parentheses, e.g. "Water consumption (m³)".
