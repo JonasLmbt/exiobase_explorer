@@ -16,7 +16,7 @@ from shapely.geometry import Point
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog,
+    QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog, QFormLayout, QGroupBox,
     QGraphicsOpacityEffect, QLabel, QSizePolicy, QLineEdit, QStackedLayout,
     QDialog, QApplication, QToolButton, QComboBox, QStyle, QToolTip,
     QTabBar, QMessageBox, QCheckBox, QDialogButtonBox, QSpinBox, QDoubleSpinBox, QPushButton, QTreeWidget, QTreeWidgetItem
@@ -1951,25 +1951,19 @@ class ImpactMultiSelectorButton(QWidget):
 class WorldMapSettingsDialog(QDialog):
     """
     Dialog window for configuring World Map visualization settings.
-
-    Provides options for:
-      - Colormap and reverse option
-      - Legend visibility
-      - Title text
-      - Classification mode ("binned" or "continuous")
-      - Binning parameters (k, custom bins)
-      - Normalization options (norm mode, robust clipping, gamma)
+      - Clear sections (Appearance, Classification, Binning, Continuous scaling)
+      - Inline, context-aware explanations that change with selections
+      - Tooltips and What's This help on all controls
+      - Dedicated Help button with condensed documentation
     """
 
     def _t(self, key: str, fallback: str) -> str:
-        """Translate via provided callback; always return a string."""
         try:
             return str(self._tr(key, fallback))
         except Exception:
             return str(fallback)
 
     def _format_bins_for_edit(self, bins):
-        """Format bin values as a comma-separated string for editing."""
         if not bins:
             return ""
         try:
@@ -1978,12 +1972,6 @@ class WorldMapSettingsDialog(QDialog):
             return str(bins)
 
     def _parse_bins(self) -> Optional[list]:
-        """
-        Parse the custom bin string from the combo box into a float list.
-
-        Returns:
-            Optional[list]: List of floats if valid, else None.
-        """
         text = self.custom_bins.currentText().strip()
         if not text:
             return None
@@ -1995,14 +1983,7 @@ class WorldMapSettingsDialog(QDialog):
             return None
 
     def _fill_colormap_combo(self):
-        """
-        Populate the colormap combo box with grouped, translated entries.
-
-        Each group is added as a disabled header, followed by colormap names.
-        The saved color setting is restored, including reverse state.
-        """
         self.cmap.clear()
-
         groups = [
             ("cm.group.perceptual", "Perceptual",
              ["viridis", "plasma", "inferno", "magma", "cividis", "turbo"]),
@@ -2019,7 +2000,6 @@ class WorldMapSettingsDialog(QDialog):
               "Pastel1", "Pastel2", "Accent", "Dark2", "Paired"]),
         ]
 
-        # Add grouped entries with separators
         for gi, (gkey, gname, names) in enumerate(groups):
             header = self._t(gkey, gname)
             self.cmap.addItem(header)
@@ -2027,15 +2007,12 @@ class WorldMapSettingsDialog(QDialog):
             item = self.cmap.model().item(idx)
             item.setFlags(Qt.NoItemFlags)
             item.setData(True, Qt.UserRole + 1)
-
             for name in names:
                 label = self._t(f"cmap.{name}", name)
                 self.cmap.addItem(label, userData=name)
-
             if gi < len(groups) - 1:
                 self.cmap.insertSeparator(self.cmap.count())
 
-        # Restore saved colormap state (supports reversed names like *_r)
         saved = str(self._settings.get("color", "Reds"))
         is_rev = saved.endswith("_r")
         base = saved[:-2] if is_rev else saved
@@ -2045,138 +2022,232 @@ class WorldMapSettingsDialog(QDialog):
         self.reverse_cb.setChecked(bool(self._settings.get("cmap_reverse", is_rev)))
 
     def __init__(self, settings: dict, tr: Callable[[str, str], str], parent=None):
-        """
-        Initialize the World Map Settings dialog.
-
-        Args:
-            settings (dict): Existing settings dictionary.
-            tr (Callable[[str, str], str]): Translation function for labels.
-            parent (QWidget, optional): Parent widget. Defaults to None.
-        """
         super().__init__(parent)
         self._tr = tr
+        self._settings = dict(settings or {})
         self.setWindowTitle(self._t("World Map Settings", "World Map Settings"))
         self.setModal(True)
 
-        # Work on a copy of the settings to avoid modifying originals until accepted
-        self._settings = dict(settings or {})
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
 
-        v = QVBoxLayout(self)
+        # ---------- Appearance ----------
+        gb_app = QGroupBox(self._t("Appearance", "Appearance"), self)
+        fl_app = QFormLayout(gb_app)
+        fl_app.setLabelAlignment(Qt.AlignRight)
 
-        # --- Basic configuration section ---
-        v.addWidget(QLabel(self._t("Colormap", "Colormap")))
-        row_cmap = QHBoxLayout()
         self.cmap = QComboBox(self)
+        self.cmap.setToolTip(self._t("Choose a color palette for the map.", "Choose a color palette for the map."))
+        self.cmap.setWhatsThis(self._t("Colormap used to color the countries. Use 'Reverse' to invert light/dark order.",
+            "Colormap used to color the countries. Use 'Reverse' to invert light/dark order."))
         self.reverse_cb = QCheckBox(self._t("cm.reverse", "Reverse"), self)
-        row_cmap.addWidget(self.cmap)
-        row_cmap.addWidget(self.reverse_cb)
-        v.addLayout(row_cmap)
+        self.reverse_cb.setToolTip(self._t("Invert the colormap.", "Invert the colormap."))
+        self.reverse_cb.setWhatsThis(self._t("Inverts the selected colormap.", "Inverts the selected colormap."))
 
-        # Legend visibility
+        colormap_row = QHBoxLayout()
+        colormap_row.addWidget(self.cmap, 1)
+        colormap_row.addWidget(self.reverse_cb, 0)
+        fl_app.addRow(self._t("Colormap", "Colormap"), colormap_row)
+
         self.legend = QCheckBox(self._t("Show legend", "Show legend"), self)
         self.legend.setChecked(bool(self._settings.get("show_legend", False)))
-        v.addWidget(self.legend)
+        self.legend.setToolTip(self._t("Show colorbar with value ranges.", "Show colorbar with value ranges."))
+        self.legend.setWhatsThis(self._t("Displays a legend. In continuous mode it shows absolute values; in binned mode it shows numeric ranges per class.", 
+                                         "Displays a legend. In continuous mode it shows absolute values; in binned mode it shows numeric ranges per class."))
+        fl_app.addRow("", self.legend)
 
-        # Map title
-        v.addWidget(QLabel(self._t("Title (optional)", "Title (optional)")))
         self.title = QComboBox(self)
         self.title.setEditable(True)
         self.title.setInsertPolicy(QComboBox.InsertAtTop)
         self.title.setCurrentText(self._settings.get("title", "") or "")
-        v.addWidget(self.title)
+        self.title.setToolTip(self._t("Optional title displayed above the map.", "Optional title displayed above the map."))
+        self.title.setWhatsThis(self._t("Optional title for the map.", "Optional title for the map."))
+        fl_app.addRow(self._t("Title (optional)", "Title (optional)"), self.title)
 
-        # --- Classification settings ---
-        v.addWidget(QLabel(self._t("Classification", "Classification")))
-        row1 = QHBoxLayout(); v.addLayout(row1)
-        row1.addWidget(QLabel(self._t("Mode", "Mode")))
+        root.addWidget(gb_app)
+
+        # ---------- Classification ----------
+        gb_class = QGroupBox(self._t("Classification", "Classification"), self)
+        fl_class = QFormLayout(gb_class)
+        fl_class.setLabelAlignment(Qt.AlignRight)
+
         self.mode = QComboBox(self)
         self.mode.addItems(["binned", "continuous"])
         self.mode.setCurrentText(self._settings.get("mode", "binned"))
-        row1.addWidget(self.mode)
+        self.mode.setToolTip(self._t("Choose between binned (discrete classes) or continuous scale.", "Choose between binned (discrete classes) or continuous scale."))
+        self.mode.setWhatsThis(self._t("continuous: Colors reflect absolute values with a continuous legend.\nbinned: Discrete classes. With 'Relative' you bin by percentage shares.",
+            "continuous: Colors reflect absolute values with a continuous legend.\nbinned: Discrete classes. With 'Relative' you bin by percentage shares."))
+        fl_class.addRow(self._t("Mode", "Mode"), self.mode)
+        
+        # Short explainer label (dynamic)
+        self.explain_mode = QLabel(self)
+        self.explain_mode.setWordWrap(True)
+        self.explain_mode.setStyleSheet("color:#555;")
+        fl_class.addRow("", self.explain_mode)
 
-        # Binned options
-        row_binned = QHBoxLayout(); v.addLayout(row_binned)
-        row_binned.addWidget(QLabel(self._t("Classes (k)", "Classes (k)")))
+
+        # ---------- Binning (only for binned) ----------
+        self.gb_binned = QGroupBox(self._t("Binning (binned mode)", "Binning (binned mode)"), self)
+        fl_binned = QFormLayout(self.gb_binned)
+        fl_binned.setLabelAlignment(Qt.AlignRight)
+
+        self.relative = QCheckBox(self._t("Relative", "Relative"), self)
+        self.relative.setChecked(bool(self._settings.get("relative", False)))
+        self.relative.setToolTip(self._t("If checked, classes use percentage shares (sum=100%). If unchecked, absolute values.",
+            "If checked, classes use percentage shares (sum=100%). If unchecked, absolute values."))
+        self.relative.setWhatsThis(self._t("Binned mode only: toggle between absolute values and percentage shares for the class breaks.",
+            "Binned mode only: toggle between absolute values and percentage shares for the class breaks."))
+        fl_binned.addRow("", self.relative)
+
         self.k = QSpinBox(self); self.k.setRange(2, 12)
         self.k.setValue(int(self._settings.get("k", 7)))
-        row_binned.addWidget(self.k)
+        self.k.setToolTip(self._t("Number of classes when no custom bins are provided.", "Number of classes when no custom bins are provided."))
+        self.k.setWhatsThis(self._t("Number of discrete classes. If 'Custom bins' are provided, they take precedence.",
+            "Number of discrete classes. If 'Custom bins' are provided, they take precedence."))
+        fl_binned.addRow(self._t("Classes (k)", "Classes (k)"), self.k)
 
-        row_bins = QHBoxLayout(); v.addLayout(row_bins)
-        row_bins.addWidget(QLabel(self._t("Custom bins (comma-separated)", "Custom bins (comma-separated)")))
         self.custom_bins = QComboBox(self); self.custom_bins.setEditable(True)
         self.custom_bins.setCurrentText(self._format_bins_for_edit(self._settings.get("custom_bins")))
-        row_bins.addWidget(self.custom_bins)
+        self.custom_bins.setToolTip(self._t("Comma-separated inner class boundaries. dmin and dmax are added automatically.",
+            "Comma-separated inner class boundaries. dmin and dmax are added automatically."))
+        self.custom_bins.setWhatsThis(self._t("Enter inner edges like '10, 25, 50'. The dialog will prepend the data minimum and append the maximum.",
+            "Enter inner edges like '10, 25, 50'. The dialog will prepend the data minimum and append the maximum."))
+        fl_binned.addRow(self._t("Custom bins (comma-separated)", "Custom bins (comma-separated)"), self.custom_bins)
 
-        # Continuous options
-        v.addWidget(QLabel(self._t("Normalization (continuous mode)", "Normalization (continuous mode)")))
-        row_norm = QHBoxLayout(); v.addLayout(row_norm)
-        row_norm.addWidget(QLabel(self._t("Norm", "Norm")))
+        # ---------- Continuous scaling (only for continuous) ----------
+        self.gb_cont = QGroupBox(self._t("Continuous scaling", "Continuous scaling"), self)
+        fl_cont = QFormLayout(self.gb_cont)
+        fl_cont.setLabelAlignment(Qt.AlignRight)
+
         self.norm_mode = QComboBox(self)
         self.norm_mode.addItems(["linear", "log", "power"])
         self.norm_mode.setCurrentText(self._settings.get("norm_mode", "linear"))
-        row_norm.addWidget(self.norm_mode)
+        self.norm_mode.setToolTip(self._t("linear: uniform steps | log: highlight orders of magnitude (positive data) | power: adjustable contrast with gamma",
+            "linear: uniform steps | log: highlight orders of magnitude (logarithmic) | power: adjustable contrast with gamma"))
+        self.norm_mode.setWhatsThis(self._t("Normalization for continuous mode:\n- linear: uniform mapping from vmin..vmax\n- log: logarithmic mapping; requires strictly positive values\n- power: Power-law mapping; see Gamma",
+            "Normalization for continuous mode:\n- linear: uniform mapping from vmin..vmax\n- log: logarithmic mapping; requires strictly positive values\n- power: Power-law mapping; see Gamma"))
+        fl_cont.addRow(self._t("Norm", "Norm"), self.norm_mode)
 
-        row_robust = QHBoxLayout(); v.addLayout(row_robust)
-        row_robust.addWidget(QLabel(self._t("Robust clipping (%)", "Robust clipping (%)")))
         self.robust = QDoubleSpinBox(self)
         self.robust.setSuffix(" %")
         self.robust.setRange(0.0, 20.0)
         self.robust.setSingleStep(0.5)
         self.robust.setValue(float(self._settings.get("robust", 2.0)))
-        row_robust.addWidget(self.robust)
+        self.robust.setToolTip(self._t("Quantile clipping for vmin/vmax (e.g., 2% uses 2nd and 98th percentiles).",
+            "Quantile clipping for vmin/vmax (e.g., 2% uses 2nd and 98th percentiles)."))
+        self.robust.setWhatsThis(self._t("Robust clipping determines vmin/vmax from quantiles instead of absolute min/max to reduce outlier effects.",
+            "Robust clipping determines vmin/vmax from quantiles instead of absolute min/max to reduce outlier effects."))
+        fl_cont.addRow(self._t("Robust clipping (%)", "Robust clipping (%)"), self.robust)
 
-        row_gamma = QHBoxLayout(); v.addLayout(row_gamma)
-        row_gamma.addWidget(QLabel(self._t("Gamma (power norm)", "Gamma (power norm)")))
         self.gamma = QDoubleSpinBox(self)
         self.gamma.setRange(0.1, 5.0)
         self.gamma.setSingleStep(0.1)
         self.gamma.setValue(float(self._settings.get("gamma", 0.7)))
-        row_gamma.addWidget(self.gamma)
+        self.gamma.setToolTip(self._t("PowerNorm exponent: <1 enhances small values, >1 enhances large values.",
+            "PowerNorm exponent: <1 enhances small values, >1 enhances large values."))
+        self.gamma.setWhatsThis(self._t("Gamma (PowerNorm):\n- gamma < 1 emphasises lower value range\n- gamma > 1 emphasises higher value range",
+            "Gamma (PowerNorm):\n- gamma < 1 emphasises lower value range\n- gamma > 1 emphasises higher value range"))
+        fl_cont.addRow(self._t("Gamma (power norm)", "Gamma (power norm)"), self.gamma)
 
-        # Dynamic visibility based on classification mode
-        def _refresh_visibility():
-            is_binned = self.mode.currentText() == "binned"
-            self.k.setEnabled(is_binned)
-            self.custom_bins.setEnabled(is_binned)
-            is_cont = not is_binned
-            self.norm_mode.setEnabled(is_cont)
-            self.robust.setEnabled(is_cont)
-            self.gamma.setEnabled(is_cont)
+        # Extra explainer for norm
+        self.explain_norm = QLabel(self)
+        self.explain_norm.setWordWrap(True)
+        self.explain_norm.setStyleSheet("color:#555;")
+        fl_cont.addRow("", self.explain_norm)
 
-        self.mode.currentIndexChanged.connect(_refresh_visibility)
-        _refresh_visibility()
+        # add groups
+        root.addWidget(gb_class)
+        root.addWidget(self.gb_binned)
+        root.addWidget(self.gb_cont)
 
-        # Fill colormap combo last (depends on UI elements)
-        self._fill_colormap_combo()
-
-        # OK / Cancel buttons
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        # ---------- Buttons (with Help) ----------
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Help,
+            self
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        v.addWidget(buttons)
+        buttons.button(QDialogButtonBox.Help).clicked.connect(self._show_help)
+        root.addWidget(buttons)
+
+        # Populate colormap last
+        self._fill_colormap_combo()
+
+        # Initial state & bindings
+        self.mode.currentIndexChanged.connect(self._refresh_visibility)
+        self.norm_mode.currentIndexChanged.connect(self._update_explainers)
+        self._refresh_visibility()
+        self._update_explainers()
+
+    def _refresh_visibility(self):
+        is_binned = self.mode.currentText() == "binned"
+        is_cont = not is_binned
+
+        # Einzelne Controls aktivieren/deaktivieren
+        self.relative.setEnabled(is_binned)
+        self.k.setEnabled(is_binned)
+        self.custom_bins.setEnabled(is_binned)
+
+        self.norm_mode.setEnabled(is_cont)
+        self.robust.setEnabled(is_cont)
+        self.gamma.setEnabled(is_cont)
+
+        # Ganze Sektionen schalten
+        if hasattr(self, "gb_binned") and self.gb_binned is not None:
+            self.gb_binned.setEnabled(is_binned)
+            self.gb_binned.setVisible(True)   # sichtbar lassen; nur disabled schalten
+        if hasattr(self, "gb_cont") and self.gb_cont is not None:
+            self.gb_cont.setEnabled(is_cont)
+            self.gb_cont.setVisible(True)
+
+        self._update_explainers()
+
+    def _update_explainers(self):
+        mode = self.mode.currentText()
+        if mode == "continuous":
+            self.explain_mode.setText(self._t(
+                "Continuous: Colors and legend use absolute values. Use Norm + Robust clipping + Gamma to control contrast.",
+                "Continuous: Colors and legend use absolute values. Use Norm + Robust clipping + Gamma to control contrast."
+            ))
+        else:
+            self.explain_mode.setText(self._t(
+                "Binned: Discrete classes. With 'Relative' you classify by percentage shares (sum = 100%); otherwise by absolute values.",
+                "Binned: Discrete classes. With 'Relative' you classify by percentage shares (sum = 100%); otherwise by absolute values."
+            ))
+
+        nm = self.norm_mode.currentText()
+        if nm == "linear":
+            txt = "Linear: uniform color steps from vmin to vmax."
+        elif nm == "log":
+            txt = "Log: emphasises orders of magnitude; requires strictly positive data."
+        else:
+            txt = "Power: adjust contrast with Gamma (<1: highlights small values; >1: highlights large)."
+        self.explain_norm.setText(self._t("explain.norm", txt))
+
+        is_power = nm == "power"
+        self.gamma.setEnabled(is_power)
+        self.gamma.parentWidget().setEnabled(is_power) if hasattr(self.gamma, "parentWidget") else None
+
+    def _show_help(self):
+        # condensed, user-facing explanation
+        text = "Add help text here."
+        QMessageBox.information(self, self._t("Help", "Help"), text)
 
     def get_settings(self) -> dict:
-        """
-        Collect current dialog values and return them as a settings dictionary.
-
-        Returns:
-            dict: All settings, including colormap, classification, and normalization options.
-        """
         cmap_internal = self.cmap.currentData() or self.cmap.currentText()
-        if self.reverse_cb.isChecked() and not cmap_internal.endswith("_r"):
+        if self.reverse_cb.isChecked() and not str(cmap_internal).endswith("_r"):
             cmap_internal = f"{cmap_internal}_r"
-
         return {
             "color": cmap_internal,
             "show_legend": bool(self.legend.isChecked()),
             "title": self.title.currentText().strip() or "",
             "mode": self.mode.currentText(),
+            "relative": bool(self.relative.isChecked()),
             "k": int(self.k.value()),
             "custom_bins": self._parse_bins(),
             "norm_mode": self.norm_mode.currentText(),
             "robust": float(self.robust.value()),
             "gamma": float(self.gamma.value()),
-            # Reverse stored separately for UI state restoration
             "cmap_reverse": bool(self.reverse_cb.isChecked()),
         }
 
