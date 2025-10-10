@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Optional, Tuple, List, Dict, Callable
 import pandas as pd
 import os
+import geopandas as gpd
+from datetime import datetime
 
 from .region_methods import RegionAnalysisRegistry, AnalysisMethod, WorldMapMethod
 from .stage_methods import StageAnalysisRegistry, StageAnalysisMethod
@@ -547,6 +549,7 @@ class StageAnalysisViewTab(QWidget):
             # Safe fallback: do nothing rather than risk clipping
             pass
 
+
 class RegionAnalysisTabContainer(QWidget):
     """
     Container managing multiple region analysis view tabs.
@@ -664,22 +667,31 @@ class RegionAnalysisTabContainer(QWidget):
 
 class RegionAnalysisViewTab(QWidget):
     """
-    A single region-analysis tab with a compact one-line toolbar and a plot area.
+    Single-tab view for region analysis with a compact one-line toolbar and a plot area.
 
-    Toolbar (one line):
+    Toolbar contains:
       - Method selector (World Map, Top n, Flop n, Pie chart, …)
-      - Impact selector (incl. 'Subcontractors' if desired)
-      - Optional Settings button (visible if selected method supports settings)
-      - (Auto-update via debounce on changes; no extra Update button required)
+      - Impact selector (includes "Subcontractors" if enabled)
+      - Optional Settings button (visible if the selected method supports settings)
+      - Manual refresh, save, and export actions
+      - Debounced auto-update on changes (no separate Update button required)
 
-    The class reuses the worldmap data provider to feed Top/Flop/Pie without
-    requiring backend changes: we fetch df via existing worldmap functions with
-    `return_data=True`, then render alternative plots from that dataframe.
+    Implementation detail:
+      Reuses the world-map data provider to feed Top/Flop/Pie without backend changes:
+      data is fetched via existing world-map calls (return_data=True) and repurposed
+      for alternative plots.
     """
     titleChanged = pyqtSignal(str)
     stateChanged = pyqtSignal(dict)
 
     def __init__(self, ui, parent: Optional[QWidget] = None):
+        """
+        Initialize the region analysis tab.
+
+        Args:
+            ui: Main application UI exposing `iosystem` and `supplychain`.
+            parent (QWidget, optional): Parent widget, often the containing QTabWidget.
+        """
         super().__init__(parent)
 
         self.ui = ui
@@ -687,29 +699,31 @@ class RegionAnalysisViewTab(QWidget):
         self.general_dict = self.iosystem.index.general_dict
         self.name = self._translate("Subcontractors", "Subcontractors")  # initial tab title
         self.tab_widget = parent if isinstance(parent, QTabWidget) else None
-        self._extra_impacts: list[str] = []   # stores additional impacts (max 3), canonical keys
+        self._extra_impacts: list[str] = []   # Additional comparison impacts (max 3), canonical keys
 
-        # Latest data (df with region/value/percentage) to be reused by non-map methods
+        # Cached world data (for reuse by non-map methods)
         self._latest_df: Optional[pd.DataFrame] = None
         self._latest_unit: Optional[str] = None
 
         # Build UI
         self._init_ui()
 
-        # Debounce timer for auto-update
+        # Debounce timer to avoid excessive redraws on quick successive changes
         self._debounce = QTimer(self)
         self._debounce.setInterval(200)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._update_plot)
 
-        # Initial draw
+        # Initial render
         self._schedule_update()
 
-        self._world_gdf = None       # GeoDataFrame with geometry (EPSG:4326)
-        self._world_sindex = None    # spatial index
-        self._current_choice = None  # remember current impact/mode for tooltips/dialog
-        self._map_ax = None  # matplotlib Axes that holds the world map
+        # World geometry & state used for tooltips/dialogs on the map
+        self._world_gdf = None       # GeoDataFrame (EPSG:4326)
+        self._world_sindex = None    # Spatial index
+        self._current_choice = None  # Current impact/mode (for interaction)
+        self._map_ax = None          # Matplotlib Axes hosting the world map
 
+        # Per-method persisted state (seeded with defaults for the world map)
         self.method_state = {
             "world_map": {
                 "color": "Reds",
@@ -718,48 +732,57 @@ class RegionAnalysisViewTab(QWidget):
                 "mode": "binned",           # "binned" | "continuous"
                 "k": 7,
                 "custom_bins": None,        # list[float] or None
-                "norm_mode": "linear",      # for "continuous"
-                "robust": 2.0,              # for "continuous"
-                "gamma": 0.7,               # for "continuous"
+                "norm_mode": "linear",      # used in "continuous"
+                "robust": 2.0,              # used in "continuous"
+                "gamma": 0.7,               # used in "continuous"
             }
         }
 
     def _translate(self, key: str, fallback: str) -> str:
-        """Return localized string; always cast to str to avoid non-str labels."""
+        """
+        Retrieve a localized string from the general dictionary.
+
+        Always returns a string to avoid non-string labels in the UI.
+        """
         val = self.general_dict.get(key, fallback)
         if val is None:
             return str(fallback)
         return str(val)
 
     def _init_ui(self):
+        """Build the one-line toolbar and initialize the plot area."""
         layout = QVBoxLayout(self)
 
-        # One-line toolbar
+        # --- Toolbar ---------------------------------------------------------
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
 
-        # Method selector from registry
+        # Method selector (registered region analysis methods)
         methods = RegionAnalysisRegistry.all_methods()
         self.method_selector = MethodSelectorWidget(methods, tr=self._translate, parent=self)
         self.method_selector.methodChanged.connect(self._on_method_changed)
         toolbar.addWidget(self.method_selector)
 
+        # Primary impact selector (includes "Subcontractors")
         self.impact_selector = ImpactSelectorWidget(
             self.iosystem.impacts, tr=self._translate, include_subcontractors=True, parent=self
         )
         self.impact_selector.impactChanged.connect(self._on_impact_changed)
         toolbar.addWidget(self.impact_selector)
 
+        # Button to select up to 3 additional comparison impacts
         self.extra_impacts_btn = QPushButton(self._translate("Compare impacts", "Compare impacts"), self)
         self.extra_impacts_btn.setToolTip(
-            self._translate("Select up to 3 additional impacts to compare (does not affect ranking).",
-                        "Select up to 3 additional impacts to compare (does not affect ranking).")
+            self._translate(
+                "Select up to 3 additional impacts to compare (does not affect ranking).",
+                "Select up to 3 additional impacts to compare (does not affect ranking)."
+            )
         )
         self.extra_impacts_btn.clicked.connect(self._open_extra_impacts_dialog)
         toolbar.addWidget(self.extra_impacts_btn)
         self._update_extra_button_text()
 
-        # Refresh button (icon only)
+        # Manual refresh (useful if external state changed)
         self.refresh_btn = QToolButton(self)
         self.refresh_btn.setToolTip(self._translate("Refresh", "Refresh"))
         try:
@@ -769,22 +792,22 @@ class RegionAnalysisViewTab(QWidget):
         self.refresh_btn.clicked.connect(self._update_plot)
         toolbar.addWidget(self.refresh_btn)
 
-        # Settings button (icon only)
+        # Settings (visible when current method supports settings)
         self.settings_btn = QToolButton(self)
         self.settings_btn.setText("⚙")
         self.settings_btn.setToolTip(self._translate("Open settings", "Open settings"))
         self.settings_btn.clicked.connect(self._open_settings)
         toolbar.addWidget(self.settings_btn)
 
-        # Save button (icon only) 
+        # Save current figure (icon only)
         self.save_btn = QToolButton(self)
         self.save_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
         self.save_btn.setToolTip(self._translate("Save plot", "Save plot"))
         self.save_btn.clicked.connect(self._save_high_quality)
-        self.save_btn.setEnabled(False)  # enabled after first figure arrives
+        self.save_btn.setEnabled(False)  # Enabled after first figure is drawn
         toolbar.addWidget(self.save_btn)
 
-        # Export Data button (icon only)
+        # Export underlying data (icon only)
         self.export_btn = QToolButton(self)
         self.export_btn.setToolTip(self._translate("Export data", "Export data"))
         try:
@@ -794,21 +817,25 @@ class RegionAnalysisViewTab(QWidget):
         self.export_btn.clicked.connect(self._open_export_dialog)
         toolbar.addWidget(self.export_btn)
     
-        toolbar.addStretch(1)  # keep it tight to one line
-
+        toolbar.addStretch(1)  # Keep toolbar compact and single-line
         layout.addLayout(toolbar)
 
+        # Toggle initial visibility (based on selected method)
         self._refresh_toolbar_visibility()
 
-        # Plot area
+        # --- Plot area -------------------------------------------------------
         self.canvas = None
         self.plot_area = QVBoxLayout()
         self._create_initial_placeholder()
         layout.addLayout(self.plot_area)
 
+        # Ensure settings button visibility matches current method capabilities
         self._refresh_settings_button_visibility()
-
+    
     def _create_initial_placeholder(self):
+        """
+        Show an initial placeholder figure until the first render occurs.
+        """
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.text(
@@ -820,11 +847,18 @@ class RegionAnalysisViewTab(QWidget):
         self._set_canvas(fig)
 
     def _set_canvas(self, fig):
+        """
+        Replace the current matplotlib canvas with the given Figure.
+
+        Ensures previous canvas is cleaned up, optimizes margins, and enables the
+        Save action once a figure is present.
+        """
         if self.canvas:
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
             self.canvas.deleteLater()
 
+        # Optimize figure layout before attaching the canvas
         self._optimize_margins(fig)
 
         self.canvas = FigureCanvas(fig)
@@ -834,18 +868,31 @@ class RegionAnalysisViewTab(QWidget):
         self.plot_area.addWidget(self.canvas)
         self.canvas.draw()
 
-        # enable Save now that a figure exists
+        # Enable Save now that a figure exists
         if hasattr(self, "save_btn"):
             self.save_btn.setEnabled(True)
 
     def _refresh_settings_button_visibility(self):
+        """
+        Show or hide the settings button based on the current method capabilities.
+        """
         method = self._current_method()
         self.settings_btn.setVisible(bool(method and method.supports_settings))
 
     def _schedule_update(self):
+        """
+        Start the debounce timer to trigger a plot update soon.
+        """
         self._debounce.start()
 
     def _update_plot(self):
+        """
+        Render the selected method with the current impact.
+
+        - For WorldMap: delegate to the method, wire interactive handlers (hover/click).
+        - For other methods: fetch world data once, cache it, and render accordingly.
+        - Errors are displayed inline on the canvas instead of raising dialogs.
+        """
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             method = self._current_method()
@@ -855,10 +902,11 @@ class RegionAnalysisViewTab(QWidget):
                 raise RuntimeError("No analysis method selected.")
 
             if isinstance(method, WorldMapMethod):
+                # Render map via method; method will read state from the view
                 fig = method.render(self, impact, self._get_world_df_for_impact)
-
                 self._set_canvas(fig)
 
+                # Try to locate the Axes that hosts the map for hit-testing
                 try:
                     axes = self.canvas.figure.axes
                     self._map_ax = None
@@ -871,9 +919,11 @@ class RegionAnalysisViewTab(QWidget):
                 except Exception:
                     self._map_ax = None
 
+                # Enable hover/click interactions for the world map
                 self._wire_worldmap_interactions()
 
             else:
+                # Non-map methods: obtain data once and reuse
                 df, unit = self._get_world_df_for_impact(impact)
                 self._set_latest_world_df(df, unit)
                 fig = method.render(self, impact, self._get_world_df_for_impact)
@@ -881,6 +931,7 @@ class RegionAnalysisViewTab(QWidget):
                 self._disconnect_worldmap_interactions()
 
         except Exception as e:
+            # Show error inside the canvas for a non-disruptive UX
             fig = plt.figure()
             ax = fig.add_subplot(111)
             ax.text(0.5, 0.5, f"{self._translate('Error', 'Error')}: {str(e)}",
@@ -891,6 +942,13 @@ class RegionAnalysisViewTab(QWidget):
             QApplication.restoreOverrideCursor()
 
     def _get_world_df_for_impact(self, impact_choice: str) -> Tuple[pd.DataFrame, str]:
+        """
+        Fetch world-level data for a given impact (or subcontractors) from the backend.
+
+        Returns:
+            Tuple[pd.DataFrame, str]: DataFrame with at least ['region', 'value', 'percentage', 'unit']
+            and the unit string. Missing columns are created if necessary.
+        """
         if self._is_subcontractors(impact_choice):
             fig, world = self.ui.supplychain.plot_worldmap_by_subcontractors(
                 color="Blues", relative=True, return_data=True, title=None
@@ -902,6 +960,7 @@ class RegionAnalysisViewTab(QWidget):
 
         unit = self._extract_unit(world)
 
+        # Normalize structure into a DataFrame and ensure required columns exist
         df = pd.DataFrame(world)
         for col in ["region", "value", "percentage"]:
             if col not in df.columns:
@@ -912,10 +971,18 @@ class RegionAnalysisViewTab(QWidget):
         return df, unit
 
     def _set_latest_world_df(self, df: pd.DataFrame, unit: Optional[str]):
+        """
+        Cache the latest world DataFrame and associated unit for reuse by other methods.
+        """
         self._latest_df = df
         self._latest_unit = unit or ""
 
     def _render_world_map_figure(self, impact_choice: str):
+        """
+        Build and render the world map figure based on current method_state.
+
+        Also updates cached DataFrame, geospatial index, and the current impact choice.
+        """
         s = self.method_state.get("world_map", {})
 
         common_kwargs = dict(
@@ -948,7 +1015,7 @@ class RegionAnalysisViewTab(QWidget):
 
     def _wire_worldmap_interactions(self):
         """
-        Connect hover and click only for world map with valid spatial index.
+        Connect hover and click handlers for the world map (only when geometry is available).
         """
         if not self.canvas or self._world_gdf is None or self._world_sindex is None:
             self._disconnect_worldmap_interactions()
@@ -958,6 +1025,9 @@ class RegionAnalysisViewTab(QWidget):
         self._cid_click = self.canvas.mpl_connect('button_press_event', self._on_click)
 
     def _disconnect_worldmap_interactions(self):
+        """
+        Safely disconnect world map interaction handlers, if present.
+        """
         if not self.canvas:
             return
         try:
@@ -971,6 +1041,9 @@ class RegionAnalysisViewTab(QWidget):
             pass  # safe to ignore
 
     def _on_hover(self, event):
+        """
+        Show a tooltip with region details when hovering over the world map.
+        """
         if (event.inaxes is None or self._map_ax is None or event.inaxes is not self._map_ax
             or event.xdata is None or event.ydata is None):
             QToolTip.hideText()
@@ -992,6 +1065,9 @@ class RegionAnalysisViewTab(QWidget):
         QToolTip.showText(self.canvas.mapToGlobal(event.guiEvent.pos()), text, widget=self.canvas)
 
     def _on_click(self, event):
+        """
+        Open a detail dialog when a region on the world map is clicked.
+        """
         if (event.inaxes is None or self._map_ax is None or event.inaxes is not self._map_ax
             or event.xdata is None or event.ydata is None):
             return
@@ -1000,12 +1076,14 @@ class RegionAnalysisViewTab(QWidget):
             return
         dlg = CountryInfoDialog(ui=self.ui, country=hit, choice=self._current_choice, parent=self)
         dlg.exec_()
-
+    
     def _setup_canvas_context_menu(self):
+        """Install a custom right-click menu on the canvas (currently only 'Save plot')."""
         self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
         self.canvas.customContextMenuRequested.connect(self._show_context_menu)
 
     def _show_context_menu(self, pos):
+        """Show the context menu at the cursor position and handle actions."""
         menu = QMenu(self)
         save_action = menu.addAction(self._translate("Save plot", "Save plot"))
         action = menu.exec_(self.canvas.mapToGlobal(pos))
@@ -1013,6 +1091,10 @@ class RegionAnalysisViewTab(QWidget):
             self._save_high_quality()
 
     def _save_high_quality(self):
+        """
+        Export the current figure (PNG/PDF/SVG) with high DPI and tight bounding box.
+        Suggests a timestamped filename in the Downloads folder.
+        """
         default_filename = self._generate_filename()
         home_dir = os.path.expanduser("~")
         download_dir = os.path.join(home_dir, "Downloads")
@@ -1046,15 +1128,21 @@ class RegionAnalysisViewTab(QWidget):
                 )
 
     def _generate_filename(self) -> str:
+        """
+        Build a safe, timestamped default filename based on method and impact.
+
+        Returns:
+            str: Suggested filename with .png extension.
+        """
         impact = self.impact_selector.current_impact()
         method = RegionAnalysisRegistry.get(self.method_selector.current_method())
         method_part = (method.label if method else "Method").replace(" ", "")
         impact_part = self._clean_filename(impact) if impact else "Impact"
-        from datetime import datetime
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"Regions_{method_part}_{impact_part}_{ts}.png"
 
     def _clean_filename(self, text: str) -> str:
+        """Sanitize a string for use in filenames (ASCII-ish, no separators)."""
         rep = {
             ' ': '_', '/': '_', '\\': '_', ':': '_', '*': '_', '?': '_', '"': '_',
             '<': '_', '>': '_', '|': '_', 'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss',
@@ -1067,31 +1155,32 @@ class RegionAnalysisViewTab(QWidget):
         return text.strip('_')
 
     def _update_tab_name(self, text: str):
+        """Set the visible tab title in the parent QTabWidget, if available."""
         if self.tab_widget:
             idx = self.tab_widget.indexOf(self)
             if idx != -1:
                 self.tab_widget.setTabText(idx, text)
 
     def _current_method(self) -> Optional[AnalysisMethod]:
+        """Return the currently selected analysis method instance."""
         mid = self.method_selector.current_method()
         from .region_methods import RegionAnalysisRegistry
         return RegionAnalysisRegistry.get(mid)
 
     def _update_geospatial_index(self, gdf_like):
-        """Hold GeoDataFrame as-is (plot CRS), build spatial index; no forced reprojection."""
-        try:
-            import geopandas as gpd
-        except Exception:
-            self._world_gdf = None
-            self._world_sindex = None
-            return
+        """
+        Cache a GeoDataFrame and build a spatial index for hit-testing.
+
+        Accepts a GeoDataFrame or a DataFrame with a 'geometry' column.
+        No reprojection is performed; CRS is used as provided.
+        """
 
         if gdf_like is None:
             self._world_gdf = None
             self._world_sindex = None
             return
 
-        # Upgrade DataFrame with 'geometry' column to GeoDataFrame if needed
+        # Ensure GeoDataFrame with a geometry column
         if isinstance(gdf_like, gpd.GeoDataFrame):
             gdf = gdf_like
         else:
@@ -1102,14 +1191,16 @@ class RegionAnalysisViewTab(QWidget):
                 self._world_sindex = None
                 return
 
-        # Spatial index aufbauen
+        # Build spatial index for fast point-in-polygon queries
         _ = gdf.sindex
         self._world_gdf = gdf
         self._world_sindex = gdf.sindex
 
     def _format_value(self, value) -> str:
         """
-        Format numeric values for tooltips/dialog with adaptive precision.
+        Format numeric values for tooltips/dialogs with adaptive precision.
+
+        Uses thousand separators for large numbers and scientific notation for very small values.
         """
         try:
             val = float(value)
@@ -1126,23 +1217,28 @@ class RegionAnalysisViewTab(QWidget):
         return f"{val:.2e}"
 
     def _hit_country_at(self, x, y):
-        """Return row (Series) of hit country at data coords (x,y), or None."""
+        """
+        Find the country geometry intersecting a small buffer around the given data coords.
+
+        Returns:
+            pandas.Series | None: Row of the hit country (or None if none found).
+        """
         if self._world_gdf is None or self._world_sindex is None:
             return None
 
         pt = Point(x, y)
-        # kleiner Toleranzpuffer relativ zum Achsenbereich
+        # Small tolerance relative to axis extent for robust hit testing
         try:
             xmin, xmax = self._map_ax.get_xlim()
             ymin, ymax = self._map_ax.get_ylim()
-            tol = 0.002 * max(abs(xmax - xmin), abs(ymax - ymin))  # 0.2% vom Achsenbereich
+            tol = 0.002 * max(abs(xmax - xmin), abs(ymax - ymin))  # ≈0.2% of axis range
         except Exception:
             tol = 1e-6
 
         pt_buf = pt.buffer(tol)
 
         try:
-            # schnelle BBox-Filterung
+            # Fast bbox filter via spatial index
             bbox = (pt.x, pt.y, pt.x, pt.y)
             candidates = list(self._world_sindex.intersection(bbox))
         except Exception:
@@ -1151,7 +1247,7 @@ class RegionAnalysisViewTab(QWidget):
         for idx in candidates:
             try:
                 geom = self._world_gdf.geometry.iloc[idx]
-                # intersects ist toleranter als contains; mit Puffer sehr robust
+                # Use intersects with a small buffer for tolerance near boundaries
                 if geom.intersects(pt_buf):
                     return self._world_gdf.iloc[idx]
             except Exception:
@@ -1160,8 +1256,9 @@ class RegionAnalysisViewTab(QWidget):
 
     def _extract_unit(self, world) -> str:
         """
-        Robustly extract a unit string from the returned 'world' object.
-        Prefers DataFrame/GeoDataFrame column 'unit'. Falls back to dict or attr.
+        Robustly extract the unit string from a DataFrame/GeoDataFrame/dict-like object.
+
+        Prefers a 'unit' column (first row), then 'unit' key, then a simple attribute.
         """
         try:
             if isinstance(world, pd.DataFrame):
@@ -1171,7 +1268,7 @@ class RegionAnalysisViewTab(QWidget):
             # dict fallback
             if isinstance(world, dict) and "unit" in world:
                 return str(world["unit"])
-            # last-resort attribute (avoid DF .unit which returns a Series)
+            # attribute fallback (avoid DataFrame.unit which returns a Series)
             u = getattr(world, "unit", "")
             return "" if u is None else str(u)
         except Exception:
@@ -1179,10 +1276,12 @@ class RegionAnalysisViewTab(QWidget):
 
     def get_state(self) -> dict:
         """
-        Return a minimal, serializable state of this tab:
-        - method_id
-        - impact (raw)
-        - method_state (per-method settings dicts)
+        Return a minimal, serializable state snapshot of this tab.
+
+        Includes:
+          - method_id
+          - impact (raw)
+          - method_state (per-method settings dicts)
         """
         return {
             "method_id": self.method_selector.current_method(),
@@ -1192,7 +1291,10 @@ class RegionAnalysisViewTab(QWidget):
 
     def set_state(self, state: dict) -> None:
         """
-        Restore a previously saved state. Will trigger a redraw.
+        Restore a previously saved state and trigger a redraw.
+
+        Args:
+            state (dict): State dictionary produced by `get_state()`.
         """
         if not state:
             return
@@ -1208,12 +1310,18 @@ class RegionAnalysisViewTab(QWidget):
         if imp:
             self.impact_selector.set_current_impact(imp)
 
-        # Ensure UI reflects the state
+        # Ensure UI reflects the restored state
         self._refresh_settings_button_visibility()
         self._emit_title()
         self._schedule_update()
-
+    
     def _emit_title(self):
+        """
+        Build and set the tab title based on the current method and selected impacts.
+
+        For Top/Flop methods, include the configured 'n'. For other methods, use the
+        translated label. Shows up to three impacts in the title.
+        """
         method = self._current_method()
         if not method:
             return
@@ -1243,6 +1351,10 @@ class RegionAnalysisViewTab(QWidget):
                 self.tab_widget.setTabText(idx, title)
 
     def _on_method_changed(self, method_id: str):
+        """
+        Handle method selection changes: toggle controls, update title and plot,
+        optionally open export, and emit the new state.
+        """
         self._refresh_settings_button_visibility()
         self._refresh_toolbar_visibility()
         self._emit_title()
@@ -1254,6 +1366,9 @@ class RegionAnalysisViewTab(QWidget):
         self.stateChanged.emit(self.get_state())
 
     def _on_impact_changed(self, impact: str):
+        """
+        Handle primary impact change: update tab text, title, schedule redraw, emit state.
+        """
         self._update_tab_name(self.impact_selector.current_text()) 
         self._emit_title()
         self._schedule_update()
@@ -1262,6 +1377,9 @@ class RegionAnalysisViewTab(QWidget):
         self.stateChanged.emit(self.get_state())
 
     def _open_settings(self):
+        """
+        Open the settings dialog for the current method (if supported) and persist changes.
+        """
         method = self._current_method()
         if not method or not method.supports_settings:
             return
@@ -1290,7 +1408,10 @@ class RegionAnalysisViewTab(QWidget):
             self._schedule_update()
 
     def _is_subcontractors(self, value) -> bool:
-        """Return True if 'value' denotes the special 'Subcontractors' choice."""
+        """
+        Return True if the given value denotes the special 'Subcontractors' choice
+        (matches either raw or localized label, case-insensitive).
+        """
         raw = str(value).strip().lower()
         # raw keyword
         if raw == "subcontractors":
@@ -1300,12 +1421,15 @@ class RegionAnalysisViewTab(QWidget):
 
     def _optimize_margins(self, fig):
         """
-        Make the plot look centered without clipping colorbars.
-        If the figure already has its own colorbar axes, avoid tight_layout.
+        Improve layout centering without clipping colorbars.
+
+        If the figure advertises its own colorbar axes via `_has_colorbar`, avoid
+        tight_layout and use a manual subplots_adjust. Otherwise, use tight_layout
+        with a safe rect to leave room for titles/colorbars.
         """
         if getattr(fig, "_has_colorbar", False):
             try:
-                # Lass rundum etwas Luft, aber kein tight_layout (clips cax)
+                # Leave some margins; avoid tight_layout which may clip the cax
                 fig.subplots_adjust(left=0.02, right=0.98, bottom=0.06, top=0.94)
             except Exception:
                 pass
@@ -1314,14 +1438,18 @@ class RegionAnalysisViewTab(QWidget):
         try:
             has_suptitle = getattr(fig, "_suptitle", None) is not None
             if has_suptitle:
-                fig.tight_layout(rect=[0.02, 0.06, 0.94, 0.94], pad=0.4)  # rechts etwas kleiner
+                fig.tight_layout(rect=[0.02, 0.06, 0.94, 0.94], pad=0.4)  # smaller right margin
             else:
                 fig.tight_layout(rect=[0.02, 0.06, 0.96, 0.98], pad=0.4)
         except Exception:
             pass
 
     def _current_impact_key(self) -> str:
-        """Canonical key of the primary impact from the single-select widget."""
+        """
+        Return the canonical key of the primary impact from the single-select widget.
+
+        Tries multiple accessor names to stay compatible with similar widgets.
+        """
         for attr in ("current_impact", "current_value", "currentText", "current_text"):
             f = getattr(self.impact_selector, attr, None)
             if callable(f):
@@ -1332,18 +1460,22 @@ class RegionAnalysisViewTab(QWidget):
         return ""
 
     def get_extra_impacts(self) -> list[str]:
-        """Return up to 3 additional impacts, excluding the current primary if present."""
+        """
+        Return up to three additional comparison impacts, excluding the current primary.
+        """
         primary = self._current_impact_key()
         return [i for i in self._extra_impacts if i and i != primary][:3]
 
     def _update_extra_button_text(self):
+        """Update the 'Compare impacts' button to show the current selection count."""
         n = len(self.get_extra_impacts())
         self.extra_impacts_btn.setText(f'{self._translate("Compare impacts", "Compare impacts")} ({n})')
 
     def _open_extra_impacts_dialog(self):
         """
-        Open a tree dialog to pick up to 3 additional impacts (like the bubble tab).
-        Primary impact is shown but cannot be selected.
+        Open a hierarchical tree dialog to pick up to three additional impacts.
+
+        The primary impact is displayed but disabled (cannot be selected).
         """
         # Build nested hierarchy from impact_multiindex
         try:
@@ -1355,7 +1487,7 @@ class RegionAnalysisViewTab(QWidget):
                     for key in keys:
                         cur = cur.setdefault(str(key), {})
             else:
-                # fallback: flat list
+                # Fallback: flat list
                 hierarchy = {"Impacts": {str(k): {} for k in self.iosystem.impacts}}
         except Exception:
             hierarchy = {"Impacts": {str(k): {} for k in self.iosystem.impacts}}
@@ -1374,7 +1506,7 @@ class RegionAnalysisViewTab(QWidget):
         primary = self._current_impact_key()
         preselected = set(self._extra_impacts)
 
-        # populate tree
+        # Populate tree
         def add_items(parent, d: dict):
             for key, child in d.items():
                 it = QTreeWidgetItem(parent)
@@ -1417,7 +1549,7 @@ class RegionAnalysisViewTab(QWidget):
                 return
             if item.checkState(0) == Qt.Checked:
                 if _leaf_checked_count() > 3:
-                    # revert this check
+                    # Revert this check
                     item.setCheckState(0, Qt.Unchecked)
                     QMessageBox.warning(
                         dlg,
@@ -1441,18 +1573,18 @@ class RegionAnalysisViewTab(QWidget):
                     walk(item.child(i))
             for i in range(tree.topLevelItemCount()):
                 walk(tree.topLevelItem(i))
-            # ensure primary excluded and limit 3
+            # Ensure primary excluded and limit 3
             return [x for x in picked if x != primary][:3]
 
         def _ok():
             self._extra_impacts = _collect_selection()
             self._update_extra_button_text()
-            # persist in method_state for topn/flopn
+            # Persist in method_state for topn/flopn
             for mid in ("topn", "flopn"):
                 st = self.method_state.get(mid, {})
                 st["impacts_extras"] = list(self._extra_impacts)
                 self.method_state[mid] = st
-            # update plot/title
+            # Update plot/title
             if hasattr(self, "_emit_title"):
                 self._emit_title()
             self._schedule_update()
@@ -1463,28 +1595,41 @@ class RegionAnalysisViewTab(QWidget):
         dlg.exec_()
 
     def _refresh_toolbar_visibility(self):
-        """Show/hide toolbar widgets depending on selected method."""
+        """
+        Show/hide toolbar widgets depending on the selected method.
+
+        Extra impacts button is visible for Top/Flop; settings visibility is tied
+        to method.supports_settings.
+        """
         method = self._current_method()
         mid = getattr(method, "id", "")
         is_topflop = mid in ("topn", "flopn")
         if hasattr(self, "extra_impacts_btn"):
             self.extra_impacts_btn.setVisible(is_topflop)
-        # Settings-Button wie gehabt:
+        # Settings button as before
         self.settings_btn.setVisible(bool(method and method.supports_settings))
 
     def _open_export_dialog(self):
-        dlg = ExportDataDialog(self.iosystem, self._translate, parent=self)
+        """
+        Open the export dialog. Preselect current impact if possible.
+        """
         try:
-            current = self._current_impact_key()
-            if current:
-                for fn in ("set_selected_keys", "set_selection", "setSelectedValues"):
-                    setter = getattr(dlg.impacts_btn, fn, None)
-                    if callable(setter):
-                        setter([current])
-                        break
-        except Exception:
-            pass
-        dlg.exec_()
+            if self._extra_impacts:
+                current = list(self._extra_impacts)
+            elif self._current_choice:
+                current = [self._current_choice]
+            else:
+                current = []
+            dlg = ExportDataDialog(
+                iosystem=self.ui.iosystem,
+                supplychain=self.ui.supplychain,
+                tr=self._translate,                   
+                parent=self,
+                preselected_impacts=current
+            )
+            dlg.exec_()
+        except Exception as e:
+            QMessageBox.warning(self, self._translate("Error", "Error"), str(e))
 
 
 class MethodSelectorWidget(QWidget):
@@ -2312,100 +2457,105 @@ class TopFlopSettingsDialog(QDialog):
 
 class ExportDataDialog(QDialog):
     """
-    Dialog for exporting per-region impact data to an Excel file.
-    Uses SupplyChain.impact_per_region_df(..., save_to_excel=...).
+    Dialog for exporting per-region impact data to Excel via
+    `SupplyChain.impact_per_region_df(...)`.
+
+    Reuses:
+      - ImpactMultiSelectorButton for hierarchical impact selection
+      - `multiindex_to_nested_dict(...)` to build the selection tree from a MultiIndex
     """
 
-    def __init__(self, iosystem, tr, parent=None):
+    def __init__(
+        self,
+        iosystem,
+        supplychain,
+        tr,                              # translation function: tr(key, fallback)
+        parent=None,
+        preselected_impacts: list[str] | None = None
+    ):
         """
         Initialize the export dialog.
 
         Args:
-            iosystem (Any): I/O system providing index/impacts and data locations.
-            tr (Callable[[str, str], str]): Translation function for i18n labels.
+            iosystem: Provides access to the impact MultiIndex and labels.
+            supplychain: Backend with `impact_per_region_df` export method.
+            tr (Callable[[str,str],str]): Translation function for UI labels.
             parent (QWidget, optional): Parent widget. Defaults to None.
+            preselected_impacts (list[str] | None): Optional initial selection.
         """
         super().__init__(parent)
+        self._ios = iosystem
+        self._sc = supplychain
         self._tr = tr
-        self._iosystem = iosystem
         self.setWindowTitle(tr("Export (Excel)", "Export (Excel)"))
+
+        # Build impact hierarchy (MultiIndex -> nested dict) for the selector
+        mi = self._ios.index.impact_multiindex
+        self.impact_hierarchy: Dict = multiindex_to_nested_dict(mi)
 
         v = QVBoxLayout(self)
 
-        # Determine nested impacts source (fallback to flat list with "Subcontractors")
-        nested = None
-        for attr in ("impact_nested", "impacts_nested", "impacts_tree"):
-            if hasattr(self._iosystem.index, attr):
-                nested = getattr(self._iosystem.index, attr)
-                break
+        # --- Impact multi-select ------------------------------------------------
+        v.addWidget(QLabel(tr("Choose impacts", "Choose impacts")))
+        self.sel = ImpactMultiSelectorButton(nested_hierarchy=self.impact_hierarchy, tr=self._tr, parent=self)
+        v.addWidget(self.sel)
 
-        if not nested:
-            flat_impacts = list(getattr(self._iosystem, "impacts", []) or [])
-            if "Subcontractors" not in [i.strip() for i in flat_impacts]:
-                flat_impacts.append("Subcontractors")
+        # Optional preselection (e.g., current impact in the UI)
+        if preselected_impacts:
+            self._set_selected(preselected_impacts)
 
-            # Build a generic single-root tree structure for the selector
-            nested = [{
-                "label": self._tr("Impacts", "Impacts"),
-                "children": [
-                    {"key": key, "label": self._tr(key, key)}
-                    for key in flat_impacts
-                ],
-            }]
-
-        # Multi-selection button for impacts
-        self.impacts_btn = ImpactMultiSelectorButton(
-            nested_hierarchy=nested,
-            tr=self._tr,
-            parent=self
-        )
-        self.impacts_btn.setToolTip(self._tr("Choose impacts", "Choose impacts"))
-        v.addWidget(self.impacts_btn)
-
-        # ----- Options row -----
-        opt_row = QHBoxLayout()
-        v.addLayout(opt_row)
-
-        self.chk_relative = QCheckBox(tr("Relative (%)", "Relative (%)"))
+        # --- Options ------------------------------------------------------------
+        opts = QHBoxLayout(); v.addLayout(opts)
+        self.chk_relative = QCheckBox(tr("Relative (%)", "Relative (%)"), self)
         self.chk_relative.setChecked(False)
-        opt_row.addWidget(self.chk_relative)
+        opts.addWidget(self.chk_relative)
 
-        self.chk_units = QCheckBox(tr("Include units in column names", "Include units in column names"))
+        self.chk_units = QCheckBox(tr("Include units in column names", "Include units in column names"), self)
         self.chk_units.setChecked(True)
-        opt_row.addWidget(self.chk_units)
+        opts.addWidget(self.chk_units)
 
-        self.chk_localize = QCheckBox(tr("Localize column names", "Localize column names"))
-        self.chk_localize.setChecked(True)
-        opt_row.addWidget(self.chk_localize)
-        opt_row.addStretch(1)
-
-        # ----- Output file chooser -----
-        file_row = QHBoxLayout()
-        v.addLayout(file_row)
-        file_row.addWidget(QLabel(tr("Output file", "Output file")))
+        # --- Output file --------------------------------------------------------
+        row = QHBoxLayout(); v.addLayout(row)
+        row.addWidget(QLabel(tr("Output file", "Output file")))
         self.txt_path = QLineEdit(self)
-        file_row.addWidget(self.txt_path)
-        browse = QToolButton(self)
-        browse.setText("…")
-        browse.clicked.connect(self._browse_file)
-        file_row.addWidget(browse)
+        row.addWidget(self.txt_path)
+        browse = QToolButton(self); browse.setText("…")
+        browse.setToolTip(tr("Browse", "Browse"))
+        browse.clicked.connect(self._browse)
+        row.addWidget(browse)
 
-        # Dialog buttons
+        # Suggest a sensible default path
+        self.txt_path.setText(self._suggest_path())
+
+        # --- Dialog buttons -----------------------------------------------------
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
-        btns.accepted.connect(self._do_export)
+        btns.accepted.connect(self._on_ok)
         btns.rejected.connect(self.reject)
         v.addWidget(btns)
 
-        # Pre-fill a sensible default filename in Downloads (or home)
-        default_name = self._suggest_filename()
-        self.txt_path.setText(default_name)
+    def _set_selected(self, keys: list[str]):
+        """
+        Preselect impacts if the selector exposes a compatible API.
 
-    def _browse_file(self):
-        """Open a file dialog and write the selected .xlsx path into the input field."""
+        Tries multiple method names for robustness across selector variants.
+        """
+        self.sel.set_selected_impacts(impacts=keys)
+
+    def _get_selected(self) -> list[str]:
+        """
+        Read the current selection from the selector.
+
+        Returns:
+            list[str]: Selected impact keys.
+        """
+        return self.sel.selected_impacts()
+
+    def _browse(self):
+        """Open a file dialog and place the chosen .xlsx path into the input field."""
         path, _ = QFileDialog.getSaveFileName(
             self,
             self._tr("Export (Excel)", "Export (Excel)"),
-            self._suggest_filename(),
+            self._suggest_path(),
             self._tr("Excel Files (*.xlsx)", "Excel Files (*.xlsx)")
         )
         if path:
@@ -2413,38 +2563,22 @@ class ExportDataDialog(QDialog):
                 path += ".xlsx"
             self.txt_path.setText(path)
 
-    def _suggest_filename(self):
-        """Suggest an export path in the user's Downloads (or home) with a timestamped name."""
+    def _suggest_path(self) -> str:
+        """Suggest a timestamped filename in the user's Downloads (or home) directory."""
         from datetime import datetime
         home = os.path.expanduser("~")
-        dl = os.path.join(home, "Downloads")
-        if not os.path.isdir(dl):
-            dl = home
+        dl = os.path.join(home, "Downloads") if os.path.isdir(os.path.join(home, "Downloads")) else home
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         return os.path.join(dl, f"Impacts_by_region_{ts}.xlsx")
 
-    def _selected_impacts(self) -> list:
+    def _on_ok(self):
         """
-        Retrieve selected impacts from the selector, preferring canonical keys.
-
-        Returns:
-            list: Cleaned list of selected impact identifiers (strings).
+        Validate inputs and trigger the Excel export via SupplyChain.impact_per_region_df.
         """
-        # Try common method names exposed by different selector implementations
-        for fn in ("selected_keys", "selected_values", "selectedItems", "values"):
-            get = getattr(self.impacts_btn, fn, None)
-            if callable(get):
-                vals = list(get())
-                return [str(v).strip() for v in vals if str(v).strip()]
-        return []
-
-    def _do_export(self):
-        """Validate inputs and trigger the export via SupplyChain.impact_per_region_df."""
-        impacts = self._selected_impacts()
-        if not impacts:
+        imps = self._get_selected()
+        if not imps:
             QMessageBox.warning(
-                self,
-                self._tr("Error", "Error"),
+                self, self._tr("Error", "Error"),
                 self._tr("Please select at least one impact.", "Please select at least one impact.")
             )
             return
@@ -2452,37 +2586,26 @@ class ExportDataDialog(QDialog):
         path = self.txt_path.text().strip()
         if not path or not path.lower().endswith(".xlsx"):
             QMessageBox.warning(
-                self,
-                self._tr("Error", "Error"),
+                self, self._tr("Error", "Error"),
                 self._tr("Please choose an .xlsx file.", "Please choose an .xlsx file.")
             )
             return
 
         try:
-            # Prefer an existing SupplyChain instance from the parent UI if available
-            sc = self.parent().ui.supplychain if hasattr(self.parent(), "ui") else None
-            if sc is None:
-                from src.SupplyChain import SupplyChain
-                sc = SupplyChain(self._iosystem)
-
-            sc.impact_per_region_df(
-                impacts=impacts,
+            self._sc.impact_per_region_df(
+                impacts=imps,
                 relative=self.chk_relative.isChecked(),
                 include_units_in_cols=self.chk_units.isChecked(),
-                localize_cols=self.chk_localize.isChecked(),
                 save_to_excel=path
             )
-
             QMessageBox.information(
-                self,
-                self._tr("Success", "Success"),
+                self, self._tr("Success", "Success"),
                 self._tr("Excel export finished", "Excel export finished")
             )
             self.accept()
         except Exception as e:
             QMessageBox.critical(
-                self,
-                self._tr("Error", "Error"),
+                self, self._tr("Error", "Error"),
                 f"{self._tr('Failed to export Excel', 'Failed to export Excel')}: {e}"
             )
 
