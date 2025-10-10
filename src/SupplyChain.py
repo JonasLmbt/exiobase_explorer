@@ -1022,17 +1022,37 @@ class SupplyChain:
         impact: str,
         *,
         top_slices: int = 10,
-        min_pct: float | None = None,             # no top_slices
+        min_pct: float | None = None,             # when set, ignores top_slices
         sort_slices: str = "desc",                # "desc" | "asc" | "original"
         title: str | None = None,
         start_angle: int = 90,
         counterclockwise: bool = True,
-        color_map: str = "tab20",                 # z. B. "tab20", "tab20_r", "viridis"
+        color_map: str = "tab20",                 # e.g., "tab20", "tab20_r", "viridis"
         relative: bool = True,                    
         return_data: bool = False
     ) -> plt.Figure | tuple[plt.Figure, pd.DataFrame]:
+        """Render a pie chart for a single impact across regions.
 
-        # 1) Datengrundlage (gleich wie Worldmap)
+        Pulls the same world data used by the choropleth, then aggregates and plots
+        the top slices (or those above a percentage threshold), with the remainder
+        grouped as "Others". Colors are drawn from a matplotlib colormap.
+
+        Args:
+            impact (str): Canonical impact key (or localized, handled upstream).
+            top_slices (int): Max number of slices to show (if `min_pct` is None).
+            min_pct (float | None): Minimum share (%) to include as its own slice.
+            sort_slices (str): Sorting strategy for slices ("desc", "asc", "original").
+            title (str | None): Optional figure title.
+            start_angle (int): Starting angle for the first slice.
+            counterclockwise (bool): Draw wedges counterclockwise if True.
+            color_map (str): Matplotlib colormap name (supports *_r reversal).
+            relative (bool): Use relative values for data fetch (percent-based).
+            return_data (bool): If True, return (fig, pie_df) with 'label', 'value', 'unit'.
+
+        Returns:
+            Figure | (Figure, DataFrame): The rendered figure, optionally with data.
+        """
+        # 1) Fetch base data (same provider as world map)
         df, unit = self._sc__world_df(
             impact,
             relative=relative,
@@ -1043,17 +1063,17 @@ class SupplyChain:
         s = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
         base = pd.DataFrame({"region": df["region"], "value": s})
 
-        # 2) Sortierung
+        # 2) Sorting
         if sort_slices == "asc":
             base = base.sort_values("value", ascending=True, kind="mergesort")
         elif sort_slices == "original":
-            pass
-        else:  # "desc" (Default)
+            pass  # keep provider order
+        else:  # default: "desc"
             base = base.sort_values("value", ascending=False, kind="mergesort")
 
         total = float(base["value"].sum())
         if total <= 0:
-            # Leeres Fallback
+            # Graceful empty-state fallback
             fig = plt.figure()
             ax = fig.add_subplot(111)
             ax.text(0.5, 0.5, self.iosystem.index.general_dict.get("No data", "No data"),
@@ -1061,7 +1081,7 @@ class SupplyChain:
             ax.axis("off")
             return (fig, base.assign(unit=unit)) if return_data else fig
 
-        # 3) Auswahl + Others
+        # 3) Slice selection (+ 'Others')
         others_label = self.iosystem.index.general_dict.get("Others", "Others")
 
         if min_pct is not None:
@@ -1080,20 +1100,19 @@ class SupplyChain:
                 ignore_index=True
             )
 
-        # 4) Farben: "Others" garantiert ≠ größte Scheibe
+        # 4) Colors: ensure "Others" is visually distinct from the largest slice
         cmap = get_cmap(color_map)
         n = len(pie_df)
-        # Basis-Farben gleichmäßig aus dem Colormap ziehen
+        # Evenly sample colors from the colormap
         if n == 1:
             cols = [cmap(0.15)]
         else:
             cols = [cmap(i / max(n - 1, 1)) for i in range(n)]
 
-        # Falls letzte Scheibe "Others" ist, ersetze deren Farbe durch eine neutrale,
-        # die NICHT der ersten (größten) entspricht.
+        # If the last slice is "Others", assign a neutral-ish color
         if pie_df.iloc[-1]["label"] == others_label:
             others_color = cmap(0.85)
-            # Falls zufällig gleich (bei diskreten Maps sehr selten): auf Grau gehen
+            # Rare: if equal to the first color (discrete maps), switch to gray
             if n >= 1 and np.allclose(others_color, cols[0]):
                 others_color = (0.7, 0.7, 0.7, 1.0)
             cols[-1] = others_color
@@ -1105,13 +1124,13 @@ class SupplyChain:
             pie_df["value"].to_numpy(),
             labels=None,
             startangle=int(start_angle),
-            counterclock=bool(counterclockwise),       # <-- korrekt
+            counterclock=bool(counterclockwise),
             autopct="%1.1f%%"
         )
         for w, c in zip(wedges, cols):
             w.set_facecolor(c)
 
-        # Legende (Namen neben dem Plot, ordentlich)
+        # Legend placed outside on the left for readability
         ax.legend(wedges, pie_df["label"].tolist(), loc="center left", bbox_to_anchor=(1.0, 0.5))
         if title:
             ax.set_title(title)
@@ -1123,8 +1142,12 @@ class SupplyChain:
 
     def _canon_impact(self, impact: str) -> str:
         """
-        Map localized names to canonical keys (e.g., 'Zulieferer' -> 'Subcontractors').
-        Falls keine Abbildung nötig ist, gib den Input zurück.
+        Map localized impact names to canonical keys.
+
+        Example:
+            "Zulieferer" -> "Subcontractors"
+
+        If no mapping is needed, return the input unchanged.
         """
         if not isinstance(impact, str):
             return impact
@@ -1149,27 +1172,27 @@ class SupplyChain:
         save_to_excel: str | None = None,
     ):
         """
-        Einheitliche Datenquelle: Werte pro EXIOBASE-Region für 1..n Impacts.
+        Unified data source: values per EXIOBASE-region for 1..n impacts.
 
         Parameters
         ----------
         impacts : str | list[str]
-            Einzelner Impact oder Liste (z. B. ["Value added","Labour time","Subcontractors"])
+            Single impact or a list (e.g., ["Value added", "Labour time", "Subcontractors"]).
         relative : bool
-            True -> Prozentanteile je Impact (Summe 100); False -> absolute Werte
+            If True, return percentage shares per impact (sum = 100). Otherwise absolute values.
         include_units_in_cols : bool
-            Ob Spaltennamen die Einheit in Klammern tragen ("Water (m³)")
+            Include the unit in column names (e.g., "Water (m³)").
         localize_cols : bool
-            Ob (falls möglich) lokalisierte Anzeigenamen in den Spalten verwendet werden
+            Use localized display names for columns when available.
         save_to_excel : str | None
-            Wenn gesetzt, wird die Datei geschrieben und None zurückgegeben.
+            If provided, write to this path and return None.
 
         Returns
         -------
         (df, units_map) | None
-            df: Index = EXIOBASE-Regions (self.iosystem.regions_exiobase),
-                Spalten = Impactnamen (ggf. mit Einheit)
-            units_map: {col_name -> unit_string}
+            df: DataFrame indexed by EXIOBASE regions (self.iosystem.regions),
+                columns are impact names (optionally with units).
+            units_map: Mapping {column_name -> unit_string}.
         """
         imp_list = [impacts] if isinstance(impacts, str) else list(impacts)
         imp_list = [self._canon_impact(i) for i in imp_list if i]
@@ -1182,6 +1205,7 @@ class SupplyChain:
 
         for imp in imp_list:
             if imp == "Subcontractors":
+                # Aggregate subcontractor values by region (unitless)
                 vals = (
                     self.iosystem.L.iloc[:, self.indices]
                     .groupby(level=self.iosystem.index.region_classification[-1], sort=False)
@@ -1191,6 +1215,7 @@ class SupplyChain:
                 unit = ""  
                 display = gd.get("Subcontractors", "Subcontractors")
             else:
+                # Sum impact across selected indices and convert unit per row
                 vals = (
                     self.iosystem.impact.total.loc[imp]
                     .iloc[:, self.indices]
@@ -1201,6 +1226,7 @@ class SupplyChain:
                 try:
                     unit = self.iosystem.impact.get_unit(imp) or ""
                 except Exception:
+                    # Fallback: query transform_unit for the unit
                     try:
                         _tmp, unit = self.transform_unit(value=0.0, impact=imp)
                     except Exception:
@@ -1225,7 +1251,7 @@ class SupplyChain:
             return None
 
         return df, units_map
-
+    
     def plot_topn_by_impacts(
         self,
         impacts: list,
@@ -1240,24 +1266,33 @@ class SupplyChain:
         ascending: bool = False,  
     ):
         """
-        Grouped bar chart of Top/Flop regions across 1..3 impacts.
+        Render a grouped bar chart of Top/Flop regions across 1..3 impacts.
+
+        The first impact acts as the ranking key; up to two additional impacts
+        are plotted side-by-side for comparison. When `ascending=True`, this
+        effectively draws a "Flop n" chart (lowest values first).
 
         Args:
-            impacts: primary impact first (sort key), plus up to 2 comparators.
-            n: number of regions.
-            relative: True -> percentages, False -> absolute.
-            orientation: "vertical" or "horizontal".
-            bar_color: matplotlib colormap name or single color.
-            bar_width: total group width.
-            title: optional plot title (backend will auto-generate if empty).
-            return_data: return (fig, DataFrame) if True.
-            ascending: False -> Top n (largest first), True -> Flop n (smallest first).
+            impacts (list): Primary impact first (sort key), plus up to two comparators.
+            n (int): Number of regions to include.
+            relative (bool): If True, plot percentages; otherwise absolute values.
+            orientation (str): "vertical" or "horizontal".
+            bar_color (str): Matplotlib colormap name or a single color.
+            bar_width (float): Total width of each region's group (distributed across impacts).
+            title (str): Optional custom title; empty lets the backend auto-title.
+            return_data (bool): If True, return (fig, DataFrame) instead of just the figure.
+            ascending (bool): False -> Top n (largest first), True -> Flop n (smallest first).
+
+        Returns:
+            Figure | (Figure, DataFrame): The chart (and underlying matrix if requested).
         """
         gd = getattr(self.iosystem.index, "general_dict", {}) or {}
 
         def _canon(imp: str) -> str:
-            try: return self._canon_impact(imp)
-            except Exception: return imp
+            try:
+                return self._canon_impact(imp)
+            except Exception:
+                return imp
 
         def _disp(imp: str) -> str:
             ci = _canon(imp)
@@ -1267,13 +1302,16 @@ class SupplyChain:
             return re.sub(r"\s*\([^)]*\)\s*$", "", str(col)).strip()
 
         def _resolve_col(df: pd.DataFrame, imp: str) -> str:
+            """Resolve a column name in df for the given impact (robust to localization/units)."""
             ci, li = _canon(imp), _disp(imp)
             for key in (ci, li):
-                if key in df.columns: return key
+                if key in df.columns:
+                    return key
             stripped = {_strip_unit(c).casefold(): c for c in df.columns}
             for key in (ci, li):
                 c = stripped.get(key.casefold())
-                if c: return c
+                if c:
+                    return c
             for c in df.columns:
                 if str(c).casefold().startswith(ci.casefold()) or str(c).casefold().startswith(li.casefold()):
                     return c
@@ -1283,38 +1321,46 @@ class SupplyChain:
             impacts = [impacts]
         impacts = [i for i in impacts if i]
 
+        # Pull per-region data for all requested impacts (unlocalized, no units in col names)
         try:
             df_vals, units_map = self.impact_per_region_df(
                 impacts=impacts, relative=relative,
                 include_units_in_cols=False, localize_cols=False
             )
         except Exception:
+            # Fallback: project-specific retrieval
             df_vals = self.return_impact_per_region_data(impacts)
             units_map = {}
 
         primary = impacts[0]
         col_primary = _resolve_col(df_vals, primary)
 
+        # Rank by primary, then take top/flop n indices
         s_primary = pd.to_numeric(df_vals[col_primary], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
         n = max(1, int(n))
         take_idx = s_primary.sort_values(ascending=ascending).head(n).index
 
+        # Assemble the plotting matrix (rows: regions, cols: impacts)
         cols = [_resolve_col(df_vals, imp) for imp in impacts]
         mat = df_vals.loc[take_idx, cols].astype(float)
         legend_labels = [_disp(imp) for imp in impacts]
 
         def _color_list(name: str, k: int):
             try:
-                cmap = get_cmap(name); return [cmap(t) for t in np.linspace(0.15, 0.85, k)]
+                cmap = get_cmap(name)
+                return [cmap(t) for t in np.linspace(0.15, 0.85, k)]
             except Exception:
                 return [name] * k
 
         colors = _color_list(bar_color, len(impacts))
         fig, ax = plt.subplots(figsize=(12, 6))
 
-        idx = np.arange(len(take_idx)); m = len(impacts); width = (bar_width / m)
+        idx = np.arange(len(take_idx))
+        m = len(impacts)
+        width = (bar_width / m)
         code2name = dict(zip(self.iosystem.regions_exiobase, self.iosystem.regions))
 
+        # Draw bars
         if orientation == "horizontal":
             for j in range(m):
                 offs = (-bar_width/2) + (j + 0.5) * width
@@ -1332,7 +1378,7 @@ class SupplyChain:
             ax.set_ylabel("%" if relative else units_map.get(cols[0], gd.get("Value", "Value")))
             ax.grid(axis='y', alpha=0.2)
 
-
+        # Title: auto-generate if none provided
         if not title:
             rank_word = gd.get("Flop", "Flop") if ascending else gd.get("Top", "Top")
             ax.set_title(f"{rank_word} {n} – {_disp(primary)}")
@@ -1356,7 +1402,11 @@ class SupplyChain:
         title: str = "",
         return_data: bool = False,
     ):
+        """
+        Convenience wrapper for Flop-n (smallest values first).
 
+        Delegates to `plot_topn_by_impacts(..., ascending=True)`.
+        """
         return self.plot_topn_by_impacts(
             impacts=impacts,
             n=n,
@@ -1377,24 +1427,21 @@ class SupplyChain:
             units: Optional[Union[str, List[str]]]
     ) -> pd.DataFrame:
         """
-        Enrich the world GeoDataFrame with metadata for plotting.
+        Attach region labels, EXIOBASE codes, values, percentages, and units to the map dataframe.
 
-        Parameters
-        ----------
-        world : pd.DataFrame
-            GeoDataFrame with country geometries, already aligned to EXIOBASE indices.
-        values : pd.Series
-            Absolute impact values per country.
-        percentages : pd.Series
-            Percentage share per country (sum = 100).
-        units : str or list, optional
-            Unit of the values. Can be a scalar (applied to all rows) or a list
-            matching the index length.
+        Note:
+            The implementation drops Malta (index 19) from both region lists to match
+            a world geometry source that excludes it. Lengths must match post-filter.
 
-        Returns
-        -------
-        pd.DataFrame
-            GeoDataFrame with additional columns: region, exiobase, value, percentage, unit.
+        Args:
+            world (pd.DataFrame): GeoDataFrame-like with geometries aligned to EXIOBASE order.
+            values (pd.Series): Absolute values per country.
+            percentages (pd.Series): Share per country (sum = 100).
+            units (str | list | None): A scalar unit or a list aligned with the rows.
+
+        Returns:
+            pd.DataFrame: Input `world` with extra columns:
+                          ['region', 'exiobase', 'value', 'percentage', 'unit'].
         """
         # Construct region name lists (skipping Malta at position 19)
         regions = self.iosystem.regions[:19] + self.iosystem.regions[20:]
@@ -1421,7 +1468,7 @@ class SupplyChain:
                 if len(units) == len(world):
                     world["unit"] = units
                 elif len(set(units)) == 1:
-                    # all entries equal → broadcast single value
+                    # All entries equal → broadcast single value
                     world["unit"] = list(units)[0]
                 else:
                     raise ValueError(
@@ -1440,8 +1487,8 @@ class SupplyChain:
             relative: bool,
             *,
             mode: str = "continuous",               # "continuous" or "binned"
-            edges: Optional[List[float]] = None,    # for binned
-            # NEW: normalization parameters for continuous (to match the map)
+            edges: Optional[List[float]] = None,    # for binned (unused here)
+            # Normalization parameters for continuous (kept consistent with the map)
             norm_mode: str = "linear",
             vmin: Optional[float] = None,
             vmax: Optional[float] = None,
@@ -1451,10 +1498,28 @@ class SupplyChain:
         """
         Add a colorbar legend to the map.
 
-        - continuous: shows absolute values with unit (if provided).
-        - binned: handled in _plot_worldmap_by_data (this helper is used for continuous).
-        """
+        Behavior:
+          - Continuous mode: uses vmin/vmax and normalization to match the map,
+            labeling with absolute units when available.
+          - Binned mode: colorbar/legend is handled elsewhere; this helper raises.
 
+        Args:
+            fig (Figure): Parent figure.
+            ax (Axes): Axes the colorbar should be associated with.
+            data (Series): Underlying numeric data (used for robust min/max).
+            column (str): Legend label (e.g., impact/metric name).
+            color_map (str): Matplotlib colormap name.
+            relative (bool): Unused here (legend uses absolute values label when unit provided).
+            mode (str): "continuous" supported here; "binned" is not.
+            edges (list[float] | None): Unused for continuous.
+            norm_mode (str): "linear" | "log" | "power".
+            vmin, vmax (float | None): Explicit bounds; inferred if None.
+            gamma (float): Gamma for PowerNorm.
+            unit (str | None): Unit string appended to the legend label.
+
+        Raises:
+            ValueError: If called with mode != "continuous".
+        """
         cmap = plt.get_cmap(color_map)
 
         finite = data[np.isfinite(data)]
@@ -1486,13 +1551,17 @@ class SupplyChain:
             cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
 
             # Absolute-value legend label with unit if available
-            cbar.set_label(f"{column} [{unit}]" if unit != None and unit != "" else f"{column}")
+            cbar.set_label(f"{column} [{unit}]" if unit not in (None, "") else f"{column}")
         else:
-            raise ValueError('Legend helper is meant for mode=\"continuous\" here.')
-
+            raise ValueError('Legend helper is meant for mode="continuous" here.')
+    
     def _configure_map_appearance(self, ax: plt.Axes, title: str) -> None:
         """
-        Configure the visual appearance of the map.
+        Configure basic visual appearance of the map axes.
+
+        - Removes ticks and frame for a clean, figure-centric look.
+        - Sets a bold title with modest padding.
+        - Leaves global layout to the caller; applies only minimal subplot padding.
         """
         ax.set_xticks([])
         ax.set_yticks([])
@@ -1503,13 +1572,17 @@ class SupplyChain:
 
     def _get_title(self, **kwargs) -> str:
         """
-        Generate a dynamic title based on hierarchy levels and their translations.
+        Build a dynamic map title based on the current hierarchy selection.
+
+        If `inputByIndices` is active, returns a specific-selection title.
+        Otherwise, concatenates available hierarchy levels as "Level: Value" parts.
+        Falls back to "of the World" when nothing is selected.
 
         Args:
-            **kwargs: Additional keyword arguments (currently unused)
+            **kwargs: Reserved for future expansion (unused).
 
         Returns:
-            String title reflecting the provided hierarchy levels
+            str: Localized title string including the current EXIO year.
         """
         general_dict = self.iosystem.index.general_dict
 
@@ -1531,15 +1604,18 @@ class SupplyChain:
             return f'{general_dict["of the World"]} ({self.iosystem.year})'
 
         return (
-                f'{general_dict["of"]} ' +
-                " | ".join(title_parts) +
-                f' ({self.iosystem.year})'
+            f'{general_dict["of"]} ' +
+            " | ".join(title_parts) +
+            f' ({self.iosystem.year})'
         )
     
     def _sc__extract_unit(self, world) -> str:
         """
-        Internal helper: robustly extract a scalar 'unit' from various world objects
-        (DataFrame/GeoDataFrame, dict, plain object attribute).
+        Robustly extract a scalar unit string from various world objects.
+
+        Accepts DataFrame/GeoDataFrame (prefers a 'unit' column), dict-like (uses
+        'unit' key), or plain objects (reads a 'unit' attribute). Returns empty
+        string if no unit can be determined.
         """
         try:
             if isinstance(world, pd.DataFrame):
@@ -1551,26 +1627,47 @@ class SupplyChain:
         except Exception:
             return ""
 
-    def _sc__world_df(self,
-                    impact: str,
-                    *,
-                    relative: bool = True,
-                    color: str = "Reds",
-                    title: Optional[str] = None,
-                    show_legend: bool = False,
-                    mode: str = "binned",
-                    k: int = 7,
-                    custom_bins: Optional[List[float]] = None,
-                    norm_mode: str = "linear",
-                    robust: float = 2.0,
-                    gamma: float = 0.7) -> Tuple[pd.DataFrame, str]:
+    def _sc__world_df(
+        self,
+        impact: str,
+        *,
+        relative: bool = True,
+        color: str = "Reds",
+        title: Optional[str] = None,
+        show_legend: bool = False,
+        mode: str = "binned",
+        k: int = 7,
+        custom_bins: Optional[List[float]] = None,
+        norm_mode: str = "linear",
+        robust: float = 2.0,
+        gamma: float = 0.7
+    ) -> Tuple[pd.DataFrame, str]:
         """
-        Internal helper: returns the same dataframe the worldmap calls use, but without
-        the GUI. Greift – falls vorhanden – auf reine Datenfunktionen zu,
-        sonst über die bestehenden Plot-Funktionen mit return_data=True.
-        Columns guaranteed: region, value, percentage, unit (geometry optional).
+        Retrieve the same data structure used by the world map—without rendering.
+
+        Tries pure data endpoints (if available), otherwise falls back to the
+        existing plotting functions with `return_data=True`.
+
+        Guarantees columns: ['region', 'value', 'percentage', 'unit'].
+        Geometry may be present when the upstream provider returns it.
+
+        Args:
+            impact (str): Canonical impact key (or 'Subcontractors').
+            relative (bool): If True, compute percentages; else absolute values.
+            color (str): Colormap name passed through to the fallback plot call.
+            title (str | None): Optional title for fallback plotting.
+            show_legend (bool): Whether to display legend in fallback plotting.
+            mode (str): "binned" | "continuous" (passed to fallback).
+            k (int): Number of classes (binned mode).
+            custom_bins (list[float] | None): Overrides `k` when provided.
+            norm_mode (str): "linear" | "log" | "power" for continuous mode.
+            robust (float): Robust clipping percentile for continuous mode.
+            gamma (float): Gamma for PowerNorm in continuous mode.
+
+        Returns:
+            Tuple[pd.DataFrame, str]: (DataFrame, unit string)
         """
-        # 1) Daten-only Endpunkte nutzen, falls du sie später implementierst
+        # 1) Prefer data-only endpoints (if implemented later)
         try:
             if impact.strip().lower() == "subcontractors" and hasattr(self, "worldmap_data_by_subcontractors"):
                 df = self.worldmap_data_by_subcontractors(relative=relative)
@@ -1581,13 +1678,15 @@ class SupplyChain:
                 unit = str(df["unit"].iloc[0]) if "unit" in df.columns and len(df) else ""
                 return df.copy(), unit
         except Exception:
-            # Fallback auf plot_* unten
+            # Fall back to plot-based data retrieval below
             pass
 
-        # 2) Fallback: vorhandene Plot-Funktionen (verwenden return_data=True)
-        kw = dict(color=color, title=title, relative=relative, show_legend=show_legend,
-                return_data=True, mode=mode, k=k, custom_bins=custom_bins,
-                norm_mode=norm_mode, robust=robust, gamma=gamma)
+        # 2) Fallback: use existing plot functions with return_data=True
+        kw = dict(
+            color=color, title=title, relative=relative, show_legend=show_legend,
+            return_data=True, mode=mode, k=k, custom_bins=custom_bins,
+            norm_mode=norm_mode, robust=robust, gamma=gamma
+        )
 
         if impact.strip().lower() == "subcontractors":
             _fig, world = self.plot_worldmap_by_subcontractors(**kw)
@@ -1597,7 +1696,7 @@ class SupplyChain:
         unit = self._sc__extract_unit(world)
         df = pd.DataFrame(world).copy()
 
-        # Mindestspalten sicherstellen
+        # Ensure minimum columns exist
         for col in ["region", "value", "percentage"]:
             if col not in df.columns:
                 df[col] = None
@@ -1605,4 +1704,3 @@ class SupplyChain:
             df["unit"] = unit
 
         return df, unit
-
