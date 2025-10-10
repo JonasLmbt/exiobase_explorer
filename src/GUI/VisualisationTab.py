@@ -211,18 +211,27 @@ class StageAnalysisTabContainer(QWidget):
 
 class StageAnalysisViewTab(QWidget):
     """
-    Single tab for stage (value-chain) analysis with a one-line toolbar and a plot area.
+    Single-tab view for stage (value-chain) analysis with a one-line toolbar and a plot area.
 
-    Toolbar (one line):
-      - Method selector (Bubble, Sankey/Treemap placeholders, …)
-      - Multi-impact selector (button opens tree dialog)
-      - Optional Settings button (hidden for now)
+    Toolbar contains:
+      - Method selector (e.g., Bubble, Sankey/Treemap placeholders)
+      - Multi-impact selector (opens hierarchical selector dialog)
+      - Optional settings button (reserved for future methods)
+      - Save button for exporting the rendered figure
 
     Rendering is delegated to the selected StageAnalysisMethod.
     """
     titleChanged = pyqtSignal(str)
     stateChanged = pyqtSignal(dict)
+
     def __init__(self, ui, parent: Optional[QWidget] = None):
+        """
+        Initialize the stage analysis tab.
+
+        Args:
+            ui: Main application UI providing iosystem and supplychain access.
+            parent (QWidget, optional): Parent widget, usually the QTabWidget.
+        """
         super().__init__(parent)
         self.ui = ui
         self.iosystem = self.ui.iosystem
@@ -230,50 +239,64 @@ class StageAnalysisViewTab(QWidget):
         self.name = self._translate("Bubble diagram", "Bubble diagram")
         self.tab_widget = parent if isinstance(parent, QTabWidget) else None
 
-        # build impact hierarchy (from MultiIndex -> nested dict)
+        # Build impact hierarchy (MultiIndex -> nested dict) for the selector
         mi = self.iosystem.index.impact_multiindex
         self.impact_hierarchy: Dict = multiindex_to_nested_dict(mi)
 
-        # UI + state
+        # UI & state
         self._init_ui()
 
-        # debounce for auto-update
+        # Debounced auto-update to avoid excessive redraws
         self._debounce = QTimer(self)
         self._debounce.setInterval(200)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._update_plot)
 
-        # initial selection + draw
+        # Initial selection and first render
         self._init_default_impacts()
         self._schedule_update()
 
     def _translate(self, key: str, fallback: str) -> str:
-        """Return localized string; always cast to str to avoid non-str labels."""
+        """
+        Return a localized string from the general_dict.
+
+        Always casts to str to avoid non-string labels.
+        """
         val = self.general_dict.get(key, fallback)
         if val is None:
             return str(fallback)
         return str(val)
     
-    # ---------------- UI ----------------
     def _init_ui(self):
+        """Build the one-line toolbar and the plot area."""
         layout = QVBoxLayout(self)
 
-        # one-line toolbar
+        # One-line toolbar
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
 
-        # method selector
+        # Method selector
         methods = StageAnalysisRegistry.all_methods()
         self.method_selector = MethodSelectorWidget(methods, tr=self._translate, parent=self)
         self.method_selector.methodChanged.connect(self._on_method_changed)
         toolbar.addWidget(self.method_selector)
 
-        # multi-impact selector button
+        # Multi-impact selector button
         self.impact_selector = ImpactMultiSelectorButton(self.impact_hierarchy, self._translate, parent=self)
         self.impact_selector.impactsChanged.connect(self._on_impacts_changed)
         toolbar.addWidget(self.impact_selector)
 
-        # settings gear (no settings for bubble yet; keep for future)
+        # Refresh button (icon only)
+        self.refresh_btn = QToolButton(self)
+        self.refresh_btn.setToolTip(self._translate("Refresh", "Refresh"))
+        try:
+            self.refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        except Exception:
+            self.refresh_btn.setText("↻")
+        self.refresh_btn.clicked.connect(self._update_plot)
+        toolbar.addWidget(self.refresh_btn)
+
+        # Settings gear (kept for future methods)
         self.settings_btn = QToolButton(self)
         self.settings_btn.setText("⚙")
         self.settings_btn.setToolTip(self._translate("Open settings", "Open settings"))
@@ -283,12 +306,13 @@ class StageAnalysisViewTab(QWidget):
         toolbar.addStretch(1)
         layout.addLayout(toolbar)
 
-        # plot area
+        # Plot area (matplotlib canvas)
         self.canvas = None
         self.plot_area = QVBoxLayout()
         self._create_placeholder()
         layout.addLayout(self.plot_area)
 
+        # Save button (high-quality export)
         self.save_btn = QToolButton(self)
         self.save_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
         self.save_btn.setToolTip(self._translate("Save plot", "Save plot"))
@@ -297,6 +321,7 @@ class StageAnalysisViewTab(QWidget):
         toolbar.addWidget(self.save_btn)
 
     def _create_placeholder(self):
+        """Show an initial placeholder figure while waiting for the first update."""
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.text(0.5, 0.5, self._translate("Waiting for update…", "Waiting for update…"),
@@ -305,11 +330,17 @@ class StageAnalysisViewTab(QWidget):
         self._set_canvas(fig)
 
     def _set_canvas(self, fig):
+        """
+        Replace the current canvas with a new matplotlib Figure.
+
+        Applies margin optimization before attaching the canvas.
+        """
         if self.canvas:
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
             self.canvas.deleteLater()
-        # Ränder optimieren, bevor gerendert wird
+
+        # Optimize figure margins prior to rendering
         self._optimize_margins(fig)
 
         self.canvas = FigureCanvas(fig)
@@ -323,10 +354,10 @@ class StageAnalysisViewTab(QWidget):
         if hasattr(self, "save_btn"):
             self.save_btn.setEnabled(True)
 
-    # ------------- default impacts -------------
     def _init_default_impacts(self):
         """
-        Set reasonable defaults similar to your previous DiagramTab.
+        Set reasonable defaults (mirrors prior DiagramTab behavior).
+        Selects a handful of common impacts if available.
         """
         impacts = self.iosystem.impacts
         defaults = []
@@ -338,8 +369,8 @@ class StageAnalysisViewTab(QWidget):
 
         self.impact_selector.set_defaults(defaults)
 
-    # ------------- events -------------
     def _on_method_changed(self, method_id: str):
+        """Handle method changes: toggle settings icon, update title and plot, emit state."""
         m = StageAnalysisRegistry.get(method_id)
         self.settings_btn.setVisible(bool(m and m.supports_settings))
         self._emit_title()
@@ -347,15 +378,17 @@ class StageAnalysisViewTab(QWidget):
         self.stateChanged.emit(self.get_state())
 
     def _on_impacts_changed(self, _impacts: List[str]):
+        """Handle impact selection changes: update title/plot and emit state."""
         self._emit_title()
         self._schedule_update()
         self.stateChanged.emit(self.get_state())
 
-    # ------------- update loop -------------
     def _schedule_update(self):
+        """Start the debounce timer to render soon."""
         self._debounce.start()
 
     def _update_plot(self):
+        """Render the selected method with the current impacts; show hints/errors gracefully."""
         from PyQt5.QtWidgets import QApplication
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
@@ -365,7 +398,7 @@ class StageAnalysisViewTab(QWidget):
             if not method:
                 raise RuntimeError("No analysis method selected.")
             if not impacts:
-                # Show a gentle hint instead of raising
+                # Gentle hint instead of raising
                 fig = plt.figure()
                 ax = fig.add_subplot(111)
                 ax.text(0.5, 0.5, self._translate("Please select impacts.", "Please select impacts."),
@@ -378,6 +411,7 @@ class StageAnalysisViewTab(QWidget):
             self._set_canvas(fig)
 
         except Exception as e:
+            # Display error in-figure to avoid disruptive dialogs
             fig = plt.figure()
             ax = fig.add_subplot(111)
             ax.text(0.5, 0.5, f"{self._translate('Error', 'Error')}: {str(e)}",
@@ -388,14 +422,26 @@ class StageAnalysisViewTab(QWidget):
             QApplication.restoreOverrideCursor()
 
     def get_state(self) -> dict:
+        """
+        Return the current UI state for persistence.
+
+        Returns:
+            dict: Includes method_id, selected impacts, and a placeholder for method-specific state.
+        """
         return {
             "method_id": self.method_selector.current_method(),
             "impacts": list(self.impact_selector.selected_impacts()),
-            # placeholder for future per-method settings:
+            # Placeholder for future per-method settings
             "method_state": {},
         }
 
     def set_state(self, state: dict) -> None:
+        """
+        Restore a previously saved state (method + impacts).
+
+        Args:
+            state (dict): Previously stored state dictionary.
+        """
         if not state:
             return
         mid = state.get("method_id")
@@ -407,12 +453,13 @@ class StageAnalysisViewTab(QWidget):
         self._emit_title()
         self._schedule_update()
 
-    # ------------- context menu -------------
     def _setup_canvas_context_menu(self):
+        """Install a custom context menu on the canvas for quick actions."""
         self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
         self.canvas.customContextMenuRequested.connect(self._show_context_menu)
 
     def _show_context_menu(self, pos):
+        """Show a context menu with a 'Save plot' action."""
         menu = QMenu(self)
         save_action = menu.addAction(self._translate("Save plot", "Save plot"))
         action = menu.exec_(self.canvas.mapToGlobal(pos))
@@ -420,6 +467,11 @@ class StageAnalysisViewTab(QWidget):
             self._save_high_quality()
 
     def _save_high_quality(self):
+        """
+        Export the current figure as PNG/PDF/SVG with high DPI and safe padding.
+
+        Opens a file dialog and writes using matplotlib's savefig with tight bbox.
+        """
         default_filename = self._generate_filename()
         home_dir = os.path.expanduser("~")
         download_dir = os.path.join(home_dir, "Downloads")
@@ -453,6 +505,12 @@ class StageAnalysisViewTab(QWidget):
                 )
 
     def _generate_filename(self) -> str:
+        """
+        Generate a timestamped filename based on the current method.
+
+        Returns:
+            str: Suggested filename (PNG extension by default).
+        """
         method = StageAnalysisRegistry.get(self.method_selector.current_method())
         method_part = (method.label if method else "Method").replace(" ", "")
         from datetime import datetime
@@ -460,10 +518,12 @@ class StageAnalysisViewTab(QWidget):
         return f"Stages_{method_part}_{ts}.png"
 
     def _current_method(self) -> Optional[StageAnalysisMethod]:
+        """Return the currently selected StageAnalysisMethod instance."""
         mid = self.method_selector.current_method()
         return StageAnalysisRegistry.get(mid)
 
     def _emit_title(self):
+        """Emit a descriptive title reflecting the current method and selection count."""
         m = self._current_method()
         label = self._translate(m.label, m.label) if m else self._translate("Diagram", "Diagram")
         n = len(self.impact_selector.selected_impacts())
@@ -472,22 +532,21 @@ class StageAnalysisViewTab(QWidget):
 
     def _optimize_margins(self, fig):
         """
-        Make the plot look centered without clipping the suptitle/labels.
-        Use ONLY tight_layout with a safe 'rect' that leaves headroom.
+        Improve layout so the plot looks centered without clipping titles/labels.
+
+        Uses tight_layout with a safe rect to leave headroom for a possible suptitle.
         """
         try:
             has_suptitle = getattr(fig, "_suptitle", None) is not None
             if has_suptitle:
-                # left, bottom, right, top
-                # -> oben ~6% frei lassen für den Suptitel
+                # Leave ~6% headroom for suptitle (left, bottom, right, top)
                 fig.tight_layout(rect=[0.02, 0.06, 0.98, 0.94], pad=0.4)
             else:
-                # ohne Suptitel etwas mehr Top-Space
+                # Without suptitle allow more top space
                 fig.tight_layout(rect=[0.02, 0.06, 0.98, 0.98], pad=0.4)
         except Exception:
-            # Fallback: lieber nichts tun, als zu schneiden
+            # Safe fallback: do nothing rather than risk clipping
             pass
-
 
 class RegionAnalysisTabContainer(QWidget):
     """
