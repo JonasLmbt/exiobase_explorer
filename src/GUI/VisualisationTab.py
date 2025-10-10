@@ -1614,12 +1614,12 @@ class RegionAnalysisViewTab(QWidget):
         Open the export dialog. Preselect current impact if possible.
         """
         try:
+            current = []
             if self._extra_impacts:
                 current = list(self._extra_impacts)
-            elif self._current_choice:
-                current = [self._current_choice]
-            else:
-                current = []
+            if self._current_choice:
+                current.append(self._current_choice)
+
             dlg = ExportDataDialog(
                 iosystem=self.ui.iosystem,
                 supplychain=self.ui.supplychain,
