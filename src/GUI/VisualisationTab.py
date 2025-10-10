@@ -15,7 +15,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog,
-    QGraphicsOpacityEffect, QLabel, QSizePolicy, QLineEdit,
+    QGraphicsOpacityEffect, QLabel, QSizePolicy, QLineEdit, QStackedLayout,
     QDialog, QApplication, QToolButton, QComboBox, QStyle, QToolTip,
     QTabBar, QMessageBox, QCheckBox, QDialogButtonBox, QSpinBox, QDoubleSpinBox, QPushButton, QTreeWidget, QTreeWidgetItem
 )
@@ -389,7 +389,6 @@ class StageAnalysisViewTab(QWidget):
 
     def _update_plot(self):
         """Render the selected method with the current impacts; show hints/errors gracefully."""
-        from PyQt5.QtWidgets import QApplication
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             method = self._current_method()
@@ -1165,7 +1164,6 @@ class RegionAnalysisViewTab(QWidget):
         Prefers DataFrame/GeoDataFrame column 'unit'. Falls back to dict or attr.
         """
         try:
-            import pandas as pd  # local import is ok
             if isinstance(world, pd.DataFrame):
                 if "unit" in world.columns and len(world) > 0:
                     return str(world["unit"].iloc[0])
@@ -2521,7 +2519,6 @@ class CountryInfoDialog(QDialog):
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         # Use a stacked layout to place text on top of a flag background
-        from PyQt5.QtWidgets import QStackedLayout
         stack = QStackedLayout(self)
         stack.setContentsMargins(0, 0, 0, 0)
         stack.setStackingMode(QStackedLayout.StackAll)

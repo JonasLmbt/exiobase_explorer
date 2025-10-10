@@ -12,9 +12,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib as mpl
 import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
 import re
+from matplotlib.colors import Normalize, BoundaryNorm
 
 
 
@@ -860,12 +860,6 @@ class SupplyChain:
             - Behaves like before; `relative=True` means bins on percentages,
             `relative=False` means bins on absolute values.
         """
-        import numpy as np
-        import matplotlib.pyplot as plt
-        import matplotlib as mpl
-        from matplotlib.colors import Normalize, BoundaryNorm
-        from matplotlib.cm import get_cmap
-        import matplotlib.colors as mcolors
 
         # Helper for binned legend range labels (raw numbers)
         def _fmt_range(lo: float, hi: float) -> str:
@@ -1035,10 +1029,6 @@ class SupplyChain:
         relative: bool = True,                    
         return_data: bool = False
     ) -> plt.Figure | tuple[plt.Figure, pd.DataFrame]:
-
-        import numpy as np
-        import matplotlib.pyplot as plt
-        from matplotlib.cm import get_cmap
 
         # 1) Datengrundlage (gleich wie Worldmap)
         df, unit = self._sc__world_df(
