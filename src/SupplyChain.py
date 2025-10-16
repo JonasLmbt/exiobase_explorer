@@ -1002,9 +1002,7 @@ class SupplyChain:
                 cbar.ax.set_yticklabels(tick_labels)
                 # If we have a single unit, display it in the label
                 label = column
-                if relative == True:
-                    label += " [%]"
-                elif isinstance(units, str):
+                if isinstance(units, str):
                     label = f"{column} [{units}]"
                 elif hasattr(units, "__len__") and len(set(units)) == 1:
                     label = f"{column} [{list(set(units))[0]}]"
@@ -1587,6 +1585,8 @@ class SupplyChain:
         general_dict = self.iosystem.index.general_dict
 
         if self.inputByIndices:
+            if len(self.indices) == (len(self.iosystem.regions)*len(self.iosystem.sectors)):
+                return f'{general_dict["of the World"]} ({self.iosystem.year})'
             return (
                 f'{general_dict["of a"]} '
                 f'{general_dict["specific selection of sectors"]} '
