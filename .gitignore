@@ -30,3 +30,6 @@ dist/
 # Optional: ignoriere weitere temporäre oder Editor-Dateien
 .idea/
 .vscode/
+
+# Ignoriere macOS-spezifische Dateien
+**/.DS_Store
