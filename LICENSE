@@ -6,9 +6,13 @@ This work (the "Software") is licensed under the Creative Commons
 Attribution-NonCommercial 4.0 International License.
 
 You are free to share and adapt the Software for non-commercial purposes, 
-provided that appropriate credit is given.
+provided that appropriate credit is given to the authors and a link to 
+this repository is included.
 
-If you wish to use the software for any commercial purpose, 
+Academic and research use is explicitly permitted, provided that the 
+authors are properly cited in any resulting publications.
+
+If you wish to use the Software for any commercial purpose, 
 please contact Jonas Lambrecht (Jonaslambrecht@web.de) 
 to obtain permission and agree on fair attribution or participation.
 
@@ -17,4 +21,10 @@ Commercial use without prior agreement is not allowed.
 To view a copy of this license, visit:
 https://creativecommons.org/licenses/by-nc/4.0/
 
-Disclaimer: The Software is provided "as-is", without warranty of any kind.
+Disclaimer: The Software is provided "as is", without warranty of any kind, 
+express or implied, including but not limited to the warranties of 
+merchantability, fitness for a particular purpose and noninfringement. 
+In no event shall the authors be liable for any claim, damages, or other 
+liability, whether in an action of contract, tort, or otherwise, arising 
+from, out of, or in connection with the Software or the use or other 
+dealings in the Software.
