@@ -285,8 +285,13 @@ class SupplyChain:
 
         unit = impact_row[4]
         transformed_value = value / impact_row[2]
+        rounded_value = round(transformed_value, int(impact_row[3]))
 
-        return transformed_value, unit
+        # Ensure non-zero values are not rounded to zero
+        if rounded_value == 0 and transformed_value != 0:
+            rounded_value = transformed_value
+
+        return rounded_value, unit
 
     def total(self, impact: str) -> Tuple[float, str]:
         """
