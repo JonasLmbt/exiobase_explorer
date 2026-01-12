@@ -1,5 +1,6 @@
 # Ignoriere virtuelle Umgebungen, temporäre Dateien und große Datenverzeichnisse
 venv/
+.webvenv/
 .env/
 __pycache__/
 *.pyc
@@ -33,3 +34,7 @@ dist/
 
 # Ignoriere macOS-spezifische Dateien
 **/.DS_Store
+
+
+web_backend/
+web_frontend/
