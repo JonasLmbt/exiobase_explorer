@@ -6,6 +6,7 @@ from typing import Any, Dict
 from rq import get_current_job
 
 from .analysis.registry import stage_registry
+from .analysis.region_registry import region_registry
 from .core_cache import get_iosystem
 
 # register built-ins
@@ -38,6 +39,20 @@ def run_analysis(payload: Dict[str, Any]) -> Dict[str, Any]:
 
         meta = {}
         result = method.run(iosystem=ios, selection=selection, analysis=analysis, job_meta=meta)
+        if job is not None:
+            job.meta["progress"] = float(meta.get("progress", 0.9))
+            job.meta["message"] = meta.get("message", "done")
+            job.save_meta()
+        return result
+
+    region_method = region_registry.get(analysis_type)
+    if region_method is not None:
+        year = int(payload.get("year", 2022))
+        language = str(payload.get("language", "Deutsch"))
+        ios = get_iosystem(year=year, language=language)
+
+        meta = {}
+        result = region_method.run(iosystem=ios, selection=selection, analysis=analysis, job_meta=meta)
         if job is not None:
             job.meta["progress"] = float(meta.get("progress", 0.9))
             job.meta["message"] = meta.get("message", "done")
