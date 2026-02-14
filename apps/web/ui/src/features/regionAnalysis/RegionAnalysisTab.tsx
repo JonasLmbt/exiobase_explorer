@@ -164,12 +164,29 @@ export default function RegionAnalysisTab() {
             Auswahl kommt aus dem Tab <b>Selection</b> (Region/Sektor). Ohne Auswahl wird global gerechnet.
           </Typography>
 
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ opacity: 0.9 }}>
+            <Box sx={{ minWidth: 100 }}>Job</Box>
+            <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{jobId ?? "—"}</Box>
+          </Stack>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ opacity: 0.9 }}>
+            <Box sx={{ minWidth: 100 }}>Status</Box>
+            <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
+              {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : "—"}
+            </Box>
+          </Stack>
+
           {(createJobM.isPending || jobStatusQ.isFetching) && (
             <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.9 }}>
               <CircularProgress size={18} />
               <Typography variant="body2">Berechne…</Typography>
             </Stack>
           )}
+
+          {jobResultQ.isFetching ? (
+            <Typography variant="body2" sx={{ opacity: 0.8 }}>
+              Lade Ergebnis…
+            </Typography>
+          ) : null}
 
           {jobResultQ.data?.result && isGeoJson(jobResultQ.data.result) ? (
             <WorldMapLeaflet data={jobResultQ.data.result} />
