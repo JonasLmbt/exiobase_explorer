@@ -9,7 +9,6 @@ matplotlib.use("Agg")
 from src.SupplyChain import SupplyChain
 from src.IOSystem import IOSystem
 
-from ..utils import fig_to_png_base64
 from .base import StageAnalysisMethod
 from .selection_utils import selection_to_indices
 
@@ -26,7 +25,9 @@ class StageBubbleMethod(StageAnalysisMethod):
         analysis: Dict[str, Any],
         job_meta: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        impacts = list(analysis.get("impacts") or [])
+        impacts = [str(x) for x in (analysis.get("impacts") or []) if x]
+        if not impacts:
+            return {"ok": False, "error": "missing_impacts"}
 
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
 
@@ -35,7 +36,33 @@ class StageBubbleMethod(StageAnalysisMethod):
             job_meta["message"] = "rendering"
 
         sc = SupplyChain(iosystem=iosystem, indices=indices)
-        fig = sc.plot_bubble_diagram(impacts)
-        png_b64 = fig_to_png_base64(fig)
+        df = sc.calculate_all(impacts=impacts, relative=True, decimal_places=5)
 
-        return {"kind": "image_base64", "mime": "image/png", "data": png_b64}
+        gd = iosystem.index.general_dict
+        stages = [
+            gd.get("Resource Extraction", "Resource Extraction"),
+            gd.get("Preliminary Products", "Preliminary Products"),
+            gd.get("Direct Suppliers", "Direct Suppliers"),
+            gd.get("Retail", "Retail"),
+            gd.get("Total", "Total"),
+        ]
+
+        items = []
+        for i, impact_key in enumerate(impacts):
+            row = df.iloc[i]
+            items.append(
+                {
+                    "key": impact_key,
+                    "unit": str(row.get(gd.get("Unit", "Unit"), "")),
+                    "color": str(row.get(gd.get("Color", "Color"), "")),
+                    "values": [
+                        float(row[stages[0]]),
+                        float(row[stages[1]]),
+                        float(row[stages[2]]),
+                        float(row[stages[3]]),
+                        float(row[stages[4]]),
+                    ],
+                }
+            )
+
+        return {"kind": "stage_table_v1", "stages": stages, "impacts": items, "relative": True}

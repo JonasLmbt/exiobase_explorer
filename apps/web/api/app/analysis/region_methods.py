@@ -26,8 +26,13 @@ class RegionWorldMapMethod(RegionAnalysisMethod):
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
 
-        fig = sc.plot_worldmap_by_impact(str(impact), relative=True, show_legend=True, return_data=False)
-        return {"kind": "image_base64", "mime": "image/png", "data": fig_to_png_base64(fig)}
+        fig, world = sc.plot_worldmap_by_impact(str(impact), relative=True, show_legend=False, return_data=True)
+        geojson = world.to_json()
+        return {
+            "kind": "geojson_v1",
+            "geojson": geojson,
+            "meta": {"impact": str(impact), "relative": True},
+        }
 
 
 class RegionTopNMethod(RegionAnalysisMethod):
@@ -42,8 +47,14 @@ class RegionTopNMethod(RegionAnalysisMethod):
         n = int((analysis.get("params") or {}).get("n", 10))
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
-        fig = sc.plot_topn_by_impacts(impacts=impacts[:4], n=n, relative=True, orientation="vertical", return_data=False)
-        return {"kind": "image_base64", "mime": "image/png", "data": fig_to_png_base64(fig)}
+        fig, mat = sc.plot_topn_by_impacts(impacts=impacts[:4], n=n, relative=True, orientation="vertical", return_data=True)
+        return {
+            "kind": "table_v1",
+            "meta": {"type": "topn", "n": n, "relative": True},
+            "columns": [str(c) for c in mat.columns.tolist()],
+            "index": [str(i) for i in mat.index.tolist()],
+            "values": [[float(x) for x in row] for row in mat.to_numpy()],
+        }
 
 
 class RegionFlopNMethod(RegionAnalysisMethod):
@@ -58,8 +69,14 @@ class RegionFlopNMethod(RegionAnalysisMethod):
         n = int((analysis.get("params") or {}).get("n", 10))
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
-        fig = sc.plot_flopn_by_impacts(impacts=impacts[:4], n=n, relative=True, orientation="vertical", return_data=False)
-        return {"kind": "image_base64", "mime": "image/png", "data": fig_to_png_base64(fig)}
+        fig, mat = sc.plot_flopn_by_impacts(impacts=impacts[:4], n=n, relative=True, orientation="vertical", return_data=True)
+        return {
+            "kind": "table_v1",
+            "meta": {"type": "flopn", "n": n, "relative": True},
+            "columns": [str(c) for c in mat.columns.tolist()],
+            "index": [str(i) for i in mat.index.tolist()],
+            "values": [[float(x) for x in row] for row in mat.to_numpy()],
+        }
 
 
 class RegionPieMethod(RegionAnalysisMethod):
@@ -73,5 +90,12 @@ class RegionPieMethod(RegionAnalysisMethod):
 
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
-        fig = sc.plot_pie_by_impact(str(impact), relative=True, return_data=False)
-        return {"kind": "image_base64", "mime": "image/png", "data": fig_to_png_base64(fig)}
+        fig, pie_df = sc.plot_pie_by_impact(str(impact), relative=True, return_data=True)
+        return {
+            "kind": "pie_v1",
+            "meta": {"impact": str(impact), "relative": True},
+            "rows": [
+                {"label": str(r["label"]), "value": float(r["value"]), "unit": str(r.get("unit") or "")}
+                for _, r in pie_df.iterrows()
+            ],
+        }
