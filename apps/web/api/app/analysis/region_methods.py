@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+import json
+import math
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -27,7 +30,19 @@ class RegionWorldMapMethod(RegionAnalysisMethod):
         sc = SupplyChain(iosystem=iosystem, indices=indices)
 
         fig, world = sc.plot_worldmap_by_impact(str(impact), relative=True, show_legend=False, return_data=True)
-        geojson = world.to_json()
+
+        def sanitize(o):
+            if isinstance(o, float):
+                return None if (math.isnan(o) or math.isinf(o)) else o
+            if isinstance(o, dict):
+                return {k: sanitize(v) for k, v in o.items()}
+            if isinstance(o, list):
+                return [sanitize(v) for v in o]
+            return o
+
+        # geopandas may emit non-strict JSON (NaN/Infinity). Make it strict for JSON.parse in the browser.
+        geo_obj = json.loads(world.to_json())
+        geojson = json.dumps(sanitize(geo_obj), allow_nan=False)
         return {
             "kind": "geojson_v1",
             "geojson": geojson,
