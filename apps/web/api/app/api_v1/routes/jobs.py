@@ -5,12 +5,14 @@ import json
 
 from rq import Queue
 from rq.job import Job
+from rq.registry import StartedJobRegistry
 
 from fastapi import APIRouter, HTTPException
 
 from ...jobs import run_analysis
 from ...redis_conn import get_redis_connection
 from ...schemas import JobRequest, JobStatus
+from ...settings import max_active_jobs
 
 router = APIRouter()
 
@@ -20,6 +22,16 @@ CACHE_TTL_SECONDS = 24 * 60 * 60
 @router.post("/jobs")
 def create_job(req: JobRequest) -> dict:
     conn = get_redis_connection()
+    queue = Queue(connection=conn)
+
+    started = StartedJobRegistry(queue=queue).count
+    queued = queue.count
+    if (started + queued) >= max_active_jobs():
+        raise HTTPException(
+            status_code=429,
+            detail=f"Server busy (active_jobs={started + queued}). Try again later.",
+        )
+
     payload = req.model_dump()
 
     cache_key = "jobcache:" + hashlib.sha256(
@@ -35,7 +47,6 @@ def create_job(req: JobRequest) -> dict:
         except Exception:
             conn.delete(cache_key)
 
-    queue = Queue(connection=conn)
     job = queue.enqueue(run_analysis, payload, result_ttl=CACHE_TTL_SECONDS)
     conn.set(cache_key, job.id, ex=CACHE_TTL_SECONDS)
     return {"job_id": job.id, "cached": False}

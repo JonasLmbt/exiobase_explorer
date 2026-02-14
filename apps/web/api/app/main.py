@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api_v1.router import router as api_v1_router
+from .settings import cors_origins
 
 
 def create_app() -> FastAPI:
@@ -14,10 +15,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",  # Vite dev server
-            "http://127.0.0.1:5173",
-        ],
+        allow_origins=cors_origins(),
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -28,4 +26,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
