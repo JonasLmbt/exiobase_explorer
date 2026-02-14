@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { theme } from "./theme";
+import { LogProvider } from "./app/log";
 import { AppStateProvider } from "./app/state";
 import AppShell from "./app/AppShell";
 
@@ -13,9 +14,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <AppStateProvider>
-          <AppShell />
-        </AppStateProvider>
+        <LogProvider>
+          <AppStateProvider>
+            <AppShell />
+          </AppStateProvider>
+        </LogProvider>
       </ThemeProvider>
     </QueryClientProvider>
   </React.StrictMode>,

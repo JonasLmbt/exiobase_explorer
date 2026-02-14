@@ -16,10 +16,12 @@ import {
 } from "@mui/material";
 import { api, type JobRequest } from "../../api";
 import { useAppState } from "../../app/state";
+import { useLog } from "../../app/log";
 import { regionMethods } from "./methodRegistry";
 
 export default function RegionAnalysisTab() {
   const { year, language, selection } = useAppState();
+  const log = useLog();
   const [methodId, setMethodId] = useState(regionMethods[0]?.id ?? "world_map");
   const [impacts, setImpacts] = useState<string[]>([]);
   const [n, setN] = useState<number>(10);
@@ -55,7 +57,11 @@ export default function RegionAnalysisTab() {
 
   const createJobM = useMutation({
     mutationFn: () => api.createJob(payload),
-    onSuccess: (data) => setJobId(data.job_id),
+    onSuccess: (data) => {
+      setJobId(data.job_id);
+      log.info(`Region job started: ${data.job_id}`);
+    },
+    onError: (e) => log.error(`Region job failed: ${String(e)}`),
   });
 
   const jobStatusQ = useQuery({
@@ -178,4 +184,3 @@ function isImageResult(v: unknown): v is { kind: "image_base64"; mime: string; d
   const obj = v as any;
   return obj.kind === "image_base64" && typeof obj.mime === "string" && typeof obj.data === "string";
 }
-

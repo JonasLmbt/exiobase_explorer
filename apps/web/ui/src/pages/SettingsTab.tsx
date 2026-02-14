@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, Container, FormControl, InputLabel, MenuItem, Select, Stack, Typography } from "@mui/material";
+import { Button, Card, CardContent, Container, FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography } from "@mui/material";
 import { api } from "../api";
+import { useLog } from "../app/log";
 import { useAppState } from "../app/state";
 
 export default function SettingsTab() {
   const { year, setYear, language, setLanguage } = useAppState();
+  const log = useLog();
 
   const yearsQ = useQuery({ queryKey: ["years"], queryFn: api.years, retry: false });
   const languagesQ = useQuery({ queryKey: ["languages", year], queryFn: () => api.languages(year), retry: false });
@@ -55,8 +57,32 @@ export default function SettingsTab() {
             </Stack>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardContent>
+            <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Console output
+              </Typography>
+              <Button size="small" variant="outlined" onClick={log.clear}>
+                Clear
+              </Button>
+            </Stack>
+            <TextField
+              multiline
+              minRows={10}
+              fullWidth
+              value={log.lines
+                .map((l) => {
+                  const ts = new Date(l.ts).toLocaleTimeString();
+                  return `${ts} [${l.level}] ${l.message}`;
+                })
+                .join("\n")}
+              InputProps={{ readOnly: true }}
+            />
+          </CardContent>
+        </Card>
       </Stack>
     </Container>
   );
 }
-

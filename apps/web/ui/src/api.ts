@@ -19,6 +19,13 @@ export type JobResult = { job_id: string; result: unknown };
 export type Impacts = { impacts: { impact: string; unit?: string; decimal_places?: number }[] };
 export type Languages = { languages: string[] };
 export type Hierarchy = { names: string[]; tree: Record<string, unknown>; leaves: { index: number; path: string[] }[] };
+export type SelectionSummary = {
+  year: number;
+  language: string;
+  indices_count: number;
+  supplychain_repr: string;
+  selection: unknown;
+};
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
@@ -47,4 +54,10 @@ export const api = {
     }),
   jobStatus: (jobId: string) => fetchJson<JobStatus>(`/api/v1/jobs/${encodeURIComponent(jobId)}`),
   jobResult: (jobId: string) => fetchJson<JobResult>(`/api/v1/jobs/${encodeURIComponent(jobId)}/result`),
+  selectionSummary: (payload: { year: number; language: string; selection: JobRequest["selection"] }) =>
+    fetchJson<SelectionSummary>("/api/v1/selection/summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
 };

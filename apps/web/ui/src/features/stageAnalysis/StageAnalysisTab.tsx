@@ -15,10 +15,12 @@ import {
 } from "@mui/material";
 import { api, type JobRequest } from "../../api";
 import { useAppState } from "../../app/state";
+import { useLog } from "../../app/log";
 import { stageMethods } from "./methodRegistry";
 
 export default function StageAnalysisTab() {
   const { year, language, selection } = useAppState();
+  const log = useLog();
   const [methodId, setMethodId] = useState(stageMethods[0]?.id ?? "bubble");
   const [impacts, setImpacts] = useState<string[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -50,7 +52,11 @@ export default function StageAnalysisTab() {
 
   const createJobM = useMutation({
     mutationFn: () => api.createJob(payload),
-    onSuccess: (data) => setJobId(data.job_id),
+    onSuccess: (data) => {
+      setJobId(data.job_id);
+      log.info(`Stage job started: ${data.job_id}`);
+    },
+    onError: (e) => log.error(`Stage job failed: ${String(e)}`),
   });
 
   const jobStatusQ = useQuery({
