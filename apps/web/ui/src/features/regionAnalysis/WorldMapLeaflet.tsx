@@ -1,5 +1,6 @@
 import { GeoJSON, MapContainer, TileLayer } from "react-leaflet";
 import type { Feature, FeatureCollection, GeoJsonObject } from "geojson";
+import type { Layer, PathOptions } from "leaflet";
 
 export type GeoJsonV1 = { kind: "geojson_v1"; geojson: string; meta: { impact: string; relative: boolean } };
 
@@ -33,8 +34,8 @@ export default function WorldMapLeaflet({ data }: { data: GeoJsonV1 }) {
       <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       <GeoJSON
         data={fc as unknown as GeoJsonObject}
-        style={(feature) => {
-          const v = getValue(feature as Feature);
+        style={(feature?: Feature): PathOptions => {
+          const v = getValue((feature ?? ({} as Feature)) as Feature);
           return {
             color: "rgba(255,255,255,0.25)",
             weight: 1,
@@ -42,7 +43,7 @@ export default function WorldMapLeaflet({ data }: { data: GeoJsonV1 }) {
             fillOpacity: 0.75,
           };
         }}
-        onEachFeature={(feature, layer) => {
+        onEachFeature={(feature: Feature, layer: Layer) => {
           const props: any = feature.properties || {};
           const label = props.region || props.exiobase || "—";
           const value = props.percentage ?? props.value ?? "—";

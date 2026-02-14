@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Box,
   Checkbox,
@@ -86,7 +86,7 @@ export default function TreeMultiSelect({
     onChange(uniqueSorted(Array.from(next)));
   };
 
-  const renderNode = (node: Node, depth: number) => {
+  const renderNode = (node: Node, depth: number): ReactNode => {
     if (node.id === "root") {
       return node.children.map((c) => renderNode(c, depth));
     }
