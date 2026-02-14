@@ -19,6 +19,7 @@ logging.basicConfig(
 )
 
 databases_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), 'exiobase'))
+databases_dir = os.path.normpath(os.environ.get("EXIOBASE_EXPLORER_DB_DIR", databases_dir))
 logging.info(f"databases_dir: {databases_dir} \n")
 
 pattern = re.compile(r"IOT_(\d{4})_pxp\.zip")

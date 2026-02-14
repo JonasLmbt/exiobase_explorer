@@ -805,7 +805,12 @@ class IOSystem:
         self.project_directory = os.path.dirname(os.path.dirname(__file__))
         self.config_dir = os.path.join(self.project_directory, 'config')
         self.data_dir = os.path.join(self.project_directory, 'data')
-        self.databases_dir = os.path.join(self.project_directory, 'exiobase')
+
+        databases_dir_env = os.environ.get("EXIOBASE_EXPLORER_DB_DIR")
+        if databases_dir_env:
+            self.databases_dir = os.path.normpath(databases_dir_env)
+        else:
+            self.databases_dir = os.path.join(self.project_directory, 'exiobase')
         self.fast_databases_dir = os.path.join(self.databases_dir, 'fast_databases')
 
         self.current_exiobase_path = os.path.join(self.databases_dir, f'IOT_{self.year}_pxp.zip')
