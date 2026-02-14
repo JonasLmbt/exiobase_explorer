@@ -44,7 +44,11 @@ def run_analysis(payload: Dict[str, Any]) -> Dict[str, Any]:
             job.save_meta()
         return result
 
-    time.sleep(0.2)
+    if job is not None:
+        job.meta["progress"] = 1.0
+        job.meta["message"] = f"unknown analysis type: {analysis_type}"
+        job.save_meta()
+    return {"ok": False, "error": "unknown_analysis_type", "analysis_type": analysis_type}
 
     if job is not None:
         job.meta["progress"] = 1.0

@@ -10,6 +10,14 @@ from ...utils import multiindex_to_nested_dict
 router = APIRouter()
 
 
+def _leaves_from_df(df: pd.DataFrame) -> list[dict]:
+    leaves = []
+    for i, row in df.iterrows():
+        path = [str(row[col]) for col in df.columns]
+        leaves.append({"index": int(i), "path": path})
+    return leaves
+
+
 @router.get("/hierarchy/regions")
 def region_hierarchy(
     year: int = Query(..., ge=1995, le=2100),
@@ -21,7 +29,7 @@ def region_hierarchy(
         raise HTTPException(status_code=404, detail=f"regions.xlsx not found: {path.as_posix()}")
     df = pd.read_excel(str(path), sheet_name=language).iloc[:, ::-1]
     mi = pd.MultiIndex.from_arrays([df[col] for col in df.columns], names=df.columns.tolist())
-    return {"names": list(mi.names), "tree": multiindex_to_nested_dict(mi)}
+    return {"names": list(mi.names), "tree": multiindex_to_nested_dict(mi), "leaves": _leaves_from_df(df)}
 
 
 @router.get("/hierarchy/sectors")
@@ -35,7 +43,7 @@ def sector_hierarchy(
         raise HTTPException(status_code=404, detail=f"sectors.xlsx not found: {path.as_posix()}")
     df = pd.read_excel(str(path), sheet_name=language).iloc[:, ::-1]
     mi = pd.MultiIndex.from_arrays([df[col] for col in df.columns], names=df.columns.tolist())
-    return {"names": list(mi.names), "tree": multiindex_to_nested_dict(mi)}
+    return {"names": list(mi.names), "tree": multiindex_to_nested_dict(mi), "leaves": _leaves_from_df(df)}
 
 
 @router.get("/impacts")

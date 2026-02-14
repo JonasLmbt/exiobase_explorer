@@ -34,9 +34,14 @@ class StageBubbleMethod(StageAnalysisMethod):
         elif mode == "regions_sectors":
             regions = [int(x) for x in (selection.get("regions") or [])]
             sectors = [int(x) for x in (selection.get("sectors") or [])]
+            n_sectors = int(iosystem.index.amount_sectors)
+            n_regions = int(iosystem.index.amount_regions)
             if regions and sectors:
-                n_sectors = int(iosystem.index.amount_sectors)
                 indices = [r * n_sectors + s for r in regions for s in sectors]
+            elif regions and not sectors:
+                indices = [r * n_sectors + s for r in regions for s in range(n_sectors)]
+            elif sectors and not regions:
+                indices = [r * n_sectors + s for r in range(n_regions) for s in sectors]
 
         if indices is None:
             indices = list(range(9800))
@@ -50,4 +55,3 @@ class StageBubbleMethod(StageAnalysisMethod):
         png_b64 = fig_to_png_base64(fig)
 
         return {"kind": "image_base64", "mime": "image/png", "data": png_b64}
-
