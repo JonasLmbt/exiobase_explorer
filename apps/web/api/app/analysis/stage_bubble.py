@@ -36,8 +36,6 @@ class StageBubbleMethod(StageAnalysisMethod):
             job_meta["message"] = "rendering"
 
         sc = SupplyChain(iosystem=iosystem, indices=indices)
-        df = sc.calculate_all(impacts=impacts, relative=True, decimal_places=5)
-
         gd = iosystem.index.general_dict
         stages = [
             gd.get("Resource Extraction", "Resource Extraction"),
@@ -48,21 +46,43 @@ class StageBubbleMethod(StageAnalysisMethod):
         ]
 
         items = []
-        for i, impact_key in enumerate(impacts):
-            row = df.iloc[i]
+        for impact_key in impacts:
+            total_abs, unit = sc.total(impact_key)
+            res_abs, _ = sc.resource_extraction(impact_key)
+            pre_abs, _ = sc.preliminary_products(impact_key)
+            direct_abs, _ = sc.direct_suppliers(impact_key)
+            retail_abs, _ = sc.retail(impact_key)
+
+            if total_abs and float(total_abs) != 0.0:
+                rel = [
+                    float(res_abs) / float(total_abs),
+                    float(pre_abs) / float(total_abs),
+                    float(direct_abs) / float(total_abs),
+                    float(retail_abs) / float(total_abs),
+                    1.0,
+                ]
+            else:
+                rel = [0.0, 0.0, 0.0, 0.0, 0.0]
+
+            try:
+                color = sc.iosystem.impact.get_color(impact_key)
+            except Exception:
+                color = "#8ab4f8"
+
             items.append(
                 {
                     "key": impact_key,
-                    "unit": str(row.get(gd.get("Unit", "Unit"), "")),
-                    "color": str(row.get(gd.get("Color", "Color"), "")),
-                    "values": [
-                        float(row[stages[0]]),
-                        float(row[stages[1]]),
-                        float(row[stages[2]]),
-                        float(row[stages[3]]),
-                        float(row[stages[4]]),
+                    "unit": str(unit or ""),
+                    "color": str(color or ""),
+                    "relative": rel,
+                    "absolute": [
+                        float(res_abs),
+                        float(pre_abs),
+                        float(direct_abs),
+                        float(retail_abs),
+                        float(total_abs),
                     ],
                 }
             )
 
-        return {"kind": "stage_table_v1", "stages": stages, "impacts": items, "relative": True}
+        return {"kind": "stage_table_v1", "stages": stages, "impacts": items}
