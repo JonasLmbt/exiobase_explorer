@@ -19,6 +19,8 @@ import { api, type JobRequest } from "../../api";
 import { useAppState } from "../../app/state";
 import { useLog } from "../../app/log";
 import { regionMethods } from "./methodRegistry";
+import WorldMapLeaflet, { type GeoJsonV1 } from "./WorldMapLeaflet";
+import ReactECharts from "echarts-for-react";
 
 export default function RegionAnalysisTab() {
   const { year, language, selection } = useAppState();
@@ -169,16 +171,22 @@ export default function RegionAnalysisTab() {
             </Stack>
           )}
 
-          {jobResultQ.data?.result && isImageResult(jobResultQ.data.result) ? (
-            <Box
-              component="img"
-              alt={method.label}
-              sx={{ width: "100%", maxWidth: 1100, borderRadius: 2, border: "1px solid rgba(255,255,255,0.12)" }}
-              src={`data:${jobResultQ.data.result.mime};base64,${jobResultQ.data.result.data}`}
-            />
+          {jobResultQ.data?.result && isGeoJson(jobResultQ.data.result) ? (
+            <WorldMapLeaflet data={jobResultQ.data.result} />
           ) : null}
 
-          {jobResultQ.data?.result && !isImageResult(jobResultQ.data.result) ? (
+          {jobResultQ.data?.result && isTable(jobResultQ.data.result) ? (
+            <ReactECharts option={tableToBarOption(jobResultQ.data.result)} style={{ height: 480, width: "100%" }} />
+          ) : null}
+
+          {jobResultQ.data?.result && isPie(jobResultQ.data.result) ? (
+            <ReactECharts option={pieToOption(jobResultQ.data.result)} style={{ height: 420, width: "100%" }} />
+          ) : null}
+
+          {jobResultQ.data?.result &&
+          !isGeoJson(jobResultQ.data.result) &&
+          !isTable(jobResultQ.data.result) &&
+          !isPie(jobResultQ.data.result) ? (
             <Box
               component="pre"
               sx={{
@@ -208,4 +216,51 @@ function isImageResult(v: unknown): v is { kind: "image_base64"; mime: string; d
   if (!v || typeof v !== "object") return false;
   const obj = v as any;
   return obj.kind === "image_base64" && typeof obj.mime === "string" && typeof obj.data === "string";
+}
+
+function isGeoJson(v: unknown): v is GeoJsonV1 {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as any;
+  return obj.kind === "geojson_v1" && typeof obj.geojson === "string";
+}
+
+function isTable(v: unknown): v is { kind: "table_v1"; columns: string[]; index: string[]; values: number[][]; meta?: any } {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as any;
+  return obj.kind === "table_v1" && Array.isArray(obj.columns) && Array.isArray(obj.index) && Array.isArray(obj.values);
+}
+
+function isPie(v: unknown): v is { kind: "pie_v1"; rows: { label: string; value: number; unit?: string }[]; meta?: any } {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as any;
+  return obj.kind === "pie_v1" && Array.isArray(obj.rows);
+}
+
+function tableToBarOption(tbl: { columns: string[]; index: string[]; values: number[][]; meta?: any }) {
+  const series = tbl.columns.map((name, j) => ({
+    name,
+    type: "bar",
+    data: tbl.values.map((row) => row[j]),
+  }));
+  return {
+    tooltip: { trigger: "axis" },
+    legend: { top: 0 },
+    grid: { left: 60, right: 20, top: 40, bottom: 90 },
+    xAxis: { type: "category", data: tbl.index, axisLabel: { rotate: 35 } },
+    yAxis: { type: "value" },
+    series,
+  };
+}
+
+function pieToOption(pie: { rows: { label: string; value: number; unit?: string }[]; meta?: any }) {
+  return {
+    tooltip: { trigger: "item" },
+    series: [
+      {
+        type: "pie",
+        radius: "70%",
+        data: pie.rows.map((r) => ({ name: r.label, value: r.value })),
+      },
+    ],
+  };
 }

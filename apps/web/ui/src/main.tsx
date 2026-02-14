@@ -6,6 +6,7 @@ import { theme } from "./theme";
 import { LogProvider } from "./app/log";
 import { AppStateProvider } from "./app/state";
 import AppShell from "./app/AppShell";
+import "leaflet/dist/leaflet.css";
 
 const queryClient = new QueryClient();
 

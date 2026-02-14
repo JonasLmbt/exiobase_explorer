@@ -18,6 +18,7 @@ import { api, type JobRequest } from "../../api";
 import { useAppState } from "../../app/state";
 import { useLog } from "../../app/log";
 import { stageMethods } from "./methodRegistry";
+import StageMatrixChart, { type StageTableV1 } from "./StageMatrixChart";
 
 export default function StageAnalysisTab() {
   const { year, language, selection } = useAppState();
@@ -80,6 +81,14 @@ export default function StageAnalysisTab() {
     enabled: Boolean(jobId) && jobStatusQ.data?.state === "done",
     retry: false,
   });
+
+  const labelByKey = useMemo(() => {
+    const map: Record<string, string> = {};
+    (impactsQ.data?.impacts ?? []).forEach((it) => {
+      map[it.key] = it.label;
+    });
+    return map;
+  }, [impactsQ.data?.impacts]);
 
   const onRun = () => {
     setError(null);
@@ -155,6 +164,16 @@ export default function StageAnalysisTab() {
             </Stack>
           )}
 
+          {jobResultQ.data?.result && isStageTable(jobResultQ.data.result) ? (
+            <StageMatrixChart
+              data={jobResultQ.data.result}
+              impactLabelByKey={labelByKey}
+              onCellClick={({ impactKey, stage, value }) =>
+                log.info(`Clicked cell: ${labelByKey[impactKey] ?? impactKey} / ${stage} = ${(value * 100).toFixed(2)}%`)
+              }
+            />
+          ) : null}
+
           {jobResultQ.data?.result && isImageResult(jobResultQ.data.result) ? (
             <Box
               component="img"
@@ -164,7 +183,9 @@ export default function StageAnalysisTab() {
             />
           ) : null}
 
-          {jobResultQ.data?.result && !isImageResult(jobResultQ.data.result) ? (
+          {jobResultQ.data?.result &&
+          !isImageResult(jobResultQ.data.result) &&
+          !isStageTable(jobResultQ.data.result) ? (
             <Box
               component="pre"
               sx={{
@@ -194,4 +215,10 @@ function isImageResult(v: unknown): v is { kind: "image_base64"; mime: string; d
   if (!v || typeof v !== "object") return false;
   const obj = v as any;
   return obj.kind === "image_base64" && typeof obj.mime === "string" && typeof obj.data === "string";
+}
+
+function isStageTable(v: unknown): v is StageTableV1 {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as any;
+  return obj.kind === "stage_table_v1" && Array.isArray(obj.stages) && Array.isArray(obj.impacts);
 }
