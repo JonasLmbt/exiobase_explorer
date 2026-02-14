@@ -1,4 +1,15 @@
 import { useCallback, useState } from "react";
+import {
+  AppBar,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Container,
+  Stack,
+  Toolbar,
+  Typography,
+} from "@mui/material";
 
 type Health = { status: string };
 type Years = { years: string[] };
@@ -21,29 +32,49 @@ export default function App() {
   }, [load]);
 
   return (
-    <div className="page">
-      <header className="header">
-        <div className="title">EXIOBASE Explorer</div>
-        <button className="button" onClick={onClick}>
-          API testen
-        </button>
-      </header>
+    <Box sx={{ minHeight: "100vh" }}>
+      <AppBar position="sticky" elevation={0} sx={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
+        <Toolbar>
+          <Typography variant="h6" sx={{ fontWeight: 700, flexGrow: 1 }}>
+            EXIOBASE Explorer
+          </Typography>
+          <Button variant="contained" onClick={onClick}>
+            API testen
+          </Button>
+        </Toolbar>
+      </AppBar>
 
-      <main className="main">
-        <section className="card">
-          <div className="cardTitle">Backend</div>
-          <div className="row">
-            <div className="label">Health</div>
-            <div className="value">{health ? health.status : "—"}</div>
-          </div>
-          <div className="row">
-            <div className="label">Years</div>
-            <div className="value">{years.length ? years.join(", ") : "—"}</div>
-          </div>
-          {error ? <div className="error">{error}</div> : null}
-        </section>
-      </main>
-    </div>
+      <Container sx={{ py: 3 }}>
+        <Stack spacing={2}>
+          <Card>
+            <CardContent>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                Backend
+              </Typography>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                <Box sx={{ minWidth: 160, opacity: 0.85 }}>Health</Box>
+                <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
+                  {health ? health.status : "—"}
+                </Box>
+              </Stack>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mt: 1 }}>
+                <Box sx={{ minWidth: 160, opacity: 0.85 }}>Years</Box>
+                <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
+                  {years.length ? years.join(", ") : "—"}
+                </Box>
+              </Stack>
+
+              {error ? (
+                <Box sx={{ mt: 2, color: "#ffd2d2" }}>
+                  <Typography variant="body2">{error}</Typography>
+                </Box>
+              ) : null}
+            </CardContent>
+          </Card>
+        </Stack>
+      </Container>
+    </Box>
   );
 }
-
