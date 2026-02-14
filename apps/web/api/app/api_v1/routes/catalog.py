@@ -99,6 +99,15 @@ def impacts(
     unit_sheet = language if language in unit_sheets else ("Exiobase" if "Exiobase" in unit_sheets else None)
     units_df = pd.read_excel(str(units_path), sheet_name=unit_sheet) if unit_sheet else pd.DataFrame()
 
+    # If impacts.xlsx doesn't have a localized sheet, but units.xlsx does, use its first column as labels.
+    # For German this is typically "Umweltindikator" and matches what IOSystem matrices use.
+    label_source = "impacts.xlsx"
+    if label_sheet == key_sheet and unit_sheet == language and not units_df.empty and units_df.shape[1] >= 1:
+        ulabels = units_df.iloc[:, 0].astype(str).tolist()
+        if len(ulabels) == len(keys):
+            labels = ulabels
+            label_source = "units.xlsx"
+
     items = []
     for idx, key in enumerate(keys):
         label = labels[idx] if idx < len(labels) else key
@@ -131,4 +140,10 @@ def impacts(
             }
         )
 
-    return {"impacts": items, "key_sheet": key_sheet, "label_sheet": label_sheet, "unit_sheet": unit_sheet}
+    return {
+        "impacts": items,
+        "key_sheet": key_sheet,
+        "label_sheet": label_sheet,
+        "unit_sheet": unit_sheet,
+        "label_source": label_source,
+    }
