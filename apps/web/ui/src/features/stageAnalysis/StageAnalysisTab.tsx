@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   CircularProgress,
   FormControl,
   InputLabel,
@@ -113,6 +114,7 @@ export default function StageAnalysisTab() {
               >
                 {(impactsQ.data?.impacts ?? []).map((it) => (
                   <MenuItem key={it.impact} value={it.impact}>
+                    <Checkbox size="small" checked={impacts.includes(it.impact)} sx={{ mr: 1 }} />
                     {it.impact}
                     {it.unit ? ` (${it.unit})` : ""}
                   </MenuItem>
@@ -154,6 +156,21 @@ export default function StageAnalysisTab() {
               sx={{ width: "100%", maxWidth: 1100, borderRadius: 2, border: "1px solid rgba(255,255,255,0.12)" }}
               src={`data:${jobResultQ.data.result.mime};base64,${jobResultQ.data.result.data}`}
             />
+          ) : null}
+
+          {jobResultQ.data?.result && !isImageResult(jobResultQ.data.result) ? (
+            <Box
+              component="pre"
+              sx={{
+                p: 1.5,
+                borderRadius: 2,
+                background: "rgba(255,255,255,0.04)",
+                overflow: "auto",
+                fontSize: "0.85rem",
+              }}
+            >
+              {JSON.stringify(jobResultQ.data.result, null, 2)}
+            </Box>
           ) : null}
 
           {error ? (
