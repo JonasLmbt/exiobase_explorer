@@ -11,6 +11,7 @@ from src.IOSystem import IOSystem
 
 from .base import StageAnalysisMethod
 from .selection_utils import selection_to_indices
+from ..impact_mapping import resolve_impact_label
 
 
 class StageBubbleMethod(StageAnalysisMethod):
@@ -47,11 +48,13 @@ class StageBubbleMethod(StageAnalysisMethod):
 
         items = []
         for impact_key in impacts:
-            total_abs, unit = sc.total(impact_key)
-            res_abs, _ = sc.resource_extraction(impact_key)
-            pre_abs, _ = sc.preliminary_products(impact_key)
-            direct_abs, _ = sc.direct_suppliers(impact_key)
-            retail_abs, _ = sc.retail(impact_key)
+            resolved = resolve_impact_label(year=int(iosystem.year), language=iosystem.language, impact_key=impact_key)
+
+            total_abs, unit = sc.total(resolved)
+            res_abs, _ = sc.resource_extraction(resolved)
+            pre_abs, _ = sc.preliminary_products(resolved)
+            direct_abs, _ = sc.direct_suppliers(resolved)
+            retail_abs, _ = sc.retail(resolved)
 
             if total_abs and float(total_abs) != 0.0:
                 rel = [
@@ -65,7 +68,7 @@ class StageBubbleMethod(StageAnalysisMethod):
                 rel = [0.0, 0.0, 0.0, 0.0, 0.0]
 
             try:
-                color = sc.iosystem.impact.get_color(impact_key)
+                color = sc.iosystem.impact.get_color(resolved)
             except Exception:
                 color = "#8ab4f8"
 

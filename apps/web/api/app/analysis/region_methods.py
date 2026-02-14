@@ -15,6 +15,7 @@ from src.IOSystem import IOSystem
 from ..utils import fig_to_png_base64
 from .region_base import RegionAnalysisMethod
 from .selection_utils import selection_to_indices
+from ..impact_mapping import resolve_impact_label
 
 
 class RegionWorldMapMethod(RegionAnalysisMethod):
@@ -29,7 +30,8 @@ class RegionWorldMapMethod(RegionAnalysisMethod):
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
 
-        fig, world = sc.plot_worldmap_by_impact(str(impact), relative=True, show_legend=False, return_data=True)
+        resolved = resolve_impact_label(year=int(iosystem.year), language=iosystem.language, impact_key=str(impact))
+        fig, world = sc.plot_worldmap_by_impact(str(resolved), relative=True, show_legend=False, return_data=True)
 
         def sanitize(o):
             if isinstance(o, float):
@@ -46,7 +48,7 @@ class RegionWorldMapMethod(RegionAnalysisMethod):
         return {
             "kind": "geojson_v1",
             "geojson": geojson,
-            "meta": {"impact": str(impact), "relative": True},
+            "meta": {"impact": str(impact), "impact_resolved": str(resolved), "relative": True},
         }
 
 
@@ -62,7 +64,11 @@ class RegionTopNMethod(RegionAnalysisMethod):
         n = int((analysis.get("params") or {}).get("n", 10))
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
-        fig, mat = sc.plot_topn_by_impacts(impacts=impacts[:4], n=n, relative=True, orientation="vertical", return_data=True)
+        resolved = [
+            resolve_impact_label(year=int(iosystem.year), language=iosystem.language, impact_key=str(i))
+            for i in impacts[:4]
+        ]
+        fig, mat = sc.plot_topn_by_impacts(impacts=resolved, n=n, relative=True, orientation="vertical", return_data=True)
         return {
             "kind": "table_v1",
             "meta": {"type": "topn", "n": n, "relative": True},
@@ -84,7 +90,11 @@ class RegionFlopNMethod(RegionAnalysisMethod):
         n = int((analysis.get("params") or {}).get("n", 10))
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
-        fig, mat = sc.plot_flopn_by_impacts(impacts=impacts[:4], n=n, relative=True, orientation="vertical", return_data=True)
+        resolved = [
+            resolve_impact_label(year=int(iosystem.year), language=iosystem.language, impact_key=str(i))
+            for i in impacts[:4]
+        ]
+        fig, mat = sc.plot_flopn_by_impacts(impacts=resolved, n=n, relative=True, orientation="vertical", return_data=True)
         return {
             "kind": "table_v1",
             "meta": {"type": "flopn", "n": n, "relative": True},
@@ -105,10 +115,11 @@ class RegionPieMethod(RegionAnalysisMethod):
 
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
-        fig, pie_df = sc.plot_pie_by_impact(str(impact), relative=True, return_data=True)
+        resolved = resolve_impact_label(year=int(iosystem.year), language=iosystem.language, impact_key=str(impact))
+        fig, pie_df = sc.plot_pie_by_impact(str(resolved), relative=True, return_data=True)
         return {
             "kind": "pie_v1",
-            "meta": {"impact": str(impact), "relative": True},
+            "meta": {"impact": str(impact), "impact_resolved": str(resolved), "relative": True},
             "rows": [
                 {"label": str(r["label"]), "value": float(r["value"]), "unit": str(r.get("unit") or "")}
                 for _, r in pie_df.iterrows()
