@@ -16,7 +16,12 @@ export type JobRequest = {
 export type JobCreateResponse = { job_id: string; cached?: boolean };
 export type JobStatus = { job_id: string; state: "queued" | "running" | "done" | "failed"; progress: number; message?: string | null };
 export type JobResult = { job_id: string; result: unknown };
-export type Impacts = { impacts: { impact: string; unit?: string; decimal_places?: number }[] };
+export type Impacts = {
+  impacts: { key: string; label: string; unit?: string; decimal_places?: number }[];
+  key_sheet?: string;
+  label_sheet?: string;
+  unit_sheet?: string | null;
+};
 export type Languages = { languages: string[] };
 export type Hierarchy = { names: string[]; tree: Record<string, unknown>; leaves: { index: number; path: string[] }[] };
 export type SelectionSummary = {

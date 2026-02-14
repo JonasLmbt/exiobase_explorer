@@ -39,7 +39,7 @@ export default function RegionAnalysisTab() {
 
   useEffect(() => {
     if (impacts.length) return;
-    const first = impactsQ.data?.impacts?.[0]?.impact;
+    const first = impactsQ.data?.impacts?.[0]?.key;
     if (first) setImpacts([first]);
   }, [impacts.length, impactsQ.data?.impacts]);
 
@@ -142,11 +142,11 @@ export default function RegionAnalysisTab() {
                 }
               >
                 {(impactsQ.data?.impacts ?? []).map((it) => (
-                  <MenuItem key={it.impact} value={it.impact}>
+                  <MenuItem key={it.key} value={it.key}>
                     {method.maxImpacts > 1 ? (
-                      <Checkbox size="small" checked={impacts.includes(it.impact)} sx={{ mr: 1 }} />
+                      <Checkbox size="small" checked={impacts.includes(it.key)} sx={{ mr: 1 }} />
                     ) : null}
-                    {it.impact}
+                    {it.label}
                     {it.unit ? ` (${it.unit})` : ""}
                   </MenuItem>
                 ))}
