@@ -20,7 +20,7 @@ import { stageMethods } from "./methodRegistry";
 export default function StageAnalysisTab() {
   const { year, language, selection } = useAppState();
   const [methodId, setMethodId] = useState(stageMethods[0]?.id ?? "bubble");
-  const [impact, setImpact] = useState<string>("");
+  const [impacts, setImpacts] = useState<string[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,9 +44,9 @@ export default function StageAnalysisTab() {
       year,
       language,
       selection: sel,
-      analysis: { type: method.analysisType, impacts: impact ? [impact] : [], params: {} },
+      analysis: { type: method.analysisType, impacts, params: {} },
     };
-  }, [impact, language, method.analysisType, selection, year]);
+  }, [impacts, language, method.analysisType, selection, year]);
 
   const createJobM = useMutation({
     mutationFn: () => api.createJob(payload),
@@ -73,6 +73,8 @@ export default function StageAnalysisTab() {
     createJobM.mutate(undefined, { onError: (e) => setError(String(e)) });
   };
 
+  const runDisabled = impacts.length === 0 || createJobM.isPending;
+
   return (
     <Card>
       <CardContent>
@@ -95,7 +97,14 @@ export default function StageAnalysisTab() {
 
             <FormControl sx={{ minWidth: 320, flex: 1 }}>
               <InputLabel id="impact-label">Impact</InputLabel>
-              <Select labelId="impact-label" label="Impact" value={impact} onChange={(e) => setImpact(String(e.target.value))}>
+              <Select
+                labelId="impact-label"
+                label="Impact"
+                multiple
+                value={impacts}
+                onChange={(e) => setImpacts(typeof e.target.value === "string" ? e.target.value.split(",") : e.target.value)}
+                renderValue={(selected) => (selected as string[]).join(", ")}
+              >
                 {(impactsQ.data?.impacts ?? []).map((it) => (
                   <MenuItem key={it.impact} value={it.impact}>
                     {it.impact}
@@ -105,10 +114,14 @@ export default function StageAnalysisTab() {
               </Select>
             </FormControl>
 
-            <Button variant="contained" onClick={onRun} disabled={createJobM.isPending}>
+            <Button variant="contained" onClick={onRun} disabled={runDisabled}>
               Run
             </Button>
           </Stack>
+
+          <Typography variant="body2" sx={{ opacity: 0.75 }}>
+            Auswahl kommt aus dem Tab <b>Selection</b> (Region/Sektor). Ohne Auswahl wird global gerechnet.
+          </Typography>
 
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ opacity: 0.9 }}>
             <Box sx={{ minWidth: 100 }}>Job</Box>
@@ -153,4 +166,3 @@ function isImageResult(v: unknown): v is { kind: "image_base64"; mime: string; d
   const obj = v as any;
   return obj.kind === "image_base64" && typeof obj.mime === "string" && typeof obj.data === "string";
 }
-
