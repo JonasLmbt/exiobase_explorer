@@ -92,7 +92,7 @@ export default function TreeMultiSelect({
     }
 
     const hasChildren = node.children.length > 0;
-    const isExpanded = expanded[node.id] ?? depth < 1;
+    const isExpanded = expanded[node.id] ?? false;
     const allSelected = node.leaves.length > 0 && node.leaves.every((i) => selectedSet.has(i));
     const someSelected = node.leaves.some((i) => selectedSet.has(i));
 
@@ -151,4 +151,3 @@ export default function TreeMultiSelect({
     </Box>
   );
 }
-
