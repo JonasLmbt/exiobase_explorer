@@ -1,0 +1,45 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/web/api/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      MAX_ACTIVE_JOBS: "4"
+      # Mount your existing data folder to /data/exiobase and point the app at it:
+      EXIOBASE_EXPLORER_DB_DIR: /data/exiobase
+    volumes:
+      - ${EXIOBASE_EXPLORER_DB_DIR:-../../exiobase}:/data/exiobase:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/web/api/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      EXIOBASE_EXPLORER_DB_DIR: /data/exiobase
+    volumes:
+      - ${EXIOBASE_EXPLORER_DB_DIR:-../../exiobase}:/data/exiobase:ro
+    command: ["rq", "worker", "--url", "redis://redis:6379/0"]
+    depends_on:
+      - redis
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/ui/Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+

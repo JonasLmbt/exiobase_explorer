@@ -1,0 +1,16 @@
+# Web API runtime deps (includes core analysis libs, excludes PyQt)
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+redis>=5
+rq>=1.16
+
+pandas
+numpy
+matplotlib
+geopandas
+mapclassify
+openpyxl
+plotly
+networkx
+
