@@ -1,14 +1,23 @@
 import { useMemo, useState } from "react";
-import { AppBar, Box, Tab, Tabs, Toolbar, Typography } from "@mui/material";
+import { useQuery } from "@tanstack/react-query";
+import { AppBar, Box, Chip, Tab, Tabs, Toolbar, Typography } from "@mui/material";
 import SelectionTab from "../pages/SelectionTab";
 import VisualisationTab from "../pages/VisualisationTab";
 import SettingsTab from "../pages/SettingsTab";
 import ConsoleTab from "../pages/ConsoleTab";
+import { api } from "../api";
 
 type TabId = "selection" | "visualisation" | "console" | "settings";
 
 export default function AppShell() {
   const [tab, setTab] = useState<TabId>("selection");
+
+  const healthQ = useQuery({
+    queryKey: ["health"],
+    queryFn: api.health,
+    retry: false,
+    refetchInterval: 10_000,
+  });
 
   const content = useMemo(() => {
     switch (tab) {
@@ -38,6 +47,14 @@ export default function AppShell() {
             <Tab value="console" label="Console" />
             <Tab value="settings" label="Settings" />
           </Tabs>
+
+          <Box sx={{ flex: 1 }} />
+          <Chip
+            size="small"
+            variant="outlined"
+            label={healthQ.data?.status === "ok" ? "API: online" : "API: offline"}
+            color={healthQ.data?.status === "ok" ? "success" : "error"}
+          />
         </Toolbar>
       </AppBar>
 
@@ -45,4 +62,3 @@ export default function AppShell() {
     </Box>
   );
 }
-
