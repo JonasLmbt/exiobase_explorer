@@ -1,7 +1,7 @@
 import ReactECharts from "echarts-for-react";
 
-type ImpactRow = { key: string; unit: string; color: string; values: number[] };
-export type StageTableV1 = { kind: "stage_table_v1"; stages: string[]; impacts: ImpactRow[]; relative: boolean };
+type ImpactRow = { key: string; unit: string; color: string; relative: number[]; absolute: number[] };
+export type StageTableV1 = { kind: "stage_table_v1"; stages: string[]; impacts: ImpactRow[] };
 
 export default function StageMatrixChart({
   data,
@@ -15,10 +15,17 @@ export default function StageMatrixChart({
   const stages = data.stages;
   const impacts = data.impacts;
 
-  const points: Array<[number, number, number, string, string]> = [];
+  const points: Array<[number, number, number, number, string, string]> = [];
   for (let y = 0; y < impacts.length; y++) {
     for (let x = 0; x < stages.length; x++) {
-      points.push([x, y, impacts[y].values[x] ?? 0, impacts[y].key, stages[x]]);
+      points.push([
+        x,
+        y,
+        impacts[y].relative[x] ?? 0,
+        impacts[y].absolute[x] ?? 0,
+        impacts[y].key,
+        stages[x],
+      ]);
     }
   }
 
@@ -36,10 +43,13 @@ export default function StageMatrixChart({
     tooltip: {
       trigger: "item",
       formatter: (p: any) => {
-        const [, , v, k, s] = p.data as any[];
+        const [, , vRel, vAbs, k, s] = p.data as any[];
         const label = impactLabelByKey[k] ?? k;
-        const val = typeof v === "number" ? v : Number(v);
-        return `${label}<br/>${s}: <b>${(val * 100).toFixed(2)}%</b>`;
+        const rel = typeof vRel === "number" ? vRel : Number(vRel);
+        const abs = typeof vAbs === "number" ? vAbs : Number(vAbs);
+        const row = impacts.find((i) => i.key === k);
+        const unit = row?.unit ? ` ${row.unit}` : "";
+        return `${label}<br/>${s}: <b>${(rel * 100).toFixed(2)}%</b><br/>abs: <b>${abs.toLocaleString()}</b>${unit}`;
       },
     },
     series: [
@@ -70,7 +80,7 @@ export default function StageMatrixChart({
         onCellClick
           ? {
               click: (p: any) => {
-                const [, , v, k, s] = p.data as any[];
+                const [, , v, , k, s] = p.data as any[];
                 onCellClick({ impactKey: String(k), stage: String(s), value: Number(v) });
               },
             }
@@ -79,4 +89,3 @@ export default function StageMatrixChart({
     />
   );
 }
-
