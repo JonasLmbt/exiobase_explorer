@@ -16,6 +16,8 @@ export type JobRequest = {
 export type JobCreateResponse = { job_id: string; cached?: boolean };
 export type JobStatus = { job_id: string; state: "queued" | "running" | "done" | "failed"; progress: number; message?: string | null };
 export type JobResult = { job_id: string; result: unknown };
+export type Impacts = { impacts: { impact: string; unit?: string; decimal_places?: number }[] };
+export type Languages = { languages: string[] };
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
@@ -29,6 +31,9 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => fetchJson<Health>("/api/v1/health"),
   years: () => fetchJson<Years>("/api/v1/meta/years"),
+  languages: (year: number) => fetchJson<Languages>(`/api/v1/meta/languages?year=${encodeURIComponent(year)}`),
+  impacts: (year: number, language: string) =>
+    fetchJson<Impacts>(`/api/v1/impacts?year=${encodeURIComponent(year)}&language=${encodeURIComponent(language)}`),
   createJob: (payload: JobRequest) =>
     fetchJson<JobCreateResponse>("/api/v1/jobs", {
       method: "POST",
@@ -38,4 +43,3 @@ export const api = {
   jobStatus: (jobId: string) => fetchJson<JobStatus>(`/api/v1/jobs/${encodeURIComponent(jobId)}`),
   jobResult: (jobId: string) => fetchJson<JobResult>(`/api/v1/jobs/${encodeURIComponent(jobId)}/result`),
 };
-
