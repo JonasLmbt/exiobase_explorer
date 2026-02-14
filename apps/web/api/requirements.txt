@@ -6,3 +6,8 @@ numpy
 openpyxl
 redis>=5
 rq>=1.16
+matplotlib
+geopandas
+mapclassify
+plotly
+networkx
