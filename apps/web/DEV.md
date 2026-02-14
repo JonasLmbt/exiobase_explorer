@@ -2,11 +2,12 @@
 
 ## Lokal (ohne Docker)
 
-### 1) Redis starten
-Am einfachsten via Docker:
-```bash
-docker run --rm -p 6379:6379 redis:7-alpine
+### 1) Redis starten (optional)
+Für den normalen Job-Betrieb brauchst du Redis + Worker. Wenn du **kein Redis** installieren willst, kannst du Jobs auch synchron im API-Prozess laufen lassen:
+```powershell
+$env:USE_SYNC_JOBS="1"
 ```
+Dann brauchst du **keinen** Redis/Worker für die ersten Tests (aber Requests blockieren während der Rechnung).
 
 ### 2) API starten
 ```powershell
