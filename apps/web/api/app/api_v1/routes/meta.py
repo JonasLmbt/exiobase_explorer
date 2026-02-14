@@ -7,7 +7,7 @@ from typing import List
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
-from ...paths import fast_database_path, fast_databases_dir
+from ...paths import config_dir, fast_database_path, fast_databases_dir
 
 router = APIRouter()
 
@@ -35,10 +35,12 @@ def list_years() -> dict:
 def list_languages(year: int = Query(..., ge=1995, le=2100)) -> dict:
     general_xlsx = fast_database_path(year) / "general.xlsx"
     if not general_xlsx.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"general.xlsx not found for year={year}. Expected at: {general_xlsx.as_posix()}",
-        )
+        general_xlsx = config_dir() / "general.xlsx"
+        if not general_xlsx.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"general.xlsx not found for year={year}. Expected at: {general_xlsx.as_posix()}",
+            )
 
     try:
         with pd.ExcelFile(str(general_xlsx)) as xls:

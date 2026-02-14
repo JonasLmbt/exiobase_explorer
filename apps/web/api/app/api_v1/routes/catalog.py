@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 import pandas as pd
 
-from ...paths import fast_database_path
+from ...paths import config_dir, fast_database_path
 from ...utils import multiindex_to_nested_dict
 
 router = APIRouter()
@@ -26,7 +26,9 @@ def region_hierarchy(
     db = fast_database_path(year)
     path = db / "regions.xlsx"
     if not path.exists():
-        raise HTTPException(status_code=404, detail=f"regions.xlsx not found: {path.as_posix()}")
+        path = config_dir() / "regions.xlsx"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"regions.xlsx not found: {path.as_posix()}")
     df = pd.read_excel(str(path), sheet_name=language).iloc[:, ::-1]
     mi = pd.MultiIndex.from_arrays([df[col] for col in df.columns], names=df.columns.tolist())
     return {"names": list(mi.names), "tree": multiindex_to_nested_dict(mi), "leaves": _leaves_from_df(df)}
@@ -40,7 +42,9 @@ def sector_hierarchy(
     db = fast_database_path(year)
     path = db / "sectors.xlsx"
     if not path.exists():
-        raise HTTPException(status_code=404, detail=f"sectors.xlsx not found: {path.as_posix()}")
+        path = config_dir() / "sectors.xlsx"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"sectors.xlsx not found: {path.as_posix()}")
     df = pd.read_excel(str(path), sheet_name=language).iloc[:, ::-1]
     mi = pd.MultiIndex.from_arrays([df[col] for col in df.columns], names=df.columns.tolist())
     return {"names": list(mi.names), "tree": multiindex_to_nested_dict(mi), "leaves": _leaves_from_df(df)}
@@ -55,9 +59,13 @@ def impacts(
     impacts_path = db / "impacts.xlsx"
     units_path = db / "units.xlsx"
     if not impacts_path.exists():
-        raise HTTPException(status_code=404, detail=f"impacts.xlsx not found: {impacts_path.as_posix()}")
+        impacts_path = config_dir() / "impacts.xlsx"
+        if not impacts_path.exists():
+            raise HTTPException(status_code=404, detail=f"impacts.xlsx not found: {impacts_path.as_posix()}")
     if not units_path.exists():
-        raise HTTPException(status_code=404, detail=f"units.xlsx not found: {units_path.as_posix()}")
+        units_path = config_dir() / "units.xlsx"
+        if not units_path.exists():
+            raise HTTPException(status_code=404, detail=f"units.xlsx not found: {units_path.as_posix()}")
 
     impacts_df = pd.read_excel(str(impacts_path), sheet_name=language)
     units_df = pd.read_excel(str(units_path), sheet_name=language)
