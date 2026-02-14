@@ -1,0 +1,94 @@
+:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: #0b1220;
+  color: #e7eefc;
+}
+
+body {
+  margin: 0;
+}
+
+.page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(231, 238, 252, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(8px);
+}
+
+.title {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.button {
+  border: 1px solid rgba(231, 238, 252, 0.2);
+  background: rgba(231, 238, 252, 0.08);
+  color: inherit;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: rgba(231, 238, 252, 0.12);
+}
+
+.main {
+  padding: 20px;
+  display: grid;
+  place-items: start center;
+}
+
+.card {
+  width: min(900px, 100%);
+  border: 1px solid rgba(231, 238, 252, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.cardTitle {
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(231, 238, 252, 0.08);
+}
+
+.row:first-of-type {
+  border-top: 0;
+}
+
+.label {
+  opacity: 0.8;
+}
+
+.value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.95rem;
+}
+
+.error {
+  margin-top: 12px;
+  color: #ffd2d2;
+  background: rgba(255, 0, 0, 0.12);
+  border: 1px solid rgba(255, 0, 0, 0.2);
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
