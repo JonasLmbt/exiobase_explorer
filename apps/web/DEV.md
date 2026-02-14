@@ -31,6 +31,11 @@ npm install
 npm run dev
 ```
 
+### 5) Testen
+- UI: `http://localhost:5173`
+- API health: `http://localhost:8000/api/v1/health`
+- In der UI: **Impact auswählen** → **API testen** → Bubble-Diagramm erscheint (als Bild).
+
 ## Docker Compose (api+worker+redis+nginx)
 
 ```powershell
@@ -40,4 +45,3 @@ docker compose -f apps/web/compose.yml up --build
 
 - UI: `http://localhost:8080`
 - API: `http://localhost:8000/api/v1/health`
-
