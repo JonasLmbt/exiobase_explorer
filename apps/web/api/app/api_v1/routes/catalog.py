@@ -18,6 +18,22 @@ def _leaves_from_df(df: pd.DataFrame) -> list[dict]:
     return leaves
 
 
+def _read_excel_first_col(path, sheet_name: str) -> list[str]:
+    df = pd.read_excel(str(path), sheet_name=sheet_name)
+    if df.shape[1] < 1:
+        return []
+    col0 = df.columns[0]
+    return df[col0].astype(str).tolist()
+
+
+def _available_sheets(path) -> list[str]:
+    try:
+        with pd.ExcelFile(str(path)) as xls:
+            return list(xls.sheet_names)
+    except Exception:
+        return []
+
+
 @router.get("/hierarchy/regions")
 def region_hierarchy(
     year: int = Query(..., ge=1995, le=2100),
@@ -67,23 +83,52 @@ def impacts(
         if not units_path.exists():
             raise HTTPException(status_code=404, detail=f"units.xlsx not found: {units_path.as_posix()}")
 
-    impacts_df = pd.read_excel(str(impacts_path), sheet_name=language)
-    units_df = pd.read_excel(str(units_path), sheet_name=language)
+    impact_sheets = _available_sheets(impacts_path)
+    unit_sheets = _available_sheets(units_path)
 
-    unit_by_impact = {}
-    if units_df is not None and "impact" in units_df.columns:
-        unit_by_impact = {
-            str(row["impact"]): {
-                "unit": str(row.get("new unit") or row.get("exiobase unit") or ""),
-                "decimal_places": int(row.get("decimal places") or 0),
-                "divisor": float(row.get("divisor") or 1.0),
-            }
-            for _, row in units_df.iterrows()
-        }
+    # Canonical keys should always come from the "Exiobase" sheet when possible.
+    key_sheet = "Exiobase" if "Exiobase" in impact_sheets else language
+    label_sheet = language if language in impact_sheets else key_sheet
+
+    keys = _read_excel_first_col(impacts_path, key_sheet)
+    labels = _read_excel_first_col(impacts_path, label_sheet)
+    if len(labels) != len(keys):
+        labels = list(keys)
+
+    # Units: read same-row meta; use requested language if present for nicer labels.
+    unit_sheet = language if language in unit_sheets else ("Exiobase" if "Exiobase" in unit_sheets else None)
+    units_df = pd.read_excel(str(units_path), sheet_name=unit_sheet) if unit_sheet else pd.DataFrame()
 
     items = []
-    for impact in impacts_df["impact"].astype(str).tolist():
-        meta = unit_by_impact.get(impact, {})
-        items.append({"impact": impact, **meta})
+    for idx, key in enumerate(keys):
+        label = labels[idx] if idx < len(labels) else key
+        unit = ""
+        divisor = 1.0
+        decimal_places = 0
 
-    return {"impacts": items}
+        if not units_df.empty and idx < len(units_df.index) and units_df.shape[1] >= 5:
+            row = units_df.iloc[idx]
+            try:
+                divisor = float(row.iloc[2]) if row.iloc[2] is not None else 1.0
+            except Exception:
+                divisor = 1.0
+            try:
+                decimal_places = int(row.iloc[3]) if row.iloc[3] is not None else 0
+            except Exception:
+                decimal_places = 0
+            try:
+                unit = str(row.iloc[4] or "")
+            except Exception:
+                unit = ""
+
+        items.append(
+            {
+                "key": str(key),
+                "label": str(label),
+                "unit": unit,
+                "decimal_places": decimal_places,
+                "divisor": divisor,
+            }
+        )
+
+    return {"impacts": items, "key_sheet": key_sheet, "label_sheet": label_sheet, "unit_sheet": unit_sheet}
