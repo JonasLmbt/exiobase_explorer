@@ -125,7 +125,7 @@ export default function StageAnalysisTab() {
                 multiple
                 value={impacts}
                 onChange={(e) => setImpacts(typeof e.target.value === "string" ? e.target.value.split(",") : e.target.value)}
-                renderValue={(selected) => (selected as string[]).join(", ")}
+                renderValue={(selected) => (selected as string[]).map((k) => labelByKey[k] ?? k).join(", ")}
               >
                 {(impactsQ.data?.impacts ?? []).map((it) => (
                   <MenuItem key={it.key} value={it.key}>
@@ -156,6 +156,17 @@ export default function StageAnalysisTab() {
               {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : "—"}
             </Box>
           </Stack>
+
+          {jobStatusQ.data?.state === "failed" ? (
+            <Box sx={{ color: "#ffd2d2" }}>
+              <Typography
+                variant="body2"
+                sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}
+              >
+                {jobStatusQ.data.message ?? "Job failed"}
+              </Typography>
+            </Box>
+          ) : null}
 
           {(createJobM.isPending || jobStatusQ.isFetching) && (
             <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.9 }}>

@@ -88,6 +88,14 @@ export default function RegionAnalysisTab() {
     retry: false,
   });
 
+  const labelByKey = useMemo(() => {
+    const map: Record<string, string> = {};
+    (impactsQ.data?.impacts ?? []).forEach((it) => {
+      map[it.key] = it.label;
+    });
+    return map;
+  }, [impactsQ.data?.impacts]);
+
   const runDisabled = impacts.length === 0 || createJobM.isPending;
 
   const onRun = () => {
@@ -139,9 +147,10 @@ export default function RegionAnalysisTab() {
                   const next = (v as string[]).slice(0, method.maxImpacts);
                   setImpacts(next);
                 }}
-                renderValue={(selected) =>
-                  Array.isArray(selected) ? (selected as string[]).join(", ") : String(selected)
-                }
+                renderValue={(selected) => {
+                  const arr = Array.isArray(selected) ? (selected as string[]) : [String(selected)];
+                  return arr.map((k) => labelByKey[k] ?? k).join(", ");
+                }}
               >
                 {(impactsQ.data?.impacts ?? []).map((it) => (
                   <MenuItem key={it.key} value={it.key}>
@@ -174,6 +183,17 @@ export default function RegionAnalysisTab() {
               {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : "—"}
             </Box>
           </Stack>
+
+          {jobStatusQ.data?.state === "failed" ? (
+            <Box sx={{ color: "#ffd2d2" }}>
+              <Typography
+                variant="body2"
+                sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}
+              >
+                {jobStatusQ.data.message ?? "Job failed"}
+              </Typography>
+            </Box>
+          ) : null}
 
           {(createJobM.isPending || jobStatusQ.isFetching) && (
             <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.9 }}>
