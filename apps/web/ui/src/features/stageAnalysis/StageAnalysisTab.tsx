@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Box,
@@ -34,6 +34,12 @@ export default function StageAnalysisTab() {
     queryFn: () => api.impacts(year, language),
     retry: false,
   });
+
+  useEffect(() => {
+    if (impacts.length) return;
+    const first = impactsQ.data?.impacts?.[0]?.impact;
+    if (first) setImpacts([first]);
+  }, [impacts.length, impactsQ.data?.impacts]);
 
   const payload = useMemo<JobRequest>(() => {
     const sel =

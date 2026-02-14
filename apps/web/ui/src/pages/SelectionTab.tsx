@@ -83,9 +83,22 @@ export default function SelectionTab() {
               </Button>
             </Stack>
             {selectionSummary ? (
-              <Typography variant="body2" sx={{ mt: 1, opacity: 0.85, fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}>
-                {selectionSummary.supplychain_repr}
-              </Typography>
+              <Stack spacing={0.5} sx={{ mt: 1 }}>
+                <Typography
+                  variant="body2"
+                  sx={{ opacity: 0.85, fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}
+                >
+                  {selectionSummary.supplychain_repr}
+                </Typography>
+                {selectionSummary.selection_mode === "hierarchy" && selectionSummary.hierarchy_kwargs ? (
+                  <Typography variant="body2" sx={{ opacity: 0.7 }}>
+                    Hierarchy:{" "}
+                    <span style={{ fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}>
+                      {JSON.stringify(selectionSummary.hierarchy_kwargs)}
+                    </span>
+                  </Typography>
+                ) : null}
+              </Stack>
             ) : null}
           </CardContent>
         </Card>

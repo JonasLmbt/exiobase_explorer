@@ -25,6 +25,8 @@ export type SelectionSummary = {
   indices_count: number;
   supplychain_repr: string;
   selection: unknown;
+  selection_mode?: string;
+  hierarchy_kwargs?: Record<string, unknown>;
 };
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
