@@ -1,12 +1,16 @@
-import { Container, Typography } from "@mui/material";
+import { Card, CardContent, Container, Stack } from "@mui/material";
+import LogConsole from "../components/LogConsole";
 
 export default function ConsoleTab() {
   return (
     <Container sx={{ py: 3 }}>
-      <Typography variant="body2" sx={{ opacity: 0.8 }}>
-        Console (coming soon): später Logs/Job-Historie.
-      </Typography>
+      <Stack spacing={2}>
+        <Card>
+          <CardContent>
+            <LogConsole title="Console output" />
+          </CardContent>
+        </Card>
+      </Stack>
     </Container>
   );
 }
-
