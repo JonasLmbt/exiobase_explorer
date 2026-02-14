@@ -1,23 +1,44 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
 from rq import Queue
 from rq.job import Job
 
 from fastapi import APIRouter, HTTPException
 
+from ...jobs import run_analysis
 from ...redis_conn import get_redis_connection
 from ...schemas import JobRequest, JobStatus
-from ...jobs import run_analysis
 
 router = APIRouter()
+
+CACHE_TTL_SECONDS = 24 * 60 * 60
 
 
 @router.post("/jobs")
 def create_job(req: JobRequest) -> dict:
     conn = get_redis_connection()
+    payload = req.model_dump()
+
+    cache_key = "jobcache:" + hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+    cached_job_id = conn.get(cache_key)
+    if cached_job_id:
+        cached_job_id_str = cached_job_id.decode("utf-8", errors="ignore")
+        try:
+            Job.fetch(cached_job_id_str, connection=conn)
+            return {"job_id": cached_job_id_str, "cached": True}
+        except Exception:
+            conn.delete(cache_key)
+
     queue = Queue(connection=conn)
-    job = queue.enqueue(run_analysis, req.model_dump())
-    return {"job_id": job.id}
+    job = queue.enqueue(run_analysis, payload, result_ttl=CACHE_TTL_SECONDS)
+    conn.set(cache_key, job.id, ex=CACHE_TTL_SECONDS)
+    return {"job_id": job.id, "cached": False}
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatus)
@@ -56,4 +77,3 @@ def get_job_result(job_id: str) -> dict:
         raise HTTPException(status_code=409, detail=f"Job not finished (status={status})")
 
     return {"job_id": job.id, "result": job.result}
-
