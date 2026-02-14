@@ -42,7 +42,7 @@ class SettingsTab(QWidget):
 
     theme_changed = pyqtSignal(str)
 
-    def __init__(self, ui, log_widget=None, show_indices_state=None, current_theme=None):
+    def __init__(self, ui, log_widget=None, show_indices_state=None, current_theme=None, export_with_background_state=None):
         """
         Initialize the SettingsTab widget.
 
@@ -76,7 +76,7 @@ class SettingsTab(QWidget):
         self._get_languages()
         self._get_years()
 
-        self._init_ui(show_indices_state)
+        self._init_ui(show_indices_state, export_with_background_state)
 
     def _translate(self, key, fallback):
         """Get text from general_dict with fallback."""
@@ -114,14 +114,14 @@ class SettingsTab(QWidget):
             if self.current_year not in self.years:
                 self.years.append(self.current_year)
 
-    def _init_ui(self, show_indices_state=None):
+    def _init_ui(self, show_indices_state=None, export_with_background_state=None):
         """Initialize the UI components."""
         layout = QVBoxLayout(self)
 
         general_group = self._create_general_settings_group()
         layout.addWidget(general_group)
 
-        options_group = self._create_options_group(show_indices_state)
+        options_group = self._create_options_group(show_indices_state, export_with_background_state)
         layout.addWidget(options_group)
 
         console_group = QGroupBox(self._translate("Console Output", "Console Output"))
@@ -151,7 +151,7 @@ class SettingsTab(QWidget):
 
         return group
 
-    def _create_options_group(self, show_indices_state=None):
+    def _create_options_group(self, show_indices_state=None, export_with_background_state=None):
         group = QGroupBox(self._translate("Options", "Options"))
         layout = QVBoxLayout(group)
 
@@ -162,6 +162,18 @@ class SettingsTab(QWidget):
         else:
             self.show_indices_checkbox.setChecked(True)
         first_row.addWidget(self.show_indices_checkbox)
+        self.export_with_background_checkbox = QCheckBox(
+            self._translate("Export graphics with background", "Export graphics with background")
+        )
+        if export_with_background_state is not None:
+            self.export_with_background_checkbox.setChecked(bool(export_with_background_state))
+        else:
+            self.export_with_background_checkbox.setChecked(
+                bool(getattr(self.ui, "export_graphics_with_background", False))
+            )
+        self.export_with_background_checkbox.toggled.connect(self._on_export_with_background_toggled)
+        first_row.addWidget(self.export_with_background_checkbox)
+        self.ui.export_graphics_with_background = bool(self.export_with_background_checkbox.isChecked())
         layout.addLayout(first_row)
 
         theme_row = QHBoxLayout()
@@ -234,5 +246,14 @@ class SettingsTab(QWidget):
         except Exception as e:
             logging.error(f"Error changing theme: {e}")
 
+    def _on_export_with_background_toggled(self, checked: bool):
+        try:
+            self.ui.export_graphics_with_background = bool(checked)
+        except Exception as e:
+            logging.error(f"Error changing export background option: {e}")
+
     def is_show_indices_active(self):
         return self.show_indices_checkbox.isChecked()
+
+    def is_export_with_background_active(self):
+        return self.export_with_background_checkbox.isChecked()

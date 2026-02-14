@@ -1,0 +1,14 @@
+.git/
+venv/
+.webvenv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Huge data folders (must never be part of docker build context)
+exiobase/
+
+# Frontend artifacts
+apps/web/ui/node_modules/
+apps/web/ui/dist/
+

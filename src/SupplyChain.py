@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.colors as mcolors
 from matplotlib.cm import get_cmap
+from matplotlib.ticker import FuncFormatter
 import re
 from matplotlib.colors import Normalize, BoundaryNorm
 
@@ -420,7 +421,8 @@ class SupplyChain:
             impacts: List[str],
             relative: bool = True,
             decimal_places: int = 2,
-            row_length: int = 35
+            row_length: int = 35,
+            unit_style: str = "short",
     ) -> pd.DataFrame:
         """
         Calculate environmental impacts across the supply chain.
@@ -432,6 +434,7 @@ class SupplyChain:
             relative: If True, returns relative proportions; if False, absolute values
             decimal_places: Number of decimal places for rounding
             row_length: Maximum length for text wrapping
+            unit_style: Unit label style for display ("short" or "long")
 
         Returns:
             DataFrame containing calculated impacts for each stage
@@ -440,25 +443,51 @@ class SupplyChain:
             raise ValueError("At least one impact must be specified")
 
         data = []
+        style = "long" if str(unit_style).strip().lower() == "long" else "short"
 
         for impact in impacts:
             try:
                 # Calculate impacts for all supply chain stages
                 total_val, unit = self.total(impact)
+                total_for_relative = float(total_val)
                 res_val, _ = self.resource_extraction(impact)
                 pre_val, _ = self.preliminary_products(impact)
                 direct_val, _ = self.direct_suppliers(impact)
                 ret_val, _ = self.retail(impact)
 
+                # Prefer new unit formatter (units.xlsx) for total display value + localized unit label.
+                # This enables labels like 1e[n]_long per selected language.
+                try:
+                    idx = self.iosystem.index
+                    uf = getattr(idx, "unit_formatter", None)
+                    if uf is not None:
+                        impact_key = idx.impact_key_from_label(str(impact))
+                        total_source = (
+                            self.iosystem.impact.total.loc[impact]
+                            .iloc[:, self.indices]
+                            .sum()
+                            .sum()
+                        )
+                        meta = uf.format_value(str(impact_key), float(total_source), self.iosystem.language, style=style)
+                        total_val = float(meta.get("value_display", total_val))
+                        unit_key = "unit_long" if style == "long" else "unit_short"
+                        unit = str(meta.get(unit_key) or unit or "").strip()
+                except Exception:
+                    pass
+
                 # Get color for visualization
                 color = self.iosystem.impact.get_color(impact)
 
                 # Convert to relative values if requested
-                if relative and total_val != 0:
-                    res_val /= total_val
-                    pre_val /= total_val
-                    direct_val /= total_val
-                    ret_val /= total_val
+                if relative and total_for_relative != 0:
+                    # IMPORTANT:
+                    # Relative shares must be computed against the same scale used for stage values.
+                    # total_val may be replaced by a differently-scaled display value (unit formatter),
+                    # which must not affect percentages.
+                    res_val /= total_for_relative
+                    pre_val /= total_for_relative
+                    direct_val /= total_for_relative
+                    ret_val /= total_for_relative
 
                 # Append calculated values
                 data.append([
@@ -549,7 +578,8 @@ class SupplyChain:
             lines: bool = True,
             line_width: float = 1,
             line_color: str = "gray",
-            text_position: str = "center"
+            text_position: str = "center",
+            transparent_background: bool = False,
     ) -> plt.Figure:
         """
         Visualize environmental impacts along the supply chain.
@@ -571,6 +601,7 @@ class SupplyChain:
         """
         if not impacts:
             fig, ax = plt.subplots(figsize=(10, 6))
+            self._apply_plot_background(fig, ax, transparent=transparent_background)
             ax.set_title("No impacts selected", fontsize=14, fontweight="bold", pad=20)
             ax.axis('off')
             return fig
@@ -581,7 +612,7 @@ class SupplyChain:
             title = f'{general_dict["Supply Chain Analysis"]} {self._get_title()}'
 
         # Get relative environmental impact data
-        df_rel = self.calculate_all(impacts=impacts, relative=True, decimal_places=5)
+        df_rel = self.calculate_all(impacts=impacts, relative=True, decimal_places=5, unit_style="long")
 
         # Extract labels and data
         col_labels = df_rel.columns[:5].tolist()
@@ -589,6 +620,7 @@ class SupplyChain:
 
         # Create figure and axis
         fig, ax = plt.subplots(figsize=(10, 6))
+        self._apply_plot_background(fig, ax, transparent=transparent_background)
         fig.set_dpi(size * 100)
 
         # Set plot title
@@ -621,6 +653,28 @@ class SupplyChain:
         fig.tight_layout()
         plt.close(fig)  # PREVENTS DISPLAY IN WINDOW DURING USE
         return fig
+
+    @staticmethod
+    def _apply_plot_background(fig: plt.Figure, ax: Optional[plt.Axes] = None, *, transparent: bool = False) -> None:
+        """
+        Apply plot background style.
+
+        If `transparent=True`, the figure/axes background becomes transparent,
+        which avoids bright white panels in dark UI themes.
+        """
+        if not transparent:
+            return
+        try:
+            fig.patch.set_alpha(0.0)
+            fig.patch.set_facecolor("none")
+        except Exception:
+            pass
+        if ax is not None:
+            try:
+                ax.patch.set_alpha(0.0)
+                ax.set_facecolor("none")
+            except Exception:
+                pass
 
     def _draw_grid_lines(
             self,
@@ -727,6 +781,8 @@ class SupplyChain:
             relative: bool = True,
             show_legend: bool = False,
             return_data: bool = False,
+            value_mode: str = "value",            # "value" | "per_capita"
+            transparent_background: bool = False,
             # pass-through to map function for consistent behavior
             mode: str = "binned",                 # "continuous" or "binned"
             k: int = 7,                           # classes if no custom_bins
@@ -772,12 +828,14 @@ class SupplyChain:
             title=title,
             show_legend=show_legend,
             return_data=return_data,
+            value_mode=value_mode,
             mode=mode,
             k=k,
             custom_bins=custom_bins,
             norm_mode=norm_mode,
             robust=robust,
-            gamma=gamma
+            gamma=gamma,
+            transparent_background=transparent_background,
         )
 
     def plot_worldmap_by_impact(
@@ -788,6 +846,8 @@ class SupplyChain:
             relative: bool = True,
             show_legend: bool = False,
             return_data: bool = False,
+            value_mode: str = "value",            # "value" | "per_capita"
+            transparent_background: bool = False,
             # pass-through to map function
             mode: str = "binned",                 # "continuous" or "binned"
             k: int = 7,                           # classes if no custom_bins
@@ -807,17 +867,51 @@ class SupplyChain:
             .tolist()
         )
 
-        # Unit transformation
-        values = [self.transform_unit(value=value, impact=impact)[0] for value in values]
+        # Unit transformation (prefer new dynamic scaling config if available)
+        unit_scalar = self.iosystem.impact.get_unit(impact)
+        unit_display_meta = None
+        try:
+            idx = self.iosystem.index
+            uf = getattr(idx, "unit_formatter", None)
+            if uf is not None:
+                impact_key = idx.impact_key_from_label(impact)
+                # Choose exponent based on the maximum absolute value (consistent scaling across regions).
+                max_abs = max((abs(float(v)) for v in values if v is not None), default=0.0)
+                meta = uf.format_value(impact_key, max_abs, self.iosystem.language, style="short")
+                chosen_factor = float(meta.get("chosen_factor") or 1.0)
+                unit_scalar = str(meta.get("unit_short") or unit_scalar or "").strip()
+
+                # Convert source -> base and apply chosen factor (divisor in base units).
+                core = uf._cfg.core_by_key.get(impact_key)  # type: ignore[attr-defined]
+                source_to_base = float(getattr(core, "source_to_base", 1.0) or 1.0) if core else 1.0
+                divisor_source = chosen_factor / source_to_base if source_to_base else chosen_factor
+
+                if divisor_source and divisor_source != 0:
+                    values = [float(v) / float(divisor_source) for v in values]
+
+                # Provide metadata so per-capita scaling can be computed in base units later:
+                # value_base = value_display * chosen_factor
+                unit_display_meta = {
+                    "impact_key": impact_key,
+                    "chosen_factor": chosen_factor,
+                    "lang": self.iosystem.language,
+                    "unit_short": unit_scalar,
+                }
+        except Exception:
+            # Fallback: legacy behavior (fixed divisor per impact)
+            values = [self.transform_unit(value=value, impact=impact)[0] for value in values]
+            unit_scalar = self.iosystem.impact.get_unit(impact)
 
         df = pd.DataFrame({impact: values}, index=self.iosystem.regions_exiobase)
+        if unit_display_meta is not None:
+            try:
+                df.attrs["unit_display"] = unit_display_meta
+            except Exception:
+                pass
 
         if title is None:
             general_dict = self.iosystem.index.general_dict
             title = f'{general_dict["Global"]} {impact} {self._get_title()}'
-
-        # IMPORTANT: pass unit as scalar, not a list (avoids length mismatch after drops)
-        unit_scalar = self.iosystem.impact.get_unit(impact)
 
         return self._plot_worldmap_by_data(
             df=df,
@@ -827,12 +921,14 @@ class SupplyChain:
             title=title,
             show_legend=show_legend,
             return_data=return_data,
+            value_mode=value_mode,
             mode=mode,
             k=k,
             custom_bins=custom_bins,
             norm_mode=norm_mode,
             robust=robust,
-            gamma=gamma
+            gamma=gamma,
+            transparent_background=transparent_background,
         )
 
     def _plot_worldmap_by_data(
@@ -845,13 +941,15 @@ class SupplyChain:
             title: str = "",
             show_legend: bool = True,
             return_data: bool = False,
+            value_mode: str = "value",       # "value" | "per_capita"
             mode: str = "binned",          # "continuous" or "binned"
             k: int = 7,                    # classes if mode="binned" and no custom_bins
             custom_bins: Optional[List[float]] = None,
             # NEW: continuous contrast controls
             norm_mode: str = "linear",     # "linear" | "log" | "power"
             robust: float = 2.0,           # quantile clipping in %
-            gamma: float = 0.7             # for PowerNorm
+            gamma: float = 0.7,            # for PowerNorm
+            transparent_background: bool = False,
     ) -> Union[plt.Figure, Tuple[plt.Figure, pd.DataFrame]]:
         """
         Plot a choropleth map with a clear legend showing numeric ranges.
@@ -866,16 +964,32 @@ class SupplyChain:
             `relative=False` means bins on absolute values.
         """
 
+        def _fmt_val(v: float) -> str:
+            try:
+                x = float(v)
+            except Exception:
+                return ""
+            if not np.isfinite(x):
+                return ""
+            if x == 0.0:
+                return "0"
+            axx = abs(x)
+            # Use scientific notation for very small/large values to avoid "0.00" legends.
+            if axx < 1e-2 or axx >= 1e6:
+                return f"{x:.2e}"
+            # Otherwise use a compact significant-digits format.
+            return f"{x:.4g}"
+
         # Helper for binned legend range labels (raw numbers)
         def _fmt_range(lo: float, hi: float) -> str:
             if lo is None and hi is None:
                 return ""
             if lo is None:
-                return f"≤ {hi:.2f}"
+                return f"≤ {_fmt_val(hi)}"
             elif hi is None:
-                return f"≥ {lo:.2f}"
+                return f"≥ {_fmt_val(lo)}"
             else:
-                return f"{lo:.2f} – {hi:.2f}"
+                return f"{_fmt_val(lo)} – {_fmt_val(hi)}"
 
         world = self.iosystem.index.get_map()
         column = column if column is not None else df.columns[0]
@@ -889,19 +1003,30 @@ class SupplyChain:
 
         # Align shapes and attach metadata
         world = world.loc[df.index]
-        world = self._add_world_metadata(world, values, percentages, units)
+        unit_display_meta = None
+        try:
+            unit_display_meta = df.attrs.get("unit_display")
+        except Exception:
+            unit_display_meta = None
+        world = self._add_world_metadata(world, values, percentages, units, unit_display_meta=unit_display_meta)
 
         # Data columns:
         # - absolute values: world["value"]
         # - percentage share: world["percentage"]
         # For continuous we force absolute; for binned we honor `relative`.
+        value_mode_norm = str(value_mode or "value").strip().lower()
+        base_col = "per_capita" if value_mode_norm in {"per_capita", "percapita", "pc"} else "value"
+        if base_col not in world.columns:
+            base_col = "value"
+
         if mode == "continuous":
-            world["data"] = world["value"].astype(float)       # FORCE absolute
+            world["data"] = world[base_col].astype(float)       # force absolute/per-capita
         else:
-            world["data"] = (world["percentage"] if relative else world["value"]).astype(float)
+            world["data"] = (world["percentage"] if relative else world[base_col]).astype(float)
 
         data = world["data"].astype(float)
         fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+        self._apply_plot_background(fig, ax, transparent=transparent_background)
 
         if mode == "continuous":
             # Robust quantile clipping for better contrast
@@ -948,8 +1073,21 @@ class SupplyChain:
                     # if heterogeneous, we don't try to synthesize; else take single
                     unit = units if isinstance(units, str) else (list(set(units))[0] if len(set(units)) == 1 else None)
 
+                gd = getattr(self.iosystem.index, "general_dict", {}) or {}
+                column_label = column
+                if base_col == "per_capita":
+                    column_label = f"{column} ({gd.get('Per capita', 'Per capita')})"
+                    # Prefer the per-capita-specific unit if available.
+                    try:
+                        if "per_capita_unit" in world.columns:
+                            u_pc = str(world["per_capita_unit"].dropna().iloc[0]).strip()
+                            if u_pc:
+                                unit = u_pc
+                    except Exception:
+                        pass
+
                 self._add_map_legend(
-                    fig=fig, ax=ax, data=data, column=column, color_map=color_map,
+                    fig=fig, ax=ax, data=data, column=column_label, color_map=color_map,
                     relative=relative,
                     mode="continuous",
                     edges=None,
@@ -1006,11 +1144,14 @@ class SupplyChain:
                 tick_labels = [_fmt_range(edges[i], edges[i+1]) for i in range(n_classes)]
                 cbar.ax.set_yticklabels(tick_labels)
                 # If we have a single unit, display it in the label
+                gd = getattr(self.iosystem.index, "general_dict", {}) or {}
                 label = column
+                if base_col == "per_capita":
+                    label = f"{label} ({gd.get('Per capita', 'Per capita')})"
                 if isinstance(units, str):
-                    label = f"{column} [{units}]"
+                    label = f"{label} [{units}]"
                 elif hasattr(units, "__len__") and len(set(units)) == 1:
-                    label = f"{column} [{list(set(units))[0]}]"
+                    label = f"{label} [{list(set(units))[0]}]"
                 cbar.set_label(f"{label}")
 
         else:
@@ -1032,6 +1173,8 @@ class SupplyChain:
         counterclockwise: bool = True,
         color_map: str = "tab20",                 # e.g., "tab20", "tab20_r", "viridis"
         relative: bool = True,                    
+        value_mode: str = "value",               # "value" | "per_capita"
+        transparent_background: bool = False,
         return_data: bool = False
     ) -> plt.Figure | tuple[plt.Figure, pd.DataFrame]:
         """Render a pie chart for a single impact across regions.
@@ -1063,7 +1206,17 @@ class SupplyChain:
             mode="binned", k=7, custom_bins=None, norm_mode="linear", robust=2.0, gamma=0.7
         )
 
-        s = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
+        vm = str(value_mode or "value").strip().lower()
+        if vm in {"per_capita", "percapita", "pc"} and "per_capita" in df.columns:
+            s = pd.to_numeric(df["per_capita"], errors="coerce").fillna(0.0)
+            try:
+                u_pc = str(df.get("per_capita_unit", "").dropna().iloc[0]).strip()
+                if u_pc:
+                    unit = u_pc
+            except Exception:
+                pass
+        else:
+            s = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
         base = pd.DataFrame({"region": df["region"], "value": s})
 
         # 2) Sorting
@@ -1079,6 +1232,7 @@ class SupplyChain:
             # Graceful empty-state fallback
             fig = plt.figure()
             ax = fig.add_subplot(111)
+            self._apply_plot_background(fig, ax, transparent=transparent_background)
             ax.text(0.5, 0.5, self.iosystem.index.general_dict.get("No data", "No data"),
                     ha="center", va="center", transform=ax.transAxes)
             ax.axis("off")
@@ -1123,6 +1277,7 @@ class SupplyChain:
         # 5) Plot
         fig = plt.figure()
         ax = fig.add_subplot(111)
+        self._apply_plot_background(fig, ax, transparent=transparent_background)
         wedges, _texts, autotexts = ax.pie(
             pie_df["value"].to_numpy(),
             labels=None,
@@ -1135,8 +1290,10 @@ class SupplyChain:
 
         # Legend placed outside on the left for readability
         ax.legend(wedges, pie_df["label"].tolist(), loc="center left", bbox_to_anchor=(1.0, 0.5))
-        if title:
-            ax.set_title(title)
+        if title is None or str(title).strip() == "":
+            gd = getattr(self.iosystem.index, "general_dict", {}) or {}
+            title = f"{gd.get('Pie chart', 'Pie chart')} – {impact} {self._get_title()}"
+        ax.set_title(str(title))
         ax.axis("equal")
         fig.tight_layout()
 
@@ -1261,10 +1418,12 @@ class SupplyChain:
         n: int = 10,
         *,
         relative: bool = True,
+        value_mode: str = "value",  # "value" | "per_capita"
         orientation: str = "vertical",
         bar_color: str = "tab10",
         bar_width: float = 0.8,
         title: str = "",
+        transparent_background: bool = False,
         return_data: bool = False,
         ascending: bool = False,  
     ):
@@ -1324,16 +1483,59 @@ class SupplyChain:
             impacts = [impacts]
         impacts = [i for i in impacts if i]
 
+        vm = str(value_mode or "value").strip().lower()
+        want_pc = vm in {"per_capita", "percapita", "pc"}
+
         # Pull per-region data for all requested impacts (unlocalized, no units in col names)
-        try:
-            df_vals, units_map = self.impact_per_region_df(
-                impacts=impacts, relative=relative,
-                include_units_in_cols=False, localize_cols=False
-            )
-        except Exception:
-            # Fallback: project-specific retrieval
-            df_vals = self.return_impact_per_region_data(impacts)
+        if not want_pc:
+            try:
+                df_vals, units_map = self.impact_per_region_df(
+                    impacts=impacts,
+                    relative=relative,
+                    include_units_in_cols=False,
+                    localize_cols=False,
+                )
+            except Exception:
+                # Fallback: project-specific retrieval
+                df_vals = self.return_impact_per_region_data(impacts)
+                units_map = {}
+        else:
+            # Per-capita values: reuse the world-map provider (it handles population + unit scaling).
+            df_vals = pd.DataFrame()
             units_map = {}
+            for imp in impacts:
+                if not imp:
+                    continue
+                if self._canon_impact(str(imp)) == "Subcontractors":
+                    # Subcontractors has no per-capita meaning; fall back to absolute.
+                    wdf, _unit = self._sc__world_df(str(imp), relative=False, color="Blues", mode="binned")
+                    series = pd.to_numeric(wdf.get("value"), errors="coerce").fillna(0.0)
+                    u = str(wdf.get("unit", _unit)).strip() if "unit" in wdf.columns else str(_unit or "")
+                else:
+                    wdf, _unit = self._sc__world_df(str(imp), relative=False, color="Reds", mode="binned", value_mode="per_capita")
+                    series = pd.to_numeric(wdf.get("per_capita"), errors="coerce").fillna(0.0)
+                    u = ""
+                    try:
+                        u = str(wdf.get("per_capita_unit", "").dropna().iloc[0]).strip()
+                    except Exception:
+                        u = ""
+                    if not u:
+                        u = str(_unit or "")
+
+                col = str(imp)
+                if df_vals.empty:
+                    df_vals = pd.DataFrame({col: series.to_numpy(dtype="float64")}, index=wdf.get("region"))
+                else:
+                    df_vals[col] = series.to_numpy(dtype="float64")
+                units_map[col] = u
+
+            if relative:
+                # Convert each column to percent shares (sum=100) for comparability.
+                for c in list(df_vals.columns):
+                    vals = pd.to_numeric(df_vals[c], errors="coerce").to_numpy(dtype="float64")
+                    s = float(np.nansum(vals))
+                    df_vals[c] = (vals / s * 100.0) if s != 0.0 else np.zeros_like(vals)
+                    units_map[c] = "%"
 
         primary = impacts[0]
         col_primary = _resolve_col(df_vals, primary)
@@ -1357,6 +1559,7 @@ class SupplyChain:
 
         colors = _color_list(bar_color, len(impacts))
         fig, ax = plt.subplots(figsize=(12, 6))
+        self._apply_plot_background(fig, ax, transparent=transparent_background)
 
         idx = np.arange(len(take_idx))
         m = len(impacts)
@@ -1384,7 +1587,7 @@ class SupplyChain:
         # Title: auto-generate if none provided
         if not title:
             rank_word = gd.get("Flop", "Flop") if ascending else gd.get("Top", "Top")
-            ax.set_title(f"{rank_word} {n} – {_disp(primary)}")
+            ax.set_title(f"{rank_word} {n} – {_disp(primary)} {self._get_title()}")
         else:
             ax.set_title(title)
 
@@ -1399,10 +1602,12 @@ class SupplyChain:
         n: int = 10,
         *,
         relative: bool = True,
+        value_mode: str = "value",  # "value" | "per_capita"
         orientation: str = "vertical",
         bar_color: str = "tab10",
         bar_width: float = 0.8,
         title: str = "",
+        transparent_background: bool = False,
         return_data: bool = False,
     ):
         """
@@ -1414,20 +1619,335 @@ class SupplyChain:
             impacts=impacts,
             n=n,
             relative=relative,
+            value_mode=value_mode,
             orientation=orientation,
             bar_color=bar_color,
             bar_width=bar_width,
             title=title,
+            transparent_background=transparent_background,
             return_data=return_data,
             ascending=True, 
         )
+
+    # ---------------------------------------------------------------------
+    # Contribution analysis (Beitragsanalyse)
+    # ---------------------------------------------------------------------
+
+    def _contrib__y_vector(self) -> np.ndarray:
+        """
+        Build the final-demand vector y for the current selection.
+
+        Uses the diagonal of Y (final demand per sector) and keeps only the
+        currently selected indices (self.indices). This mirrors the web API's
+        selection_to_indices() + y-vector logic.
+        """
+        y_mat = self.iosystem.Y.values
+        diag = np.diag(y_mat).astype(np.float32, copy=False)
+        n = diag.shape[0]
+        if not getattr(self, "indices", None) or len(self.indices) >= n:
+            return diag.copy()
+        y = np.zeros(n, dtype=np.float32)
+        idx = np.asarray(self.indices, dtype=np.int64)
+        y[idx] = diag[idx]
+        return y
+
+    def _contrib__scale_values(
+        self,
+        *,
+        impact_label: str,
+        values_source: np.ndarray,
+    ) -> tuple[np.ndarray, str, int]:
+        """
+        Scale values for UI display and return (scaled_values, unit, decimals).
+
+        Prefers the new UnitFormatter (units.xlsx new schema). Falls back to the
+        legacy units table (units_legacy.xlsx) if needed.
+        """
+        vals = np.asarray(values_source, dtype=np.float64)
+        max_abs = float(np.nanmax(np.abs(vals))) if vals.size and np.any(np.isfinite(vals)) else 0.0
+
+        # Prefer new units.xlsx schema via Index.unit_formatter
+        try:
+            idx = self.iosystem.index
+            uf = getattr(idx, "unit_formatter", None)
+            if uf is not None:
+                impact_key = idx.impact_key_from_label(str(impact_label))
+                meta = uf.format_value(str(impact_key), max_abs, self.iosystem.language, style="short")
+                unit = str(meta.get("unit_short") or "").strip()
+                chosen_factor = float(meta.get("chosen_factor") or 1.0)
+
+                core = uf._cfg.core_by_key.get(str(impact_key))  # type: ignore[attr-defined]
+                source_to_base = float(getattr(core, "source_to_base", 1.0) or 1.0) if core else 1.0
+                decimals = int(getattr(core, "decimals", 2) if core else 2)
+
+                divisor_source = chosen_factor / source_to_base if source_to_base else chosen_factor
+                if divisor_source and divisor_source != 0:
+                    return (vals / float(divisor_source)), unit, max(0, decimals)
+        except Exception:
+            pass
+
+        # Fallback: legacy units sheet (impact label -> divisor/decimals/unit)
+        try:
+            udf = self.iosystem.index.units_df
+            mask = udf.iloc[:, 0].astype(str) == str(impact_label)
+            if bool(mask.any()):
+                row = udf.loc[mask].iloc[0].tolist()
+                divisor = float(row[2]) if row[2] is not None else 1.0
+                decimals = int(row[3]) if row[3] is not None else 2
+                unit = str(row[4] or "")
+                divisor = divisor or 1.0
+                return (vals / divisor), unit, max(0, decimals)
+        except Exception:
+            pass
+
+        return vals, "", 2
+
+    def region_contribution_table(
+        self,
+        *,
+        impact: str,
+        region_exiobase: str,
+        top_n: int = 30,
+    ) -> dict:
+        """
+        Compute a "Beitragsanalyse" table: which SECTORS within a clicked REGION
+        contribute how much to the selected impact.
+
+        Algorithm (mirrors the web API `region_contrib`):
+          1) Build y (final demand) for the current selection (diagonal of Y).
+          2) Compute total output x = L @ y.
+          3) Get impact intensities s (row of S for the chosen impact label).
+          4) Contribution per emitting sector: contrib = s * x.
+          5) Filter contrib to the clicked region and group by sector leaf.
+          6) Scale to display units and compute shares.
+        """
+        impact_label = str(impact)
+        region_ex = str(region_exiobase).strip()
+
+        # y: final demand vector for the selected indices (diagonal of Y).
+        y = self._contrib__y_vector()
+
+        # Total output vector across the supply chain: x = L @ y
+        x = self.iosystem.L.values @ y
+
+        try:
+            s_row = self.iosystem.impact.S.loc[str(impact_label)]
+        except Exception as e:
+            return {"ok": False, "error": "impact_not_found", "impact": impact_label, "detail": str(e)}
+        if isinstance(s_row, pd.DataFrame):
+            s_row = s_row.iloc[0]
+        s = np.asarray(getattr(s_row, "to_numpy", lambda: s_row)(), dtype=np.float32)
+
+        contrib = np.asarray(s, dtype=np.float64) * np.asarray(x, dtype=np.float64)
+
+        # Filter emitting sectors to the clicked region.
+        region_len = len(getattr(self.iosystem.index, "region_classification", []) or [])
+        mi = self.iosystem.index.sector_multiindex
+
+        code2name = dict(zip(getattr(self.iosystem, "regions_exiobase", []) or [], getattr(self.iosystem, "regions", []) or []))
+        region_name = code2name.get(region_ex, region_ex)
+
+        region_leaf = mi.get_level_values(region_len - 1 if region_len else 0).astype(str)
+        mask = region_leaf == str(region_name)
+        if not bool(getattr(mask, "any")()):
+            mask = region_leaf == str(region_ex)
+        if not bool(getattr(mask, "any")()):
+            return {"ok": False, "error": "region_not_found_in_index", "region_exiobase": region_ex, "region": region_name}
+
+        mask_arr = mask.to_numpy(dtype=bool) if hasattr(mask, "to_numpy") else np.asarray(mask, dtype=bool)
+        contrib_region = contrib[mask_arr]
+        if contrib_region.size == 0:
+            return {"kind": "contrib_table_v1", "meta": {"region_exiobase": region_ex, "region": region_name}, "rows": []}
+
+        # Group by sector leaf inside the region.
+        sector_leaf = mi.get_level_values(-1).astype(str)[mask_arr]
+        sector_vals = sector_leaf.to_numpy() if hasattr(sector_leaf, "to_numpy") else np.asarray(sector_leaf, dtype=object)
+        df = pd.DataFrame({"label": sector_vals, "value": contrib_region})
+        grouped = df.groupby("label", as_index=False)["value"].sum().sort_values("value", ascending=False)
+
+        total_raw = float(np.nansum(grouped["value"].to_numpy()) or 0.0)
+        scaled_vals, unit, decimals = self._contrib__scale_values(impact_label=impact_label, values_source=grouped["value"].to_numpy())
+
+        rows: list[dict] = []
+        head = grouped.head(max(1, int(top_n)))
+        scaled_head = scaled_vals[: len(head)]
+        for (idx_row, r), abs_scaled in zip(head.iterrows(), scaled_head):
+            val_raw = float(r["value"])
+            rows.append(
+                {
+                    "label": str(r["label"]),
+                    "share": float(val_raw / total_raw) if total_raw else 0.0,
+                    "absolute": round(float(abs_scaled), int(decimals)),
+                }
+            )
+
+        return {
+            "kind": "contrib_table_v1",
+            "meta": {
+                "impact": impact_label,
+                "region_exiobase": region_ex,
+                "region": str(region_name),
+                "unit": unit,
+                "decimal_places": int(decimals),
+                "total_raw": total_raw,
+            },
+            "rows": rows,
+        }
+
+    def contribution_breakdown_table(
+        self,
+        *,
+        impact: str,
+        stage_id: str,
+        dimension: str,
+        top_n: int = 25,
+    ) -> dict:
+        """
+        "Beitragsanalyse" breakdown by value-chain stage and dimension.
+
+        This is the desktop/web shared backend equivalent of the web API analysis
+        `contrib_breakdown`:
+          - Build y from the current selection (diagonal of Y, masked to indices).
+          - Compute stage output vector (total/retail/direct_suppliers/resource_extraction/preliminary_products).
+          - Multiply with impact intensities s to obtain contributions per emitting sector.
+          - Group contributions by regions or sectors and return Top-N with shares.
+        """
+        impact_label = str(impact)
+        stage = str(stage_id or "").strip()
+        dim = str(dimension or "").strip().lower()
+        if stage not in {"resource_extraction", "preliminary_products", "direct_suppliers", "retail", "total"}:
+            return {"ok": False, "error": "invalid_stage_id", "stage_id": stage}
+        if dim not in {"regions", "sectors"}:
+            return {"ok": False, "error": "invalid_dimension", "dimension": dim}
+
+        # y: final demand vector for the selected indices (diagonal of Y).
+        y = self._contrib__y_vector()
+
+        # Compute stage output vectors in the same way as the web API.
+        a = self.iosystem.A.values
+        l = self.iosystem.L.values
+        ay = a @ y
+        ly = l @ y
+
+        raw = np.asarray(self.iosystem.index.raw_material_indices, dtype=np.int64)
+        not_raw = np.asarray(self.iosystem.index.not_raw_material_indices, dtype=np.int64)
+
+        def _stage_out(stage_name: str) -> np.ndarray:
+            if not getattr(self, "regional", False):
+                if stage_name == "total":
+                    return ly
+                if stage_name == "retail":
+                    return y
+                if stage_name == "direct_suppliers":
+                    out = ay.copy()
+                    out[raw] = 0.0
+                    return out
+                if stage_name == "resource_extraction":
+                    out = (ly - y).copy()
+                    out[not_raw] = 0.0
+                    return out
+                out = (ly - y - ay).copy()  # preliminary_products
+                out[raw] = 0.0
+                return out
+
+            # Regional selection: re-assign domestic upstream stages to retail.
+            region_indices = np.asarray(getattr(self.iosystem.impact, "region_indices", None) or self.indices, dtype=np.int64)
+
+            ds = ay.copy()
+            ds[raw] = 0.0
+
+            re = (ly - y).copy()
+            re[not_raw] = 0.0
+
+            pp = ((ly - y) - ds).copy()
+            pp[raw] = 0.0
+
+            retail = y.copy()
+            retail[region_indices] += ds[region_indices] + re[region_indices] + pp[region_indices]
+
+            ds[region_indices] = 0.0
+            re[region_indices] = 0.0
+            pp[region_indices] = 0.0
+
+            if stage_name == "total":
+                return ly
+            if stage_name == "retail":
+                return retail
+            if stage_name == "direct_suppliers":
+                return ds
+            if stage_name == "resource_extraction":
+                return re
+            return pp
+
+        out = _stage_out(stage)
+
+        try:
+            s_row = self.iosystem.impact.S.loc[str(impact_label)]
+        except Exception as e:
+            return {"ok": False, "error": "impact_not_found", "impact": impact_label, "detail": str(e)}
+        if isinstance(s_row, pd.DataFrame):
+            s_row = s_row.iloc[0]
+        s = np.asarray(getattr(s_row, "to_numpy", lambda: s_row)(), dtype=np.float32)
+
+        contrib = np.asarray(s, dtype=np.float64) * np.asarray(out, dtype=np.float64)
+        total_raw = float(np.nansum(contrib) or 0.0)
+        if total_raw == 0.0:
+            return {
+                "kind": "contrib_table_v1",
+                "meta": {"stage_id": stage, "dimension": dim, "impact": impact_label, "total_raw": 0.0},
+                "rows": [],
+            }
+
+        region_len = len(getattr(self.iosystem.index, "region_classification", []) or [])
+        mi = self.iosystem.index.sector_multiindex
+
+        if dim == "regions":
+            labels = mi.get_level_values(region_len - 1 if region_len else 0).astype(str)
+        else:
+            # Disambiguate identical sector names across regions (matches web API behavior).
+            sector_leaf = mi.get_level_values(-1).astype(str)
+            region_leaf = mi.get_level_values(region_len - 1 if region_len else 0).astype(str)
+            labels = sector_leaf + " (" + region_leaf + ")"
+
+        df = pd.DataFrame({"label": labels, "value": contrib})
+        grouped = df.groupby("label", as_index=False)["value"].sum().sort_values("value", ascending=False)
+
+        scaled_vals, unit, decimals = self._contrib__scale_values(impact_label=impact_label, values_source=grouped["value"].to_numpy())
+
+        rows: list[dict] = []
+        head = grouped.head(max(1, int(top_n)))
+        scaled_head = scaled_vals[: len(head)]
+        for (_i, r), abs_scaled in zip(head.iterrows(), scaled_head):
+            val = float(r["value"])
+            rows.append(
+                {
+                    "label": str(r["label"]),
+                    "share": float(val / total_raw) if total_raw else 0.0,
+                    "absolute": round(float(abs_scaled), int(decimals)),
+                }
+            )
+
+        return {
+            "kind": "contrib_table_v1",
+            "meta": {
+                "stage_id": stage,
+                "dimension": dim,
+                "impact": impact_label,
+                "unit": unit,
+                "decimal_places": int(decimals),
+                "total_raw": total_raw,
+            },
+            "rows": rows,
+        }
 
     def _add_world_metadata(
             self,
             world: pd.DataFrame,
             values: pd.Series,
             percentages: pd.Series,
-            units: Optional[Union[str, List[str]]]
+            units: Optional[Union[str, List[str]]],
+            *,
+            unit_display_meta: Optional[dict] = None,
     ) -> pd.DataFrame:
         """
         Attach region labels, EXIOBASE codes, values, percentages, and units to the map dataframe.
@@ -1478,6 +1998,71 @@ class SupplyChain:
                         f"Unit list length ({len(units)}) does not match number of rows ({len(world)})."
                     )
 
+        # Optional: population + per-capita values (independent of relative/percentage mode)
+        pop_map = getattr(self.iosystem, "population_by_exiobase", None) or {}
+        if isinstance(pop_map, dict) and len(pop_map) > 0:
+            pop = pd.to_numeric([pop_map.get(code) for code in regions_exiobase], errors="coerce")
+            world["population"] = pop
+
+            # If we have unit-display metadata, compute per-capita values in BASE UNITS and then
+            # scale them with the UnitFormatter so the legend doesn't end up as "Mrd. €/Kopf".
+            per_capita_unit = None
+            try:
+                uf = getattr(self.iosystem.index, "unit_formatter", None)
+                impact_key = (unit_display_meta or {}).get("impact_key") if isinstance(unit_display_meta, dict) else None
+                chosen_factor = (unit_display_meta or {}).get("chosen_factor") if isinstance(unit_display_meta, dict) else None
+                lang = (unit_display_meta or {}).get("lang") if isinstance(unit_display_meta, dict) else getattr(self.iosystem, "language", "en")
+                chosen_factor_f = float(chosen_factor) if chosen_factor not in (None, "") else None
+                if uf is not None and impact_key and chosen_factor_f and chosen_factor_f > 0:
+                    # value_base = value_display * chosen_factor (since value_display = value_base / chosen_factor)
+                    value_base = pd.to_numeric(world["value"], errors="coerce") * chosen_factor_f
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        pc_base = value_base / pop
+                    max_abs_pc_base = float(np.nanmax(np.abs(pc_base))) if np.any(np.isfinite(pc_base)) else 0.0
+
+                    # Convert base -> source-equivalent for the formatter (it will convert back to base internally).
+                    core = uf._cfg.core_by_key.get(str(impact_key))  # type: ignore[attr-defined]
+                    source_to_base = float(getattr(core, "source_to_base", 1.0) or 1.0) if core else 1.0
+                    v_source_equiv = (max_abs_pc_base / source_to_base) if source_to_base else max_abs_pc_base
+                    meta_pc = uf.format_value(str(impact_key), v_source_equiv, str(lang), style="short")
+                    pc_factor = float(meta_pc.get("chosen_factor") or 1.0)
+                    per_capita_unit = str(meta_pc.get("unit_short") or "").strip() or None
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        pc_disp = pc_base / pc_factor if pc_factor else pc_base
+                    pc = pd.to_numeric(pc_disp, errors="coerce")
+
+                    # Also compute per-row adaptive formatting for tooltips.
+                    # This allows small values to switch units (e.g. 0.056 Tsd. € -> 56 €),
+                    # while the map legend still uses a single unit scale.
+                    try:
+                        fmt_vals: list[str] = []
+                        fmt_units: list[str] = []
+                        pc_base_arr = np.asarray(pc_base, dtype="float64")
+                        for v in pc_base_arr:
+                            if not np.isfinite(v):
+                                fmt_vals.append("")
+                                fmt_units.append("")
+                                continue
+                            v_source = float(v) / float(source_to_base or 1.0)
+                            m = uf.format_value(str(impact_key), v_source, str(lang), style="short")
+                            fmt_vals.append(str(m.get("value_display_formatted") or ""))
+                            fmt_units.append(str(m.get("unit_short") or ""))
+                        world["per_capita_formatted"] = fmt_vals
+                        world["per_capita_unit_item"] = fmt_units
+                    except Exception:
+                        pass
+                else:
+                    raise RuntimeError("no unit formatter meta")
+            except Exception:
+                # Fallback: compute per-capita in the SAME units as `world['value']`.
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    pc = pd.to_numeric(world["value"], errors="coerce") / pop
+
+            # Ensure non-finite values become NaN (so JSON sanitizers can drop them)
+            world["per_capita"] = pc.where(np.isfinite(pc), np.nan)
+            if per_capita_unit:
+                world["per_capita_unit"] = per_capita_unit
+
         return world
 
     def _add_map_legend(
@@ -1523,6 +2108,27 @@ class SupplyChain:
         Raises:
             ValueError: If called with mode != "continuous".
         """
+        def _fmt_val(v: float) -> str:
+            try:
+                x = float(v)
+            except Exception:
+                return ""
+            if not np.isfinite(x):
+                return ""
+            if x == 0.0:
+                return "0"
+            axx = abs(x)
+            # Prefer readable numbers; reserve scientific notation for extremes.
+            if axx < 1e-4 or axx >= 1e9:
+                return f"{x:.2e}"
+            if axx >= 1_000_000:
+                return f"{x:,.0f}"
+            if axx >= 1_000:
+                return f"{x:,.1f}"
+            if axx >= 1:
+                return f"{x:.2f}"
+            return f"{x:.4f}"
+
         cmap = plt.get_cmap(color_map)
 
         finite = data[np.isfinite(data)]
@@ -1552,6 +2158,11 @@ class SupplyChain:
             sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
             sm.set_array([])
             cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
+            try:
+                cbar.formatter = FuncFormatter(lambda x, _pos: _fmt_val(x))
+                cbar.update_ticks()
+            except Exception:
+                pass
 
             # Absolute-value legend label with unit if available
             cbar.set_label(f"{column} [{unit}]" if unit not in (None, "") else f"{column}")
@@ -1637,6 +2248,7 @@ class SupplyChain:
         impact: str,
         *,
         relative: bool = True,
+        value_mode: str = "value",  # "value" | "per_capita"
         color: str = "Reds",
         title: Optional[str] = None,
         show_legend: bool = False,
@@ -1690,7 +2302,8 @@ class SupplyChain:
         kw = dict(
             color=color, title=title, relative=relative, show_legend=show_legend,
             return_data=True, mode=mode, k=k, custom_bins=custom_bins,
-            norm_mode=norm_mode, robust=robust, gamma=gamma
+            norm_mode=norm_mode, robust=robust, gamma=gamma,
+            value_mode=str(value_mode or "value"),
         )
 
         if impact.strip().lower() == "subcontractors":

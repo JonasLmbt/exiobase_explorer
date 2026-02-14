@@ -77,6 +77,7 @@ class UserInterface(QMainWindow):
         self._initialize_supplychain()
 
         # Setup user interface
+        self.export_graphics_with_background = False
         self._setup_ui()
 
         logger.info("UserInterface initialization completed")
@@ -190,7 +191,10 @@ class UserInterface(QMainWindow):
             # Initialize tab instances
             self.selection_tab = SelectionTab(self)
             self.visualisation_tab = VisualisationTab(self)
-            self.settings_tab = SettingsTab(self)
+            self.settings_tab = SettingsTab(
+                self,
+                export_with_background_state=self.export_graphics_with_background
+            )
             self.console_tab = ConsoleTab(context={"ui": self}, ui=self)
 
             # Create tab widget
@@ -299,10 +303,13 @@ class UserInterface(QMainWindow):
             # Sicherung des Logger-Widgets und des Checkbox-Status
             log_widget = None
             show_indices_state = None
+            export_with_background_state = None
             if hasattr(self.settings_tab, 'log_handler'):
                 log_widget = getattr(self.settings_tab.log_handler, 'widget', None)
             if hasattr(self.settings_tab, 'show_indices_checkbox'):
                 show_indices_state = self.settings_tab.show_indices_checkbox.isChecked()
+            if hasattr(self.settings_tab, 'export_with_background_checkbox'):
+                export_with_background_state = self.settings_tab.export_with_background_checkbox.isChecked()
             # Aktuellen Tab-Index sichern
             current_tab_index = self.tabs.currentIndex()
             # Aktuelles Theme ermitteln
@@ -310,7 +317,13 @@ class UserInterface(QMainWindow):
             # Tab entfernen
             self.tabs.removeTab(self.SETTINGS_TAB_INDEX)
             # Neue Instanz erzeugen
-            self.settings_tab = SettingsTab(self, log_widget=log_widget, show_indices_state=show_indices_state, current_theme=theme_name)
+            self.settings_tab = SettingsTab(
+                self,
+                log_widget=log_widget,
+                show_indices_state=show_indices_state,
+                current_theme=theme_name,
+                export_with_background_state=export_with_background_state
+            )
             # Tab wieder einfügen
             self.tabs.insertTab(
                 self.SETTINGS_TAB_INDEX,
