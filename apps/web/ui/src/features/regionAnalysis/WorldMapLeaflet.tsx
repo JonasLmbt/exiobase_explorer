@@ -5,6 +5,9 @@ import { GeoJSON, MapContainer, useMap } from "react-leaflet";
 import type { Feature, FeatureCollection, GeoJsonObject } from "geojson";
 import type { Layer, PathOptions } from "leaflet";
 import L from "leaflet";
+import proj4 from "proj4";
+// eslint-disable-next-line import/no-unassigned-import
+import "proj4leaflet";
 
 export type GeoJsonV1 = { kind: "geojson_v1"; geojson: string; meta: { impact: string; relative: boolean } };
 export type MapSettings = {
@@ -12,6 +15,7 @@ export type MapSettings = {
   reverse: boolean;
   showLegend: boolean;
   title: string;
+  projection: "mercator" | "equirectangular" | "robinson";
   mode: "binned" | "continuous";
   relative: boolean;
   k: number;
@@ -117,6 +121,59 @@ function tooltipHtml(props: any): string {
   return parts.join("");
 }
 
+function projBounds(def: string): { bounds: L.Bounds; origin: [number, number]; resolutions: number[] } | null {
+  try {
+    const p = proj4(def);
+    const pts: [number, number][] = [];
+    for (let lon = -180; lon <= 180; lon += 30) {
+      for (let lat = -90; lat <= 90; lat += 30) pts.push([lon, lat]);
+    }
+    pts.push([-180, 0], [180, 0], [0, -90], [0, 90], [0, 0]);
+
+    const xy = pts
+      .map(([lon, lat]) => {
+        const out = p.forward([lon, lat]) as any;
+        const x = Number(out?.[0]);
+        const y = Number(out?.[1]);
+        return [x, y] as const;
+      })
+      .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+
+    if (!xy.length) return null;
+    const xs = xy.map((p) => p[0]);
+    const ys = xy.map((p) => p[1]);
+    const minx = Math.min(...xs);
+    const maxx = Math.max(...xs);
+    const miny = Math.min(...ys);
+    const maxy = Math.max(...ys);
+    const bounds = L.bounds([minx, miny], [maxx, maxy]);
+    const size = bounds.getSize();
+    const world = Math.max(size.x, size.y) || 1;
+    const res0 = world / 256;
+    const resolutions = Array.from({ length: 14 }, (_, z) => res0 / Math.pow(2, z));
+    return { bounds, origin: [minx, maxy], resolutions };
+  } catch {
+    return null;
+  }
+}
+
+function crsForProjection(projection: MapSettings["projection"]) {
+  if (projection === "equirectangular") return L.CRS.EPSG4326;
+  if (projection === "mercator") return L.CRS.EPSG3857;
+
+  // Robinson projection. Good looking world map with reduced polar exaggeration vs Mercator.
+  const def = "+proj=robin +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs";
+  const b = projBounds(def);
+  if (!b) return L.CRS.EPSG4326;
+
+  // proj4leaflet augments Leaflet with L.Proj
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ProjCRS = (L as any).Proj?.CRS;
+  if (!ProjCRS) return L.CRS.EPSG4326;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new ProjCRS("ESRI:54030", def, { bounds: b.bounds, origin: b.origin, resolutions: b.resolutions } as any);
+}
+
 function InvalidateSizeOnResize({ watchEl }: { watchEl: () => HTMLElement | null }) {
   const map = useMap();
 
@@ -180,6 +237,7 @@ export default function WorldMapLeaflet({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const fc = useMemo(() => parse(data.geojson), [data.geojson]);
   const theme = useTheme();
+  const crs = useMemo(() => crsForProjection(settings.projection), [settings.projection]);
 
   const border = theme.palette.mode === "dark" ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.28)";
   const borderHover = theme.palette.mode === "dark" ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.55)";
@@ -264,10 +322,12 @@ export default function WorldMapLeaflet({
   return (
     <Box ref={containerRef} sx={{ position: "relative", height: "100%" }}>
       <MapContainer
+        key={settings.projection}
         style={{ height: "100%", width: "100%", background: bg, borderRadius: 14, minHeight: 520 }}
         center={[20, 0]}
         zoom={1.3}
         scrollWheelZoom
+        crs={crs as any}
       >
         <InvalidateSizeOnResize watchEl={() => containerRef.current} />
         <FitBoundsOnData fc={fc} />
