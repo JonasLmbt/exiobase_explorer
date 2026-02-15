@@ -38,6 +38,13 @@ class StageBubbleMethod(StageAnalysisMethod):
 
         sc = SupplyChain(iosystem=iosystem, indices=indices)
         gd = iosystem.index.general_dict
+        stage_ids = [
+            "resource_extraction",
+            "preliminary_products",
+            "direct_suppliers",
+            "retail",
+            "total",
+        ]
         stages = [
             gd.get("Resource Extraction", "Resource Extraction"),
             gd.get("Preliminary Products", "Preliminary Products"),
@@ -88,4 +95,4 @@ class StageBubbleMethod(StageAnalysisMethod):
                 }
             )
 
-        return {"kind": "stage_table_v1", "stages": stages, "impacts": items}
+        return {"kind": "stage_table_v1", "stage_ids": stage_ids, "stages": stages, "impacts": items}
