@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+import numpy as np
 import pandas as pd
 
 from src.SupplyChain import SupplyChain
@@ -42,6 +43,93 @@ class ContributionBreakdownMethod(StageAnalysisMethod):
     id = "contrib_breakdown"
     label = "Contribution breakdown"
 
+    def _y_vector(self, *, iosystem: IOSystem, indices: list[int]) -> np.ndarray:
+        y_mat = iosystem.Y.values
+        diag = np.diag(y_mat).astype(np.float64, copy=False)
+        n = diag.shape[0]
+        if not indices or len(indices) >= n:
+            return diag.copy()
+        y = np.zeros(n, dtype=np.float64)
+        y[np.asarray(indices, dtype=np.int64)] = diag[np.asarray(indices, dtype=np.int64)]
+        return y
+
+    def _stage_output_vector(
+        self,
+        *,
+        iosystem: IOSystem,
+        sc: SupplyChain,
+        stage_id: str,
+        y: np.ndarray,
+        job_meta: Optional[Dict[str, Any]] = None,
+    ) -> np.ndarray:
+        a = iosystem.A.values.astype(np.float64, copy=False)
+        l = iosystem.L.values.astype(np.float64, copy=False)
+
+        if job_meta is not None:
+            job_meta["progress"] = max(float(job_meta.get("progress") or 0.0), 0.45)
+            job_meta["message"] = "multiplying"
+
+        ay = a @ y
+        ly = l @ y
+
+        raw = np.asarray(iosystem.index.raw_material_indices, dtype=np.int64)
+        not_raw = np.asarray(iosystem.index.not_raw_material_indices, dtype=np.int64)
+
+        if not getattr(sc, "regional", False):
+            if stage_id == "total":
+                return ly
+            if stage_id == "retail":
+                return y
+
+            if stage_id == "direct_suppliers":
+                out = ay
+                out[raw] = 0.0
+                return out
+
+            if stage_id == "resource_extraction":
+                out = ly - y
+                out[not_raw] = 0.0
+                return out
+
+            # preliminary_products
+            out = ly - y - ay
+            out[raw] = 0.0
+            return out
+
+        # Regional selection: re-assign domestic upstream stages to retail (mirrors Impact.get_regional_impacts).
+        region_indices = np.asarray(getattr(iosystem.impact, "region_indices", None) or sc.indices, dtype=np.int64)
+
+        # direct suppliers (A, excluding raw materials)
+        ds = ay
+        ds[raw] = 0.0
+
+        # resource extraction ((L-I), only raw materials)
+        re = ly - y
+        re[not_raw] = 0.0
+
+        # preliminary products ((L-I) - direct_suppliers, excluding raw materials)
+        pp = (ly - y) - ds
+        pp[raw] = 0.0
+
+        # retail (I + domestic upstream re-assigned)
+        retail = y.copy()
+        retail[region_indices] += ds[region_indices] + re[region_indices] + pp[region_indices]
+
+        # zero out domestic contributions for other categories
+        ds[region_indices] = 0.0
+        re[region_indices] = 0.0
+        pp[region_indices] = 0.0
+
+        if stage_id == "total":
+            return ly
+        if stage_id == "retail":
+            return retail
+        if stage_id == "direct_suppliers":
+            return ds
+        if stage_id == "resource_extraction":
+            return re
+        return pp
+
     def run(
         self,
         *,
@@ -73,31 +161,22 @@ class ContributionBreakdownMethod(StageAnalysisMethod):
             job_meta["progress"] = 0.4
             job_meta["message"] = "computing"
 
-        if stage_id == "total":
-            impact_data = sc.iosystem.impact.total
-        elif stage_id == "resource_extraction":
-            impact_data = sc.iosystem.impact.resource_extraction_regional if sc.regional else sc.iosystem.impact.resource_extraction
-        elif stage_id == "preliminary_products":
-            impact_data = sc.iosystem.impact.preliminary_products_regional if sc.regional else sc.iosystem.impact.preliminary_products
-        elif stage_id == "direct_suppliers":
-            impact_data = sc.iosystem.impact.direct_suppliers_regional if sc.regional else sc.iosystem.impact.direct_suppliers
-        else:  # retail
-            impact_data = sc.iosystem.impact.retail_regional if sc.regional else sc.iosystem.impact.retail
+        y = self._y_vector(iosystem=iosystem, indices=indices)
+        out = self._stage_output_vector(iosystem=iosystem, sc=sc, stage_id=stage_id, y=y, job_meta=job_meta)
 
         try:
-            mat = impact_data.loc[str(impact_label)]
+            s_row = iosystem.impact.S.loc[str(impact_label)]
         except Exception as e:
             return {"ok": False, "error": "impact_not_found", "impact": str(impact_label), "detail": str(e)}
 
-        # mat is a DataFrame (or Series). Make it a DataFrame with columns=sector_multiindex.
-        if isinstance(mat, pd.Series):
-            mat = mat.to_frame().T
+        if isinstance(s_row, pd.DataFrame):
+            s_row = s_row.iloc[0]
+        s = np.asarray(s_row.to_numpy(), dtype=np.float64)
 
-        # Per-column contribution for the chosen selection (sum over rows, keep sector_multiindex columns).
-        sub = mat.iloc[:, indices]
-        contrib = sub.sum(axis=0)
+        # Contribution per emitting sector (origin): impact intensity * output for selected final demand.
+        contrib = s * np.asarray(out, dtype=np.float64)
 
-        total_raw = float(contrib.sum() or 0.0)
+        total_raw = float(np.nansum(contrib) or 0.0)
         if total_raw == 0.0:
             return {
                 "kind": "contrib_table_v1",
@@ -117,8 +196,8 @@ class ContributionBreakdownMethod(StageAnalysisMethod):
         rows: list[dict] = []
         if dimension == "regions":
             # group by region leaf (last region level)
-            region_leaf = [str(mi[i][region_len - 1]) if region_len else str(mi[i][0]) for i in indices]
-            df = pd.DataFrame({"label": region_leaf, "value": [float(contrib.iloc[j]) for j in range(len(contrib))]})
+            region_leaf_all = mi.get_level_values(region_len - 1 if region_len else 0).astype(str)
+            df = pd.DataFrame({"label": region_leaf_all, "value": contrib})
             grouped = df.groupby("label", as_index=False)["value"].sum().sort_values("value", ascending=False)
             divisor, decimals, unit = _units_meta(iosystem, str(impact_label))
             for _, r in grouped.head(max(1, top_n)).iterrows():
@@ -146,10 +225,10 @@ class ContributionBreakdownMethod(StageAnalysisMethod):
             }
 
         # dimension == "sectors": show region-specific sectors (full index leafs)
-        sector_leaf = [str(mi[i][-1]) for i in indices]
-        region_leaf = [str(mi[i][region_len - 1]) if region_len else str(mi[i][0]) for i in indices]
-        labels = [f"{s} ({r})" for s, r in zip(sector_leaf, region_leaf)]
-        df = pd.DataFrame({"label": labels, "value": [float(contrib.iloc[j]) for j in range(len(contrib))]})
+        sector_leaf_all = mi.get_level_values(-1).astype(str)
+        region_leaf_all = mi.get_level_values(region_len - 1 if region_len else 0).astype(str)
+        labels = sector_leaf_all + " (" + region_leaf_all + ")"
+        df = pd.DataFrame({"label": labels, "value": contrib})
         grouped = df.groupby("label", as_index=False)["value"].sum().sort_values("value", ascending=False)
         divisor, decimals, unit = _units_meta(iosystem, str(impact_label))
         for _, r in grouped.head(max(1, top_n)).iterrows():
@@ -175,4 +254,3 @@ class ContributionBreakdownMethod(StageAnalysisMethod):
             },
             "rows": rows,
         }
-
