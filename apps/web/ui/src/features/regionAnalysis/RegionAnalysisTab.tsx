@@ -138,6 +138,14 @@ export default function RegionAnalysisTab({
     return m;
   }, [impactsQ.data?.impacts]);
 
+  const openContribution = (exiobase: string, label: string) => {
+    if (!impactKey) return;
+    if (!exiobase) return;
+    setContribRegionExiobase(exiobase);
+    setContribRegionLabel(label || exiobase);
+    setContribOpen(true);
+  };
+
   const panelHeight = 720;
 
   return (
@@ -432,16 +440,41 @@ export default function RegionAnalysisTab({
                   gamma: mapGamma,
                 }}
                 onRegionClick={({ exiobase, region }) => {
-                  if (!impactKey) return;
-                  setContribRegionExiobase(exiobase);
-                  setContribRegionLabel(region);
-                  setContribOpen(true);
+                  openContribution(exiobase, region);
                 }}
               />
             </Box>
           ) : null}
-          {result && isTable(result) ? <ReactECharts option={tableToBarOption(result)} style={{ height: panelHeight - 40, width: "100%" }} /> : null}
-          {result && isPie(result) ? <ReactECharts option={pieToOption(result)} style={{ height: panelHeight - 40, width: "100%" }} /> : null}
+          {result && isTable(result) ? (
+            <ReactECharts
+              option={tableToBarOption(result)}
+              style={{ height: panelHeight - 40, width: "100%" }}
+              onEvents={{
+                click: (params: any) => {
+                  const i = Number(params?.dataIndex);
+                  if (!Number.isFinite(i)) return;
+                  const ex = result.index_exiobase?.[i] ?? "";
+                  const label = result.index?.[i] ?? ex;
+                  openContribution(ex, label);
+                },
+              }}
+            />
+          ) : null}
+          {result && isPie(result) ? (
+            <ReactECharts
+              option={pieToOption(result)}
+              style={{ height: panelHeight - 40, width: "100%" }}
+              onEvents={{
+                click: (params: any) => {
+                  const i = Number(params?.dataIndex);
+                  if (!Number.isFinite(i)) return;
+                  const row = result.rows?.[i];
+                  if (!row) return;
+                  openContribution(row.region_exiobase ?? "", row.label);
+                },
+              }}
+            />
+          ) : null}
 
           {result && !isGeoJson(result) && !isTable(result) && !isPie(result) ? (
             <Box
@@ -480,13 +513,24 @@ function isGeoJson(v: unknown): v is GeoJsonV1 {
   return obj.kind === "geojson_v1" && typeof obj.geojson === "string";
 }
 
-function isTable(v: unknown): v is { kind: "table_v1"; columns: string[]; index: string[]; values: number[][]; meta?: any } {
+function isTable(v: unknown): v is {
+  kind: "table_v1";
+  columns: string[];
+  index: string[];
+  index_exiobase?: string[];
+  values: number[][];
+  meta?: any;
+} {
   if (!v || typeof v !== "object") return false;
   const obj = v as any;
   return obj.kind === "table_v1" && Array.isArray(obj.columns) && Array.isArray(obj.index) && Array.isArray(obj.values);
 }
 
-function isPie(v: unknown): v is { kind: "pie_v1"; rows: { label: string; value: number; unit?: string }[]; meta?: any } {
+function isPie(v: unknown): v is {
+  kind: "pie_v1";
+  rows: { label: string; value: number; unit?: string; region_exiobase?: string }[];
+  meta?: any;
+} {
   if (!v || typeof v !== "object") return false;
   const obj = v as any;
   return obj.kind === "pie_v1" && Array.isArray(obj.rows);
@@ -509,7 +553,7 @@ function tableToBarOption(tbl: { columns: string[]; index: string[]; values: num
   };
 }
 
-function pieToOption(pie: { rows: { label: string; value: number; unit?: string }[]; meta?: any }) {
+function pieToOption(pie: { rows: { label: string; value: number; unit?: string; region_exiobase?: string }[]; meta?: any }) {
   return {
     tooltip: { trigger: "item" },
     series: [
