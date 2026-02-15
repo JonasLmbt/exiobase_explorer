@@ -8,6 +8,7 @@ import ConsoleTab from "../pages/ConsoleTab";
 import { api } from "../api";
 import { useLog } from "./log";
 import { useT } from "./i18n";
+import exioLogo2 from "../assets/exiobase_logo_2_transparent.png";
 
 type TabId = "selection" | "visualisation" | "console" | "settings";
 
@@ -55,9 +56,17 @@ export default function AppShell() {
     <Box sx={{ minHeight: "100vh" }}>
       <AppBar position="sticky" elevation={0} sx={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
         <Toolbar sx={{ gap: 3 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            EXIOBASE Explorer
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+            <Box
+              component="img"
+              alt="EXIOBASE"
+              src={exioLogo2}
+              sx={{ width: 28, height: 28, display: "block" }}
+            />
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>
+              EXIOBASE Explorer
+            </Typography>
+          </Box>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} textColor="inherit" indicatorColor="secondary">
             <Tab value="selection" label={t("Selection")} />
             <Tab value="visualisation" label={t("Visualisation")} />
