@@ -38,7 +38,28 @@ export default function StageAnalysisTab() {
 
   useEffect(() => {
     if (impacts.length) return;
-    const first = impactsQ.data?.impacts?.[0]?.key;
+    const items = impactsQ.data?.impacts ?? [];
+    if (!items.length) return;
+
+    const want = ["wertschöpfung", "arbeitszeit", "treibhausgasemissionen", "wasserverbrauch", "landnutzung"];
+    const keyByWanted: Record<string, string | null> = {};
+    for (const w of want) keyByWanted[w] = null;
+
+    for (const it of items) {
+      const lbl = (it.label ?? "").toString().trim().toLowerCase();
+      for (const w of want) {
+        if (keyByWanted[w]) continue;
+        if (lbl === w) keyByWanted[w] = it.key;
+      }
+    }
+
+    const defaults = want.map((w) => keyByWanted[w]).filter(Boolean) as string[];
+    if (defaults.length) {
+      setImpacts(defaults);
+      return;
+    }
+
+    const first = items[0]?.key;
     if (first) setImpacts([first]);
   }, [impacts.length, impactsQ.data?.impacts]);
 
