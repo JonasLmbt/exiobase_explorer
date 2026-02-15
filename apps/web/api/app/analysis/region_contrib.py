@@ -70,7 +70,10 @@ class RegionContributionMethod(RegionAnalysisMethod):
 
         if isinstance(s_row, pd.DataFrame):
             s_row = s_row.iloc[0]
-        s = np.asarray(s_row.to_numpy(), dtype=np.float32)
+        if hasattr(s_row, "to_numpy"):
+            s = np.asarray(s_row.to_numpy(), dtype=np.float32)
+        else:
+            s = np.asarray(s_row, dtype=np.float32)
 
         contrib = np.asarray(s, dtype=np.float64) * np.asarray(x, dtype=np.float64)
 
@@ -89,13 +92,15 @@ class RegionContributionMethod(RegionAnalysisMethod):
         if not bool(getattr(mask, "any")()):
             return {"ok": False, "error": "region_not_found_in_index", "region_exiobase": region_exiobase, "region": region_name}
 
-        contrib_region = contrib[mask.to_numpy(dtype=bool)]
+        mask_arr = mask.to_numpy(dtype=bool) if hasattr(mask, "to_numpy") else np.asarray(mask, dtype=bool)
+        contrib_region = contrib[mask_arr]
         if contrib_region.size == 0:
             return {"kind": "contrib_table_v1", "meta": {"region_exiobase": region_exiobase, "region": region_name}, "rows": []}
 
         # Group by sector leaf inside the region.
-        sector_leaf = mi.get_level_values(-1).astype(str)[mask]
-        df = pd.DataFrame({"label": sector_leaf.to_numpy(), "value": contrib_region})
+        sector_leaf = mi.get_level_values(-1).astype(str)[mask_arr]
+        sector_vals = sector_leaf.to_numpy() if hasattr(sector_leaf, "to_numpy") else np.asarray(sector_leaf, dtype=object)
+        df = pd.DataFrame({"label": sector_vals, "value": contrib_region})
         grouped = df.groupby("label", as_index=False)["value"].sum().sort_values("value", ascending=False)
 
         total_raw = float(np.nansum(grouped["value"].to_numpy()) or 0.0)
@@ -126,4 +131,3 @@ class RegionContributionMethod(RegionAnalysisMethod):
             },
             "rows": rows,
         }
-
