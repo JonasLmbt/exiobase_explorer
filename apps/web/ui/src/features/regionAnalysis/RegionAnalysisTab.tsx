@@ -153,6 +153,7 @@ export default function RegionAnalysisTab({
 
             <Autocomplete
               multiple={method.maxImpacts > 1}
+              disablePortal
               disableCloseOnSelect={method.maxImpacts > 1}
               options={impactOptions}
               value={method.maxImpacts > 1 ? selectedImpactOptions : (selectedImpactOptions[0] ?? null)}
@@ -172,6 +173,7 @@ export default function RegionAnalysisTab({
                 return opts.filter((o) => (o.label ?? "").toLowerCase().includes(q) || (o.key ?? "").toLowerCase().includes(q));
               }}
               renderInput={(params) => <TextField {...params} label="Impact" placeholder="Search impacts…" size="small" />}
+              ListboxProps={{ style: { maxHeight: 360 } }}
               isOptionEqualToValue={(a, b) => a.key === b.key}
               renderOption={(props, option, { selected }) => (
                 <li {...props} key={option.key}>

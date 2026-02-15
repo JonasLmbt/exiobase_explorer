@@ -34,12 +34,14 @@ export default function StageMatrixChart({
   const stageIds = data.stage_ids ?? stages.map((_, i) => String(i));
   const impacts = data.impacts;
 
-  const points: Array<[number, number, number, number, string, string, string]> = [];
+  // Use category strings (not indices) for better compatibility with ECharts category axes.
+  const points: Array<[string, string, number, number, string, string, string]> = [];
   for (let y = 0; y < impacts.length; y++) {
+    const yLabel = impactLabelByKey[impacts[y].key] ?? impacts[y].key;
     for (let x = 0; x < stages.length; x++) {
       points.push([
-        x,
-        y,
+        stages[x],
+        yLabel,
         impacts[y].relative[x] ?? 0,
         impacts[y].absolute[x] ?? 0,
         impacts[y].key,

@@ -172,6 +172,7 @@ export default function StageAnalysisTab({
 
             <Autocomplete
               multiple
+              disablePortal
               disableCloseOnSelect
               options={impactOptions}
               value={selectedImpactOptions}
@@ -185,6 +186,7 @@ export default function StageAnalysisTab({
                 );
               }}
               renderInput={(params) => <TextField {...params} label="Impact" placeholder="Search impacts…" size="small" />}
+              ListboxProps={{ style: { maxHeight: 360 } }}
               isOptionEqualToValue={(a, b) => a.key === b.key}
               renderOption={(props, option, { selected }) => (
                 <li {...props} key={option.key}>

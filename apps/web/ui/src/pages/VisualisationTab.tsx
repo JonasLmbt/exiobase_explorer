@@ -105,7 +105,7 @@ export default function VisualisationTab() {
   };
 
   return (
-    <Container sx={{ py: 3 }}>
+    <Container maxWidth={false} sx={{ py: 3, px: { xs: 2, md: 3 } }}>
       <Stack spacing={2}>
         <Tabs value={inner} onChange={(_, v) => setInner(v)} textColor="inherit" indicatorColor="secondary">
           <Tab value="stage" label="Stage analysis" />
