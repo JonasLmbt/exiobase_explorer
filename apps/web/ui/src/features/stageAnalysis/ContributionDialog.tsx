@@ -10,8 +10,12 @@ import {
   Stack,
   Tab,
   Tabs,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
+import { alpha, useTheme } from "@mui/material/styles";
+import ReactECharts from "echarts-for-react";
 import { api, type JobRequest } from "../../api";
 import { useAppState } from "../../app/state";
 
@@ -22,24 +26,82 @@ type ContribTableV1 = {
   rows: { label: string; share: number; absolute: number }[];
 };
 
+function clamp01(x: number) {
+  return Math.max(0, Math.min(1, x));
+}
+
+function toRgb(hex: string): [number, number, number] | null {
+  const h = String(hex || "").trim().replace("#", "");
+  if (!/^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$/.test(h)) return null;
+  const n = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  return [r, g, b];
+}
+
+function rgbToHex([r, g, b]: [number, number, number]) {
+  const to = (x: number) => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, "0");
+  return `#${to(r)}${to(g)}${to(b)}`;
+}
+
+function mixWithWhite(hex: string, t: number): string {
+  const rgb = toRgb(hex);
+  if (!rgb) return hex;
+  const tt = clamp01(t);
+  const [r, g, b] = rgb;
+  return rgbToHex([r + (255 - r) * tt, g + (255 - g) * tt, b + (255 - b) * tt] as any);
+}
+
 export default function ContributionDialog({
   open,
   onClose,
-  impactKey,
-  impactLabel,
+  impactKeys,
+  initialImpactKey,
   stageId,
   stageLabel,
 }: {
   open: boolean;
   onClose: () => void;
-  impactKey: string;
-  impactLabel: string;
+  impactKeys: string[];
+  initialImpactKey?: string;
   stageId: string;
   stageLabel: string;
 }) {
   const { year, language, selection } = useAppState();
+  const theme = useTheme();
+
   const [dim, setDim] = useState<Dimension>("sectors");
+  const [activeImpact, setActiveImpact] = useState<string>(() => initialImpactKey || impactKeys[0] || "");
+  const [view, setView] = useState<"bars" | "pie">("bars");
   const [jobId, setJobId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!impactKeys.length) return;
+    setActiveImpact((cur) =>
+      impactKeys.includes(cur)
+        ? cur
+        : initialImpactKey && impactKeys.includes(initialImpactKey)
+          ? initialImpactKey
+          : impactKeys[0],
+    );
+  }, [impactKeys, initialImpactKey]);
+
+  const impactsQ = useQuery({
+    queryKey: ["impacts", year, language],
+    queryFn: () => api.impacts(year, language),
+    retry: false,
+  });
+
+  const impactMetaByKey = useMemo(() => {
+    const m: Record<string, { label: string; color: string; unit: string }> = {};
+    (impactsQ.data?.impacts ?? []).forEach((it) => (m[it.key] = { label: it.label, color: it.color, unit: it.unit }));
+    return m;
+  }, [impactsQ.data?.impacts]);
+
+  const impactLabel = impactMetaByKey[activeImpact]?.label ?? activeImpact;
+  const impactColorRaw = impactMetaByKey[activeImpact]?.color ?? "";
+  const impactColor = impactColorRaw || theme.palette.primary.main;
 
   const payload = useMemo<JobRequest>(() => {
     const sel =
@@ -53,9 +115,9 @@ export default function ContributionDialog({
       year,
       language,
       selection: sel,
-      analysis: { type: "contrib_breakdown", impacts: [impactKey], params: { stage_id: stageId, dimension: dim, top_n: 30 } },
+      analysis: { type: "contrib_breakdown", impacts: [activeImpact], params: { stage_id: stageId, dimension: dim, top_n: 30 } },
     };
-  }, [dim, impactKey, language, selection, stageId, year]);
+  }, [activeImpact, dim, language, selection, stageId, year]);
 
   const createJobM = useMutation({
     mutationFn: () => api.createJob(payload),
@@ -90,7 +152,36 @@ export default function ContributionDialog({
     if (!open) return;
     start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, dim, impactKey, stageId]);
+  }, [open, dim, activeImpact, stageId]);
+
+  const pieOption = useMemo(() => {
+    if (!table || table.kind !== "contrib_table_v1") return null;
+    const rows = table.rows.slice(0, 30);
+    const total = rows.reduce((acc, r) => acc + (Number.isFinite(r.absolute) ? r.absolute : 0), 0) || 1;
+    const colors = rows.map((_, i) => mixWithWhite(impactColor, clamp01(i / Math.max(1, rows.length - 1)) * 0.55));
+
+    return {
+      tooltip: {
+        trigger: "item",
+        formatter: (p: any) => {
+          const v = Number(p?.value);
+          const pct = (v / total) * 100;
+          return `${p?.name}<br/>${pct.toFixed(2)}%<br/>${v.toLocaleString()} ${unit}`;
+        },
+      },
+      series: [
+        {
+          type: "pie",
+          radius: ["30%", "74%"],
+          minAngle: 2,
+          avoidLabelOverlap: true,
+          itemStyle: { borderColor: theme.palette.background.paper, borderWidth: 1 },
+          label: { overflow: "truncate" },
+          data: rows.map((r, i) => ({ name: r.label, value: r.absolute, itemStyle: { color: colors[i] } })),
+        },
+      ],
+    };
+  }, [impactColor, table, theme.palette.background.paper, unit]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -106,10 +197,36 @@ export default function ContributionDialog({
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2}>
-          <Tabs value={dim} onChange={(_, v) => { setDim(v); }} textColor="inherit" indicatorColor="secondary">
+          {impactKeys.length > 1 ? (
+            <Tabs
+              value={activeImpact}
+              onChange={(_, v) => setActiveImpact(String(v))}
+              variant="scrollable"
+              allowScrollButtonsMobile
+              textColor="inherit"
+              indicatorColor="secondary"
+            >
+              {impactKeys.map((k) => (
+                <Tab key={k} value={k} label={impactMetaByKey[k]?.label ?? k} />
+              ))}
+            </Tabs>
+          ) : null}
+
+          <Tabs value={dim} onChange={(_, v) => setDim(v)} textColor="inherit" indicatorColor="secondary">
             <Tab value="sectors" label="Sectors" />
             <Tab value="regions" label="Regions" />
           </Tabs>
+
+          <ToggleButtonGroup
+            value={view}
+            exclusive
+            onChange={(_, v) => (v ? setView(v) : null)}
+            size="small"
+            sx={{ alignSelf: "flex-start" }}
+          >
+            <ToggleButton value="bars">Bars</ToggleButton>
+            <ToggleButton value="pie">Pie</ToggleButton>
+          </ToggleButtonGroup>
 
           <Stack direction="row" spacing={2} alignItems="center">
             <Button variant="outlined" onClick={start} disabled={createJobM.isPending}>
@@ -134,7 +251,9 @@ export default function ContributionDialog({
             </Stack>
           )}
 
-          {table?.kind === "contrib_table_v1" ? (
+          {view === "pie" && pieOption ? <ReactECharts option={pieOption} style={{ height: 520, width: "100%" }} /> : null}
+
+          {view === "bars" && table?.kind === "contrib_table_v1" ? (
             <Stack spacing={1}>
               {table.rows.map((r) => (
                 <Box
@@ -154,7 +273,13 @@ export default function ContributionDialog({
                       {r.label}
                     </Typography>
                     <Box sx={{ height: 6, borderRadius: 999, background: "rgba(255,255,255,0.10)", mt: 0.5, overflow: "hidden" }}>
-                      <Box sx={{ height: "100%", width: `${Math.max(0, Math.min(1, r.share)) * 100}%`, background: "rgba(138,180,248,0.85)" }} />
+                      <Box
+                        sx={{
+                          height: "100%",
+                          width: `${clamp01(r.share) * 100}%`,
+                          background: alpha(impactColor, theme.palette.mode === "dark" ? 0.85 : 0.9),
+                        }}
+                      />
                     </Box>
                   </Box>
                   <Typography variant="body2" sx={{ textAlign: "right", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
@@ -172,3 +297,4 @@ export default function ContributionDialog({
     </Dialog>
   );
 }
+
