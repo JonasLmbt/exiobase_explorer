@@ -48,6 +48,7 @@ export default function RegionAnalysisTab({
   const mapReverse = region.mapReverse;
   const mapShowLegend = region.mapShowLegend;
   const mapTitle = region.mapTitle;
+  const mapProjection = region.mapProjection;
   const mapMode = region.mapMode;
   const mapRelative = region.mapRelative;
   const mapK = region.mapK;
@@ -250,6 +251,22 @@ export default function RegionAnalysisTab({
             {method.analysisType === "region_world_map" ? (
               <Stack spacing={1}>
                 <Divider sx={{ opacity: 0.5 }} />
+
+                <FormControl fullWidth>
+                  <InputLabel id="projection-label">Projektion</InputLabel>
+                  <Select
+                    labelId="projection-label"
+                    label="Projektion"
+                    value={mapProjection}
+                    onChange={(e) => setRegion((s) => ({ ...s, mapProjection: e.target.value as any }))}
+                    size="small"
+                  >
+                    <MenuItem value="robinson">Robinson</MenuItem>
+                    <MenuItem value="equirectangular">Equirectangular</MenuItem>
+                    <MenuItem value="mercator">Mercator</MenuItem>
+                  </Select>
+                </FormControl>
+
                 <Stack direction="row" spacing={1} alignItems="center">
                   <FormControl fullWidth>
                     <InputLabel id="palette-label">Palette</InputLabel>
@@ -433,6 +450,7 @@ export default function RegionAnalysisTab({
                   reverse: mapReverse,
                   showLegend: mapShowLegend,
                   title: mapTitle,
+                  projection: mapProjection,
                   mode: mapMode,
                   relative: mapRelative,
                   k: mapK,

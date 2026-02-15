@@ -47,6 +47,7 @@ export type RegionState = {
   mapReverse: boolean;
   mapShowLegend: boolean;
   mapTitle: string;
+  mapProjection: "mercator" | "equirectangular" | "robinson";
   mapMode: "binned" | "continuous";
   mapRelative: boolean;
   mapK: number;
@@ -94,6 +95,7 @@ function defaultRegionState(): RegionState {
     mapReverse: false,
     mapShowLegend: false,
     mapTitle: "",
+    mapProjection: "robinson",
     mapMode: "binned",
     mapRelative: true,
     mapK: 7,
