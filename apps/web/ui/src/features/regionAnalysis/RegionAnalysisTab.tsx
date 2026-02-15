@@ -22,6 +22,7 @@ import { useLog } from "../../app/log";
 import { regionMethods } from "./methodRegistry";
 import WorldMapLeaflet, { type GeoJsonV1 } from "./WorldMapLeaflet";
 import ReactECharts from "echarts-for-react";
+import RegionContributionDialog from "./RegionContributionDialog";
 
 export default function RegionAnalysisTab({
   region,
@@ -33,6 +34,9 @@ export default function RegionAnalysisTab({
   const { year, language, selection } = useAppState();
   const log = useLog();
   const [error, setError] = useState<string | null>(null);
+  const [contribOpen, setContribOpen] = useState(false);
+  const [contribRegionExiobase, setContribRegionExiobase] = useState<string | null>(null);
+  const [contribRegionLabel, setContribRegionLabel] = useState<string>("");
   const methodId = region.methodId;
   const impacts = region.impacts;
   const n = region.n;
@@ -114,6 +118,12 @@ export default function RegionAnalysisTab({
   const runDisabled = impacts.length === 0 || createJobM.isPending;
 
   const result = jobResultQ.data?.result ?? region.lastResult;
+  const impactKey = impacts[0] ?? "";
+  const impactLabelByKey = useMemo(() => {
+    const m: Record<string, string> = {};
+    (impactsQ.data?.impacts ?? []).forEach((it) => (m[it.key] = it.label));
+    return m;
+  }, [impactsQ.data?.impacts]);
 
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "420px 1fr" }, gap: 2, alignItems: "start" }}>
@@ -259,7 +269,17 @@ export default function RegionAnalysisTab({
 
       <Card>
         <CardContent>
-          {result && isGeoJson(result) ? <WorldMapLeaflet data={result} /> : null}
+          {result && isGeoJson(result) ? (
+            <WorldMapLeaflet
+              data={result}
+              onRegionClick={({ exiobase, region }) => {
+                if (!impactKey) return;
+                setContribRegionExiobase(exiobase);
+                setContribRegionLabel(region);
+                setContribOpen(true);
+              }}
+            />
+          ) : null}
           {result && isTable(result) ? <ReactECharts option={tableToBarOption(result)} style={{ height: 480, width: "100%" }} /> : null}
           {result && isPie(result) ? <ReactECharts option={pieToOption(result)} style={{ height: 420, width: "100%" }} /> : null}
 
@@ -279,6 +299,17 @@ export default function RegionAnalysisTab({
           ) : null}
         </CardContent>
       </Card>
+
+      {contribRegionExiobase ? (
+        <RegionContributionDialog
+          open={contribOpen}
+          onClose={() => setContribOpen(false)}
+          impactKey={impactKey}
+          impactLabel={impactLabelByKey[impactKey] ?? impactKey}
+          regionExiobase={contribRegionExiobase}
+          regionLabel={contribRegionLabel || contribRegionExiobase}
+        />
+      ) : null}
     </Box>
   );
 }
