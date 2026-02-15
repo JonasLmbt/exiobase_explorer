@@ -93,7 +93,9 @@ export default function RegionContributionDialog({
 
   const impactMetaByKey = useMemo(() => {
     const m: Record<string, { label: string; color: string; unit: string }> = {};
-    (impactsQ.data?.impacts ?? []).forEach((it) => (m[it.key] = { label: it.label, color: it.color, unit: it.unit }));
+    (impactsQ.data?.impacts ?? []).forEach(
+      (it) => (m[it.key] = { label: String(it.label ?? it.key), color: String(it.color ?? ""), unit: String(it.unit ?? "") }),
+    );
     return m;
   }, [impactsQ.data?.impacts]);
 
@@ -290,4 +292,3 @@ export default function RegionContributionDialog({
     </Dialog>
   );
 }
-
