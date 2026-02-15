@@ -31,6 +31,7 @@ export default function RegionAnalysisTab() {
   const [n, setN] = useState<number>(10);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<unknown | null>(null);
 
   const method = useMemo(() => regionMethods.find((m) => m.id === methodId) ?? regionMethods[0], [methodId]);
 
@@ -39,6 +40,12 @@ export default function RegionAnalysisTab() {
     queryFn: () => api.impacts(year, language),
     retry: false,
   });
+
+  const impactOptions = impactsQ.data?.impacts ?? [];
+  const selectedImpactOptions = useMemo(() => {
+    const byKey = new Map(impactOptions.map((o) => [o.key, o] as const));
+    return impacts.map((k) => byKey.get(k)).filter(Boolean) as typeof impactOptions;
+  }, [impactOptions, impacts]);
 
   useEffect(() => {
     if (impacts.length) return;
@@ -89,37 +96,30 @@ export default function RegionAnalysisTab() {
     retry: false,
   });
 
-  const labelByKey = useMemo(() => {
-    const map: Record<string, string> = {};
-    (impactsQ.data?.impacts ?? []).forEach((it) => {
-      map[it.key] = it.label;
-    });
-    return map;
-  }, [impactsQ.data?.impacts]);
-
-  const impactOptions = impactsQ.data?.impacts ?? [];
-  const selectedImpactOptions = useMemo(() => {
-    const byKey = new Map(impactOptions.map((o) => [o.key, o] as const));
-    return impacts.map((k) => byKey.get(k)).filter(Boolean) as typeof impactOptions;
-  }, [impactOptions, impacts]);
-
-  const runDisabled = impacts.length === 0 || createJobM.isPending;
+  useEffect(() => {
+    if (!jobResultQ.data?.result) return;
+    setLastResult(jobResultQ.data.result);
+  }, [jobResultQ.data?.result]);
 
   const onRun = () => {
     setError(null);
     createJobM.mutate(undefined, { onError: (e) => setError(String(e)) });
   };
 
-  return (
-    <Card>
-      <CardContent>
-        <Stack spacing={2}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Region analysis
-          </Typography>
+  const runDisabled = impacts.length === 0 || createJobM.isPending;
 
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-            <FormControl sx={{ minWidth: 220 }}>
+  const result = jobResultQ.data?.result ?? lastResult;
+
+  return (
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "420px 1fr" }, gap: 2, alignItems: "start" }}>
+      <Card>
+        <CardContent>
+          <Stack spacing={2}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              Region analysis
+            </Typography>
+
+            <FormControl>
               <InputLabel id="method-label">Method</InputLabel>
               <Select labelId="method-label" label="Method" value={methodId} onChange={(e) => setMethodId(String(e.target.value))}>
                 {regionMethods.map((m) => (
@@ -130,27 +130,22 @@ export default function RegionAnalysisTab() {
               </Select>
             </FormControl>
 
-            {(method.analysisType === "region_topn" || method.analysisType === "region_flopn") && (
+            {(method.analysisType === "region_topn" || method.analysisType === "region_flopn") ? (
               <TextField
                 label="n"
                 type="number"
                 size="small"
                 value={n}
                 onChange={(e) => setN(Math.max(1, Number(e.target.value) || 1))}
-                sx={{ width: 120 }}
                 inputProps={{ min: 1, max: 50 }}
               />
-            )}
+            ) : null}
 
             <Autocomplete
               multiple={method.maxImpacts > 1}
               disableCloseOnSelect={method.maxImpacts > 1}
               options={impactOptions}
-              value={
-                method.maxImpacts > 1
-                  ? selectedImpactOptions
-                  : (selectedImpactOptions[0] ?? null)
-              }
+              value={method.maxImpacts > 1 ? selectedImpactOptions : (selectedImpactOptions[0] ?? null)}
               onChange={(_, next) => {
                 if (method.maxImpacts > 1) {
                   const arr = Array.isArray(next) ? next : [];
@@ -164,19 +159,14 @@ export default function RegionAnalysisTab() {
               filterOptions={(opts, state) => {
                 const q = state.inputValue.trim().toLowerCase();
                 if (!q) return opts;
-                return opts.filter(
-                  (o) => (o.label ?? "").toLowerCase().includes(q) || (o.key ?? "").toLowerCase().includes(q),
-                );
+                return opts.filter((o) => (o.label ?? "").toLowerCase().includes(q) || (o.key ?? "").toLowerCase().includes(q));
               }}
               renderInput={(params) => <TextField {...params} label="Impact" placeholder="Search impacts…" size="small" />}
-              sx={{ minWidth: 360, flex: 1 }}
               isOptionEqualToValue={(a, b) => a.key === b.key}
               renderOption={(props, option, { selected }) => (
                 <li {...props} key={option.key}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
-                    {method.maxImpacts > 1 ? (
-                      <Checkbox size="small" checked={selected} sx={{ mr: 0.5 }} />
-                    ) : null}
+                    {method.maxImpacts > 1 ? <Checkbox size="small" checked={selected} sx={{ mr: 0.5 }} /> : null}
                     <Box
                       sx={{
                         width: 10,
@@ -188,25 +178,10 @@ export default function RegionAnalysisTab() {
                       }}
                     />
                     <Box sx={{ flex: 1, minWidth: 0, opacity: selected ? 0.95 : 0.8 }}>
-                      <Box
-                        sx={{
-                          fontWeight: selected ? 700 : 500,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
+                      <Box sx={{ fontWeight: selected ? 700 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {option.label}
                       </Box>
-                      <Box
-                        sx={{
-                          fontSize: "0.8rem",
-                          opacity: 0.7,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
+                      <Box sx={{ fontSize: "0.8rem", opacity: 0.7, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {option.key}
                       </Box>
                     </Box>
@@ -215,66 +190,58 @@ export default function RegionAnalysisTab() {
               )}
             />
 
-            <Button variant="contained" onClick={onRun} disabled={runDisabled}>
+            <Button variant="contained" onClick={onRun} disabled={runDisabled} size="large" sx={{ py: 1.2 }}>
               Run
             </Button>
-          </Stack>
 
-          <Typography variant="body2" sx={{ opacity: 0.75 }}>
-            Auswahl kommt aus dem Tab <b>Selection</b> (Region/Sektor). Ohne Auswahl wird global gerechnet.
-          </Typography>
-
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ opacity: 0.9 }}>
-            <Box sx={{ minWidth: 100 }}>Job</Box>
-            <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{jobId ?? "—"}</Box>
-          </Stack>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ opacity: 0.9 }}>
-            <Box sx={{ minWidth: 100 }}>Status</Box>
-            <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
-              {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : "—"}
-            </Box>
-          </Stack>
-
-          {jobStatusQ.data?.state === "failed" ? (
-            <Box sx={{ color: "#ffd2d2" }}>
-              <Typography
-                variant="body2"
-                sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}
-              >
-                {jobStatusQ.data.message ?? "Job failed"}
-              </Typography>
-            </Box>
-          ) : null}
-
-          {(createJobM.isPending || jobStatusQ.isFetching) && (
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.9 }}>
-              <CircularProgress size={18} />
-              <Typography variant="body2">Berechne…</Typography>
-            </Stack>
-          )}
-
-          {jobResultQ.isFetching ? (
-            <Typography variant="body2" sx={{ opacity: 0.8 }}>
-              Lade Ergebnis…
+            <Typography variant="body2" sx={{ opacity: 0.75 }}>
+              Auswahl kommt aus dem Tab <b>Selection</b> (Region/Sektor). Ohne Auswahl wird global gerechnet.
             </Typography>
-          ) : null}
 
-          {jobResultQ.data?.result && isGeoJson(jobResultQ.data.result) ? (
-            <WorldMapLeaflet data={jobResultQ.data.result} />
-          ) : null}
+            <Stack spacing={1} sx={{ opacity: 0.9 }}>
+              <Stack direction="row" spacing={2}>
+                <Box sx={{ minWidth: 80 }}>Job</Box>
+                <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{jobId ?? "—"}</Box>
+              </Stack>
+              <Stack direction="row" spacing={2}>
+                <Box sx={{ minWidth: 80 }}>Status</Box>
+                <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
+                  {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : "—"}
+                </Box>
+              </Stack>
+            </Stack>
 
-          {jobResultQ.data?.result && isTable(jobResultQ.data.result) ? (
-            <ReactECharts option={tableToBarOption(jobResultQ.data.result)} style={{ height: 480, width: "100%" }} />
-          ) : null}
+            {jobStatusQ.data?.state === "failed" ? (
+              <Box sx={{ color: "#ffd2d2" }}>
+                <Typography variant="body2" sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
+                  {jobStatusQ.data.message ?? "Job failed"}
+                </Typography>
+              </Box>
+            ) : null}
 
-          {jobResultQ.data?.result && isPie(jobResultQ.data.result) ? (
-            <ReactECharts option={pieToOption(jobResultQ.data.result)} style={{ height: 420, width: "100%" }} />
-          ) : null}
+            {(createJobM.isPending || jobStatusQ.isFetching) && (
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.9 }}>
+                <CircularProgress size={18} />
+                <Typography variant="body2">Berechne…</Typography>
+              </Stack>
+            )}
 
-          {jobResultQ.data?.result &&
-          !isGeoJson(jobResultQ.data.result) &&
-          !isTable(jobResultQ.data.result) &&
-          !isPie(jobResultQ.data.result) ? (
+            {error ? (
+              <Box sx={{ color: "#ffd2d2" }}>
+                <Typography variant="body2">{error}</Typography>
+              </Box>
+            ) : null}
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          {result && isGeoJson(result) ? <WorldMapLeaflet data={result} /> : null}
+          {result && isTable(result) ? <ReactECharts option={tableToBarOption(result)} style={{ height: 480, width: "100%" }} /> : null}
+          {result && isPie(result) ? <ReactECharts option={pieToOption(result)} style={{ height: 420, width: "100%" }} /> : null}
+
+          {result && !isGeoJson(result) && !isTable(result) && !isPie(result) ? (
             <Box
               component="pre"
               sx={{
@@ -285,25 +252,13 @@ export default function RegionAnalysisTab() {
                 fontSize: "0.85rem",
               }}
             >
-              {JSON.stringify(jobResultQ.data.result, null, 2)}
+              {JSON.stringify(result, null, 2)}
             </Box>
           ) : null}
-
-          {error ? (
-            <Box sx={{ color: "#ffd2d2" }}>
-              <Typography variant="body2">{error}</Typography>
-            </Box>
-          ) : null}
-        </Stack>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </Box>
   );
-}
-
-function isImageResult(v: unknown): v is { kind: "image_base64"; mime: string; data: string } {
-  if (!v || typeof v !== "object") return false;
-  const obj = v as any;
-  return obj.kind === "image_base64" && typeof obj.mime === "string" && typeof obj.data === "string";
 }
 
 function isGeoJson(v: unknown): v is GeoJsonV1 {
@@ -330,11 +285,12 @@ function tableToBarOption(tbl: { columns: string[]; index: string[]; values: num
     type: "bar",
     data: tbl.values.map((row) => row[j]),
   }));
+
   return {
     tooltip: { trigger: "axis" },
     legend: { top: 0 },
-    grid: { left: 60, right: 20, top: 40, bottom: 90 },
-    xAxis: { type: "category", data: tbl.index, axisLabel: { rotate: 35 } },
+    grid: { left: 70, right: 20, top: 50, bottom: 80 },
+    xAxis: { type: "category", data: tbl.index, axisLabel: { rotate: 30 } },
     yAxis: { type: "value" },
     series,
   };
@@ -346,9 +302,11 @@ function pieToOption(pie: { rows: { label: string; value: number; unit?: string 
     series: [
       {
         type: "pie",
-        radius: "70%",
+        radius: ["30%", "70%"],
         data: pie.rows.map((r) => ({ name: r.label, value: r.value })),
+        label: { overflow: "truncate" },
       },
     ],
   };
 }
+
