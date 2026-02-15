@@ -47,3 +47,42 @@ def list_languages(year: int = Query(..., ge=1995, le=2100)) -> dict:
             return {"languages": list(xls.sheet_names)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read languages: {e}") from e
+
+
+@router.get("/translations")
+def translations(
+    year: int = Query(..., ge=1995, le=2100),
+    language: str = Query("Deutsch", min_length=1),
+) -> dict:
+    """
+    Return UI translation strings from `general.xlsx`.
+
+    The Excel file contains one sheet per language. Each sheet is expected to have two columns:
+    - `exiobase`: canonical key (English-like identifier / UI token)
+    - `translation`: localized string
+    """
+    general_xlsx = fast_database_path(year) / "general.xlsx"
+    if not general_xlsx.exists():
+        general_xlsx = config_dir() / "general.xlsx"
+        if not general_xlsx.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"general.xlsx not found for year={year}. Expected at: {general_xlsx.as_posix()}",
+            )
+
+    try:
+        with pd.ExcelFile(str(general_xlsx)) as xls:
+            sheets = list(xls.sheet_names)
+        sheet = language if language in sheets else ("English" if "English" in sheets else ("Exiobase" if "Exiobase" in sheets else sheets[0]))
+        df = pd.read_excel(str(general_xlsx), sheet_name=sheet)
+        if df.shape[1] < 2:
+            return {"language": sheet, "translations": {}}
+
+        keys = df.iloc[:, 0].astype(str).tolist()
+        vals = df.iloc[:, 1].astype(str).tolist()
+        out = {k: (vals[i] if i < len(vals) else k) for i, k in enumerate(keys)}
+        return {"language": sheet, "translations": out}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read translations: {e}") from e
