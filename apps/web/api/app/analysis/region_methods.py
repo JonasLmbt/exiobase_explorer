@@ -61,6 +61,10 @@ class RegionTopNMethod(RegionAnalysisMethod):
         if not impacts:
             return {"ok": False, "error": "missing_impacts"}
 
+        regions = list(getattr(iosystem, "regions", []) or [])
+        regions_exiobase = list(getattr(iosystem, "regions_exiobase", []) or [])
+        region_to_exiobase = dict(zip(regions, regions_exiobase)) if len(regions) == len(regions_exiobase) else {}
+
         n = int((analysis.get("params") or {}).get("n", 10))
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
@@ -69,11 +73,13 @@ class RegionTopNMethod(RegionAnalysisMethod):
             for i in impacts[:4]
         ]
         fig, mat = sc.plot_topn_by_impacts(impacts=resolved, n=n, relative=True, orientation="vertical", return_data=True)
+        idx = [str(i) for i in mat.index.tolist()]
         return {
             "kind": "table_v1",
             "meta": {"type": "topn", "n": n, "relative": True},
             "columns": [str(c) for c in mat.columns.tolist()],
-            "index": [str(i) for i in mat.index.tolist()],
+            "index": idx,
+            "index_exiobase": [str(region_to_exiobase.get(i, "")) for i in idx],
             "values": [[float(x) for x in row] for row in mat.to_numpy()],
         }
 
@@ -87,6 +93,10 @@ class RegionFlopNMethod(RegionAnalysisMethod):
         if not impacts:
             return {"ok": False, "error": "missing_impacts"}
 
+        regions = list(getattr(iosystem, "regions", []) or [])
+        regions_exiobase = list(getattr(iosystem, "regions_exiobase", []) or [])
+        region_to_exiobase = dict(zip(regions, regions_exiobase)) if len(regions) == len(regions_exiobase) else {}
+
         n = int((analysis.get("params") or {}).get("n", 10))
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
@@ -95,11 +105,13 @@ class RegionFlopNMethod(RegionAnalysisMethod):
             for i in impacts[:4]
         ]
         fig, mat = sc.plot_flopn_by_impacts(impacts=resolved, n=n, relative=True, orientation="vertical", return_data=True)
+        idx = [str(i) for i in mat.index.tolist()]
         return {
             "kind": "table_v1",
             "meta": {"type": "flopn", "n": n, "relative": True},
             "columns": [str(c) for c in mat.columns.tolist()],
-            "index": [str(i) for i in mat.index.tolist()],
+            "index": idx,
+            "index_exiobase": [str(region_to_exiobase.get(i, "")) for i in idx],
             "values": [[float(x) for x in row] for row in mat.to_numpy()],
         }
 
@@ -113,6 +125,10 @@ class RegionPieMethod(RegionAnalysisMethod):
         if not impact:
             return {"ok": False, "error": "missing_impact"}
 
+        regions = list(getattr(iosystem, "regions", []) or [])
+        regions_exiobase = list(getattr(iosystem, "regions_exiobase", []) or [])
+        region_to_exiobase = dict(zip(regions, regions_exiobase)) if len(regions) == len(regions_exiobase) else {}
+
         indices = selection_to_indices(iosystem=iosystem, selection=selection)
         sc = SupplyChain(iosystem=iosystem, indices=indices)
         resolved = resolve_impact_label(year=int(iosystem.year), language=iosystem.language, impact_key=str(impact))
@@ -121,7 +137,12 @@ class RegionPieMethod(RegionAnalysisMethod):
             "kind": "pie_v1",
             "meta": {"impact": str(impact), "impact_resolved": str(resolved), "relative": True},
             "rows": [
-                {"label": str(r["label"]), "value": float(r["value"]), "unit": str(r.get("unit") or "")}
+                {
+                    "label": str(r["label"]),
+                    "region_exiobase": str(region_to_exiobase.get(str(r["label"]), "")),
+                    "value": float(r["value"]),
+                    "unit": str(r.get("unit") or ""),
+                }
                 for _, r in pie_df.iterrows()
             ],
         }
