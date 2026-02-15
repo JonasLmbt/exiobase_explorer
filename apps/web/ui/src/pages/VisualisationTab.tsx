@@ -1,7 +1,8 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import { Box, Container, IconButton, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Container, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Tab, Tabs, TextField, Tooltip, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
+import EditIcon from "@mui/icons-material/Edit";
 import StageAnalysisTab from "../features/stageAnalysis/StageAnalysisTab";
 import RegionAnalysisTab from "../features/regionAnalysis/RegionAnalysisTab";
 import { useAppState, type RegionState, type StageState } from "../app/state";
@@ -31,6 +32,10 @@ export default function VisualisationTab() {
     setActiveRegionSessionId,
   } = useAppState();
   const [inner, setInner] = useState<Inner>("stage");
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameKind, setRenameKind] = useState<Inner>("stage");
+  const [renameId, setRenameId] = useState<string>("");
+  const [renameValue, setRenameValue] = useState<string>("");
 
   const activeStage = useMemo(
     () => stageSessions.find((s) => s.id === activeStageSessionId) ?? stageSessions[0],
@@ -104,6 +109,23 @@ export default function VisualisationTab() {
       },
     ]);
     setActiveRegionSessionId(id);
+  };
+
+  const openRename = (kind: Inner, id: string, currentTitle: string) => {
+    setRenameKind(kind);
+    setRenameId(id);
+    setRenameValue(currentTitle);
+    setRenameOpen(true);
+  };
+
+  const applyRename = () => {
+    const title = renameValue.trim() || (renameKind === "stage" ? "Stage" : "Region");
+    if (renameKind === "stage") {
+      setStageSessions((prev) => prev.map((s) => (s.id === renameId ? { ...s, title } : s)));
+    } else {
+      setRegionSessions((prev) => prev.map((s) => (s.id === renameId ? { ...s, title } : s)));
+    }
+    setRenameOpen(false);
   };
 
   const closeStage = (id: string) => {
@@ -197,6 +219,16 @@ export default function VisualisationTab() {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
+                            openRename("stage", s.id, s.title);
+                          }}
+                        >
+                          <EditIcon fontSize="inherit" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
                             closeStage(s.id);
                           }}
                         >
@@ -244,6 +276,16 @@ export default function VisualisationTab() {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
+                            openRename("region", s.id, s.title);
+                          }}
+                        >
+                          <EditIcon fontSize="inherit" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
                             closeRegion(s.id);
                           }}
                         >
@@ -265,6 +307,29 @@ export default function VisualisationTab() {
           </Stack>
         )}
       </Stack>
+
+      <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Tab umbenennen</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Name"
+            fullWidth
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") applyRename();
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenameOpen(false)}>Abbrechen</Button>
+          <Button variant="contained" onClick={applyRename}>
+            OK
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }
