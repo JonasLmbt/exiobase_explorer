@@ -3,6 +3,24 @@ import ReactECharts from "echarts-for-react";
 type ImpactRow = { key: string; unit: string; color: string; relative: number[]; absolute: number[] };
 export type StageTableV1 = { kind: "stage_table_v1"; stages: string[]; impacts: ImpactRow[] };
 
+function wrapLabel(value: string, maxLen = 14): string {
+  const parts = String(value ?? "").split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return String(value ?? "");
+  const lines: string[] = [];
+  let cur = "";
+  for (const p of parts) {
+    const next = cur ? `${cur} ${p}` : p;
+    if (next.length > maxLen && cur) {
+      lines.push(cur);
+      cur = p;
+    } else {
+      cur = next;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.join("\n");
+}
+
 export default function StageMatrixChart({
   data,
   impactLabelByKey,
@@ -30,11 +48,11 @@ export default function StageMatrixChart({
   }
 
   const option = {
-    grid: { left: 220, right: 30, top: 20, bottom: 60 },
+    grid: { left: 220, right: 30, top: 20, bottom: 90 },
     xAxis: {
       type: "category",
       data: stages,
-      axisLabel: { rotate: 20 },
+      axisLabel: { rotate: 0, interval: 0, lineHeight: 14, formatter: (v: string) => wrapLabel(v, 18) },
     },
     yAxis: {
       type: "category",

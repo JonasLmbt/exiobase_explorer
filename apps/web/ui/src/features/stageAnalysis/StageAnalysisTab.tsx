@@ -41,19 +41,21 @@ export default function StageAnalysisTab() {
     const items = impactsQ.data?.impacts ?? [];
     if (!items.length) return;
 
-    const want = ["wertschöpfung", "arbeitszeit", "treibhausgasemissionen", "wasserverbrauch", "landnutzung"];
-    const keyByWanted: Record<string, string | null> = {};
-    for (const w of want) keyByWanted[w] = null;
+    const wantLabelsDe = ["Wertschöpfung", "Arbeitszeit", "Treibhausgasemissionen", "Wasserverbrauch", "Landnutzung"];
+    const want = (language || "").trim().toLowerCase() === "deutsch" ? wantLabelsDe : [];
 
+    const byExactLabel = new Map<string, string>();
     for (const it of items) {
       const lbl = (it.label ?? "").toString().trim().toLowerCase();
-      for (const w of want) {
-        if (keyByWanted[w]) continue;
-        if (lbl === w || lbl.startsWith(w) || lbl.includes(w)) keyByWanted[w] = it.key;
-      }
+      if (!lbl) continue;
+      if (!byExactLabel.has(lbl)) byExactLabel.set(lbl, it.key);
     }
 
-    const defaults = want.map((w) => keyByWanted[w]).filter(Boolean) as string[];
+    const defaults: string[] = [];
+    for (const w of want) {
+      const key = byExactLabel.get(w.toLowerCase());
+      if (key) defaults.push(key);
+    }
     if (defaults.length) {
       setStage((s) => ({ ...s, impacts: defaults }));
       return;
@@ -61,7 +63,7 @@ export default function StageAnalysisTab() {
 
     const first = items[0]?.key;
     if (first) setStage((s) => ({ ...s, impacts: [first] }));
-  }, [impacts.length, impactsQ.data?.impacts, setStage]);
+  }, [impacts.length, impactsQ.data?.impacts, language, setStage]);
 
   const payload = useMemo<JobRequest>(() => {
     const sel =
