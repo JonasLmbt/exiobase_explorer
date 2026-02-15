@@ -45,11 +45,11 @@ class ContributionBreakdownMethod(StageAnalysisMethod):
 
     def _y_vector(self, *, iosystem: IOSystem, indices: list[int]) -> np.ndarray:
         y_mat = iosystem.Y.values
-        diag = np.diag(y_mat).astype(np.float64, copy=False)
+        diag = np.diag(y_mat).astype(np.float32, copy=False)
         n = diag.shape[0]
         if not indices or len(indices) >= n:
             return diag.copy()
-        y = np.zeros(n, dtype=np.float64)
+        y = np.zeros(n, dtype=np.float32)
         y[np.asarray(indices, dtype=np.int64)] = diag[np.asarray(indices, dtype=np.int64)]
         return y
 
@@ -62,8 +62,8 @@ class ContributionBreakdownMethod(StageAnalysisMethod):
         y: np.ndarray,
         job_meta: Optional[Dict[str, Any]] = None,
     ) -> np.ndarray:
-        a = iosystem.A.values.astype(np.float64, copy=False)
-        l = iosystem.L.values.astype(np.float64, copy=False)
+        a = iosystem.A.values
+        l = iosystem.L.values
 
         if job_meta is not None:
             job_meta["progress"] = max(float(job_meta.get("progress") or 0.0), 0.45)
@@ -171,10 +171,10 @@ class ContributionBreakdownMethod(StageAnalysisMethod):
 
         if isinstance(s_row, pd.DataFrame):
             s_row = s_row.iloc[0]
-        s = np.asarray(s_row.to_numpy(), dtype=np.float64)
+        s = np.asarray(s_row.to_numpy(), dtype=np.float32)
 
         # Contribution per emitting sector (origin): impact intensity * output for selected final demand.
-        contrib = s * np.asarray(out, dtype=np.float64)
+        contrib = np.asarray(s, dtype=np.float64) * np.asarray(out, dtype=np.float64)
 
         total_raw = float(np.nansum(contrib) or 0.0)
         if total_raw == 0.0:
