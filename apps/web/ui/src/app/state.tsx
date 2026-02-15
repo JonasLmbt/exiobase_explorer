@@ -29,7 +29,14 @@ export type AppState = {
   setSelectionSummary: (s: SelectionSummary | null) => void;
 };
 
-export type StageState = { methodId: string; impacts: string[]; jobId: string | null; lastResult: unknown | null };
+export type StageState = {
+  methodId: string;
+  impacts: string[];
+  jobId: string | null;
+  lastResult: unknown | null;
+  showStagePercentLabels: boolean;
+  showTotalAbsoluteLabel: boolean;
+};
 export type RegionState = {
   methodId: string;
   impacts: string[];
@@ -55,7 +62,14 @@ function newId(): string {
 }
 
 function defaultStageState(): StageState {
-  return { methodId: "bubble", impacts: [], jobId: null, lastResult: null };
+  return {
+    methodId: "bubble",
+    impacts: [],
+    jobId: null,
+    lastResult: null,
+    showStagePercentLabels: true,
+    showTotalAbsoluteLabel: true,
+  };
 }
 
 function defaultRegionState(): RegionState {

@@ -64,7 +64,14 @@ export default function VisualisationTab() {
   const addStage = () => {
     const id = newId();
     const title = `Stage ${stageSessions.length + 1}`;
-    setStageSessions((prev) => [...prev, { id, title, state: { methodId: "bubble", impacts: [], jobId: null, lastResult: null } }]);
+    setStageSessions((prev) => [
+      ...prev,
+      {
+        id,
+        title,
+        state: { methodId: "bubble", impacts: [], jobId: null, lastResult: null, showStagePercentLabels: true, showTotalAbsoluteLabel: true },
+      },
+    ]);
     setActiveStageSessionId(id);
   };
 
@@ -84,7 +91,13 @@ export default function VisualisationTab() {
       if (!next.length) {
         const nid = newId();
         setActiveStageSessionId(nid);
-        return [{ id: nid, title: "Stage 1", state: { methodId: "bubble", impacts: [], jobId: null, lastResult: null } }];
+        return [
+          {
+            id: nid,
+            title: "Stage 1",
+            state: { methodId: "bubble", impacts: [], jobId: null, lastResult: null, showStagePercentLabels: true, showTotalAbsoluteLabel: true },
+          },
+        ];
       }
       if (activeStageSessionId === id) setActiveStageSessionId(next[0].id);
       return next;

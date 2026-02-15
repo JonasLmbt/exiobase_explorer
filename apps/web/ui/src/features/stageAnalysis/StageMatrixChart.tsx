@@ -24,10 +24,14 @@ function wrapLabel(value: string, maxLen = 14): string {
 export default function StageMatrixChart({
   data,
   impactLabelByKey,
+  showStagePercentLabels,
+  showTotalAbsoluteLabel,
   onCellClick,
 }: {
   data: StageTableV1;
   impactLabelByKey: Record<string, string>;
+  showStagePercentLabels?: boolean;
+  showTotalAbsoluteLabel?: boolean;
   onCellClick?: (info: { impactKey: string; stageId: string; stageLabel: string; value: number }) => void;
 }) {
   const stages = data.stages;
@@ -67,6 +71,10 @@ export default function StageMatrixChart({
     },
     tooltip: {
       trigger: "item",
+      triggerOn: "mousemove|click",
+      showDelay: 0,
+      hideDelay: 50,
+      confine: true,
       formatter: (p: any) => {
         const v = (p?.data?.value ?? p?.value ?? []) as any[];
         const [, , vRel, vAbs, k, s] = v;
@@ -86,6 +94,30 @@ export default function StageMatrixChart({
         data: points,
         progressive: 0,
         animation: false,
+        labelLayout: { hideOverlap: true },
+        label: {
+          show: Boolean(showStagePercentLabels || showTotalAbsoluteLabel),
+          position: "bottom",
+          distance: 6,
+          fontSize: 11,
+          color: "rgba(0,0,0,0.72)",
+          formatter: (p: any) => {
+            const arr = (p?.data?.value ?? p?.value ?? []) as any[];
+            const rel = Number(arr?.[2] ?? 0);
+            const abs = Number(arr?.[3] ?? 0);
+            const impactKey = String(arr?.[4] ?? "");
+            const stageId = String(arr?.[6] ?? "");
+
+            if (stageId === "total") {
+              if (!showTotalAbsoluteLabel || !Number.isFinite(abs) || abs === 0) return "";
+              const unit = impacts.find((i) => i.key === impactKey)?.unit ?? "";
+              return unit ? `${abs.toLocaleString()} ${unit}` : abs.toLocaleString();
+            }
+
+            if (!showStagePercentLabels || !Number.isFinite(rel) || rel === 0) return "";
+            return `${(rel * 100).toFixed(1)}%`;
+          },
+        },
         symbolSize: (val: any, params: any) => {
           const arr = (Array.isArray(val) ? val : (params?.data?.value ?? [])) as any[];
           const v = Number(arr?.[2] ?? 0);

@@ -7,7 +7,9 @@ import {
   Card,
   CardContent,
   CircularProgress,
+  Checkbox,
   FormControl,
+  FormControlLabel,
   InputLabel,
   MenuItem,
   Select,
@@ -35,6 +37,8 @@ export default function StageAnalysisTab({
   const methodId = stage.methodId;
   const impacts = stage.impacts;
   const jobId = stage.jobId;
+  const showStagePercentLabels = stage.showStagePercentLabels;
+  const showTotalAbsoluteLabel = stage.showTotalAbsoluteLabel;
 
   const [error, setError] = useState<string | null>(null);
   const [contribOpen, setContribOpen] = useState(false);
@@ -214,6 +218,27 @@ export default function StageAnalysisTab({
               )}
             />
 
+            <Stack spacing={0.25}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={Boolean(showStagePercentLabels)}
+                    onChange={(e) => setStage((s) => ({ ...s, showStagePercentLabels: e.target.checked }))}
+                  />
+                }
+                label="Percent labels per stage"
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={Boolean(showTotalAbsoluteLabel)}
+                    onChange={(e) => setStage((s) => ({ ...s, showTotalAbsoluteLabel: e.target.checked }))}
+                  />
+                }
+                label="Absolute total label"
+              />
+            </Stack>
+
             <Button variant="contained" onClick={onRun} disabled={runDisabled} size="large" sx={{ py: 1.2 }}>
               Run
             </Button>
@@ -265,6 +290,8 @@ export default function StageAnalysisTab({
             <StageMatrixChart
               data={jobResultQ.data.result}
               impactLabelByKey={labelByKey}
+              showStagePercentLabels={showStagePercentLabels}
+              showTotalAbsoluteLabel={showTotalAbsoluteLabel}
               onCellClick={({ impactKey, stageId, stageLabel, value }) => {
                 log.info(`Clicked cell: ${labelByKey[impactKey] ?? impactKey} / ${stageLabel} = ${(value * 100).toFixed(2)}%`);
                 setContribImpactKey(impactKey);
@@ -279,6 +306,8 @@ export default function StageAnalysisTab({
             <StageMatrixChart
               data={stage.lastResult}
               impactLabelByKey={labelByKey}
+              showStagePercentLabels={showStagePercentLabels}
+              showTotalAbsoluteLabel={showTotalAbsoluteLabel}
               onCellClick={({ impactKey, stageId, stageLabel, value }) => {
                 log.info(`Clicked cell: ${labelByKey[impactKey] ?? impactKey} / ${stageLabel} = ${(value * 100).toFixed(2)}%`);
                 setContribImpactKey(impactKey);
