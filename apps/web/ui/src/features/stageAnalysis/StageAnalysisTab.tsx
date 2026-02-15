@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
@@ -16,14 +16,20 @@ import {
   Typography,
 } from "@mui/material";
 import { api, type JobRequest } from "../../api";
-import { useAppState } from "../../app/state";
+import { useAppState, type StageState } from "../../app/state";
 import { useLog } from "../../app/log";
 import { stageMethods } from "./methodRegistry";
 import StageMatrixChart, { type StageTableV1 } from "./StageMatrixChart";
 import ContributionDialog from "./ContributionDialog";
 
-export default function StageAnalysisTab() {
-  const { year, language, selection, stage, setStage } = useAppState();
+export default function StageAnalysisTab({
+  stage,
+  setStage,
+}: {
+  stage: StageState;
+  setStage: Dispatch<SetStateAction<StageState>>;
+}) {
+  const { year, language, selection } = useAppState();
   const log = useLog();
 
   const methodId = stage.methodId;
@@ -332,4 +338,3 @@ function isStageTable(v: unknown): v is StageTableV1 {
   const obj = v as any;
   return obj.kind === "stage_table_v1" && Array.isArray(obj.stages) && Array.isArray(obj.impacts);
 }
-

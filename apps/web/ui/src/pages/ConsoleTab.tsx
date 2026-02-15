@@ -7,7 +7,20 @@ import LogConsole from "../components/LogConsole";
 
 export default function ConsoleTab() {
   const log = useLog();
-  const { year, setYear, language, setLanguage, themeMode, setThemeMode, selection, selectionSummary, stage } = useAppState();
+  const {
+    year,
+    setYear,
+    language,
+    setLanguage,
+    themeMode,
+    setThemeMode,
+    selection,
+    selectionSummary,
+    stageSessions,
+    activeStageSessionId,
+    regionSessions,
+    activeRegionSessionId,
+  } = useAppState();
   const [cmd, setCmd] = useState("");
   const [running, setRunning] = useState(false);
 
@@ -28,7 +41,9 @@ export default function ConsoleTab() {
     setRunning(true);
     try {
       if (head === "help" || head === "?") {
-        log.info("Commands: help, clear, health, year <YYYY>, lang <Name>, theme <dark|light>, selection, stage, job <id>");
+        log.info(
+          "Commands: help, clear, health, year <YYYY>, lang <Name>, theme <dark|light>, selection, stage, region, job <id>",
+        );
         return;
       }
 
@@ -78,9 +93,28 @@ export default function ConsoleTab() {
       }
 
       if (head === "stage") {
-        log.info(`stage.methodId = ${stage.methodId}`);
-        log.info(`stage.impacts = ${stage.impacts.join(", ") || "—"}`);
-        log.info(`stage.jobId = ${stage.jobId ?? "—"}`);
+        const s = stageSessions.find((x) => x.id === activeStageSessionId) ?? stageSessions[0];
+        if (!s) {
+          log.error("No stage session");
+          return;
+        }
+        log.info(`stage.tab = ${s.title} (${s.id})`);
+        log.info(`stage.methodId = ${s.state.methodId}`);
+        log.info(`stage.impacts = ${s.state.impacts.join(", ") || "—"}`);
+        log.info(`stage.jobId = ${s.state.jobId ?? "—"}`);
+        return;
+      }
+
+      if (head === "region") {
+        const r = regionSessions.find((x) => x.id === activeRegionSessionId) ?? regionSessions[0];
+        if (!r) {
+          log.error("No region session");
+          return;
+        }
+        log.info(`region.tab = ${r.title} (${r.id})`);
+        log.info(`region.methodId = ${r.state.methodId}`);
+        log.info(`region.impacts = ${r.state.impacts.join(", ") || "—"}`);
+        log.info(`region.jobId = ${r.state.jobId ?? "—"}`);
         return;
       }
 

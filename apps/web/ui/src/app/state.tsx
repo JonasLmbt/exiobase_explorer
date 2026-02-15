@@ -13,8 +13,14 @@ export type AppState = {
   setLanguage: (l: string) => void;
   themeMode: "dark" | "light";
   setThemeMode: (m: "dark" | "light") => void;
-  stage: StageState;
-  setStage: Dispatch<SetStateAction<StageState>>;
+  stageSessions: StageSession[];
+  setStageSessions: Dispatch<SetStateAction<StageSession[]>>;
+  activeStageSessionId: string;
+  setActiveStageSessionId: (id: string) => void;
+  regionSessions: RegionSession[];
+  setRegionSessions: Dispatch<SetStateAction<RegionSession[]>>;
+  activeRegionSessionId: string;
+  setActiveRegionSessionId: (id: string) => void;
   pendingSelection: AppSelection;
   setPendingSelection: (s: AppSelection) => void;
   selection: AppSelection;
@@ -24,8 +30,37 @@ export type AppState = {
 };
 
 export type StageState = { methodId: string; impacts: string[]; jobId: string | null; lastResult: unknown | null };
+export type RegionState = {
+  methodId: string;
+  impacts: string[];
+  n: number;
+  jobId: string | null;
+  lastResult: unknown | null;
+};
+
+export type StageSession = { id: string; title: string; state: StageState };
+export type RegionSession = { id: string; title: string; state: RegionState };
 
 const Ctx = createContext<AppState | null>(null);
+
+function newId(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c: any = globalThis as any;
+    if (c.crypto?.randomUUID) return String(c.crypto.randomUUID());
+  } catch {
+    // ignore
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function defaultStageState(): StageState {
+  return { methodId: "bubble", impacts: [], jobId: null, lastResult: null };
+}
+
+function defaultRegionState(): RegionState {
+  return { methodId: "world_map", impacts: [], n: 10, jobId: null, lastResult: null };
+}
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [themeMode, setThemeMode] = useState<"dark" | "light">(() => {
@@ -34,7 +69,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   });
   const [year, setYear] = useState<number>(2022);
   const [language, setLanguage] = useState<string>("Deutsch");
-  const [stage, setStage] = useState<StageState>({ methodId: "bubble", impacts: [], jobId: null, lastResult: null });
+
+  const [activeStageSessionId, setActiveStageSessionId] = useState<string>(() => newId());
+  const [stageSessions, setStageSessions] = useState<StageSession[]>(() => [
+    { id: activeStageSessionId, title: "Stage 1", state: defaultStageState() },
+  ]);
+
+  const [activeRegionSessionId, setActiveRegionSessionId] = useState<string>(() => newId());
+  const [regionSessions, setRegionSessions] = useState<RegionSession[]>(() => [
+    { id: activeRegionSessionId, title: "Region 1", state: defaultRegionState() },
+  ]);
+
   const [selection, setSelection] = useState<AppSelection>({ mode: "all" });
   const [pendingSelection, setPendingSelection] = useState<AppSelection>({ mode: "all" });
   const [selectionSummary, setSelectionSummary] = useState<SelectionSummary | null>(null);
@@ -51,7 +96,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setSelection({ mode: "all" });
     setPendingSelection({ mode: "all" });
     setSelectionSummary(null);
-    setStage({ methodId: "bubble", impacts: [], jobId: null, lastResult: null });
+
+    const sid = newId();
+    setStageSessions([{ id: sid, title: "Stage 1", state: defaultStageState() }]);
+    setActiveStageSessionId(sid);
+
+    const rid = newId();
+    setRegionSessions([{ id: rid, title: "Region 1", state: defaultRegionState() }]);
+    setActiveRegionSessionId(rid);
   }, [year, language]);
 
   const value = useMemo<AppState>(
@@ -62,8 +114,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setLanguage,
       themeMode,
       setThemeMode,
-      stage,
-      setStage,
+      stageSessions,
+      setStageSessions,
+      activeStageSessionId,
+      setActiveStageSessionId,
+      regionSessions,
+      setRegionSessions,
+      activeRegionSessionId,
+      setActiveRegionSessionId,
       pendingSelection,
       setPendingSelection,
       selection,
@@ -71,7 +129,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       selectionSummary,
       setSelectionSummary,
     }),
-    [language, pendingSelection, selection, selectionSummary, stage, themeMode, year],
+    [
+      activeRegionSessionId,
+      activeStageSessionId,
+      language,
+      pendingSelection,
+      regionSessions,
+      selection,
+      selectionSummary,
+      stageSessions,
+      themeMode,
+      year,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

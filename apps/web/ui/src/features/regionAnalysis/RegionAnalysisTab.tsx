@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Autocomplete,
@@ -17,21 +17,26 @@ import {
   Typography,
 } from "@mui/material";
 import { api, type JobRequest } from "../../api";
-import { useAppState } from "../../app/state";
+import { useAppState, type RegionState } from "../../app/state";
 import { useLog } from "../../app/log";
 import { regionMethods } from "./methodRegistry";
 import WorldMapLeaflet, { type GeoJsonV1 } from "./WorldMapLeaflet";
 import ReactECharts from "echarts-for-react";
 
-export default function RegionAnalysisTab() {
+export default function RegionAnalysisTab({
+  region,
+  setRegion,
+}: {
+  region: RegionState;
+  setRegion: Dispatch<SetStateAction<RegionState>>;
+}) {
   const { year, language, selection } = useAppState();
   const log = useLog();
-  const [methodId, setMethodId] = useState(regionMethods[0]?.id ?? "world_map");
-  const [impacts, setImpacts] = useState<string[]>([]);
-  const [n, setN] = useState<number>(10);
-  const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<unknown | null>(null);
+  const methodId = region.methodId;
+  const impacts = region.impacts;
+  const n = region.n;
+  const jobId = region.jobId;
 
   const method = useMemo(() => regionMethods.find((m) => m.id === methodId) ?? regionMethods[0], [methodId]);
 
@@ -50,8 +55,8 @@ export default function RegionAnalysisTab() {
   useEffect(() => {
     if (impacts.length) return;
     const first = impactsQ.data?.impacts?.[0]?.key;
-    if (first) setImpacts([first]);
-  }, [impacts.length, impactsQ.data?.impacts]);
+    if (first) setRegion((s) => ({ ...s, impacts: [first] }));
+  }, [impacts.length, impactsQ.data?.impacts, setRegion]);
 
   const payload = useMemo<JobRequest>(() => {
     const sel =
@@ -75,7 +80,7 @@ export default function RegionAnalysisTab() {
   const createJobM = useMutation({
     mutationFn: () => api.createJob(payload),
     onSuccess: (data) => {
-      setJobId(data.job_id);
+      setRegion((s) => ({ ...s, jobId: data.job_id }));
       log.info(`Region job started: ${data.job_id}`);
     },
     onError: (e) => log.error(`Region job failed: ${String(e)}`),
@@ -98,8 +103,8 @@ export default function RegionAnalysisTab() {
 
   useEffect(() => {
     if (!jobResultQ.data?.result) return;
-    setLastResult(jobResultQ.data.result);
-  }, [jobResultQ.data?.result]);
+    setRegion((s) => ({ ...s, lastResult: jobResultQ.data!.result }));
+  }, [jobResultQ.data?.result, setRegion]);
 
   const onRun = () => {
     setError(null);
@@ -108,7 +113,7 @@ export default function RegionAnalysisTab() {
 
   const runDisabled = impacts.length === 0 || createJobM.isPending;
 
-  const result = jobResultQ.data?.result ?? lastResult;
+  const result = jobResultQ.data?.result ?? region.lastResult;
 
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "420px 1fr" }, gap: 2, alignItems: "start" }}>
@@ -121,7 +126,12 @@ export default function RegionAnalysisTab() {
 
             <FormControl>
               <InputLabel id="method-label">Method</InputLabel>
-              <Select labelId="method-label" label="Method" value={methodId} onChange={(e) => setMethodId(String(e.target.value))}>
+              <Select
+                labelId="method-label"
+                label="Method"
+                value={methodId}
+                onChange={(e) => setRegion((s) => ({ ...s, methodId: String(e.target.value) }))}
+              >
                 {regionMethods.map((m) => (
                   <MenuItem key={m.id} value={m.id}>
                     {m.label}
@@ -136,7 +146,7 @@ export default function RegionAnalysisTab() {
                 type="number"
                 size="small"
                 value={n}
-                onChange={(e) => setN(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) => setRegion((s) => ({ ...s, n: Math.max(1, Number(e.target.value) || 1) }))}
                 inputProps={{ min: 1, max: 50 }}
               />
             ) : null}
@@ -149,10 +159,10 @@ export default function RegionAnalysisTab() {
               onChange={(_, next) => {
                 if (method.maxImpacts > 1) {
                   const arr = Array.isArray(next) ? next : [];
-                  setImpacts(arr.slice(0, method.maxImpacts).map((x) => x.key));
+                  setRegion((s) => ({ ...s, impacts: arr.slice(0, method.maxImpacts).map((x) => x.key) }));
                 } else {
                   const one = Array.isArray(next) ? next[0] : next;
-                  setImpacts(one ? [one.key] : []);
+                  setRegion((s) => ({ ...s, impacts: one ? [one.key] : [] }));
                 }
               }}
               getOptionLabel={(o) => `${o.label}${o.unit ? ` (${o.unit})` : ""}`}
@@ -309,4 +319,3 @@ function pieToOption(pie: { rows: { label: string; value: number; unit?: string 
     ],
   };
 }
-
