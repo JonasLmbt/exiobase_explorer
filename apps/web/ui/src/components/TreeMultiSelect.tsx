@@ -67,13 +67,22 @@ export default function TreeMultiSelect({
   const tree = useMemo(() => buildTree(leaves), [leaves]);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
+  const qq = q.trim().toLowerCase();
+  const searching = Boolean(qq);
+
   const filteredLeaves = useMemo(() => {
-    const qq = q.trim().toLowerCase();
     if (!qq) return leaves;
     return leaves.filter((l) => l.path.join(" / ").toLowerCase().includes(qq));
-  }, [leaves, q]);
+  }, [leaves, qq]);
 
   const filteredTree = useMemo(() => buildTree(filteredLeaves), [filteredLeaves]);
+
+  const toggleLeaf = (index: number) => {
+    const next = new Set(selectedSet);
+    if (next.has(index)) next.delete(index);
+    else next.add(index);
+    onChange(uniqueSorted(Array.from(next)));
+  };
 
   const toggleNode = (node: Node) => {
     const allSelected = node.leaves.every((i) => selectedSet.has(i));
@@ -145,9 +154,30 @@ export default function TreeMultiSelect({
         onChange={(e) => setQ(e.target.value)}
         sx={{ mb: 1 }}
       />
-      <List dense disablePadding>
-        {renderNode(filteredTree, 0)}
-      </List>
+      {searching ? (
+        <List dense disablePadding>
+          {filteredLeaves
+            .slice()
+            .sort((a, b) => a.path.join(" / ").localeCompare(b.path.join(" / ")))
+            .map((leaf) => {
+              const label = leaf.path[leaf.path.length - 1] ?? String(leaf.index);
+              const secondary = leaf.path.slice(0, -1).join(" / ");
+              const checked = selectedSet.has(leaf.index);
+              return (
+                <ListItem key={leaf.index} dense disableGutters>
+                  <ListItemIcon sx={{ minWidth: 34 }}>
+                    <Checkbox size="small" checked={checked} onChange={() => toggleLeaf(leaf.index)} />
+                  </ListItemIcon>
+                  <ListItemText primary={label} secondary={secondary || undefined} />
+                </ListItem>
+              );
+            })}
+        </List>
+      ) : (
+        <List dense disablePadding>
+          {renderNode(filteredTree, 0)}
+        </List>
+      )}
     </Box>
   );
 }
