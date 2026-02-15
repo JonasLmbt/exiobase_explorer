@@ -56,15 +56,13 @@ function mixWithWhite(hex: string, t: number): string {
 export default function ContributionDialog({
   open,
   onClose,
-  impactKeys,
-  initialImpactKey,
+  impactKey,
   stageId,
   stageLabel,
 }: {
   open: boolean;
   onClose: () => void;
-  impactKeys: string[];
-  initialImpactKey?: string;
+  impactKey: string;
   stageId: string;
   stageLabel: string;
 }) {
@@ -72,20 +70,8 @@ export default function ContributionDialog({
   const theme = useTheme();
 
   const [dim, setDim] = useState<Dimension>("sectors");
-  const [activeImpact, setActiveImpact] = useState<string>(() => initialImpactKey || impactKeys[0] || "");
   const [view, setView] = useState<"bars" | "pie">("bars");
   const [jobId, setJobId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!impactKeys.length) return;
-    setActiveImpact((cur) =>
-      impactKeys.includes(cur)
-        ? cur
-        : initialImpactKey && impactKeys.includes(initialImpactKey)
-          ? initialImpactKey
-          : impactKeys[0],
-    );
-  }, [impactKeys, initialImpactKey]);
 
   const impactsQ = useQuery({
     queryKey: ["impacts", year, language],
@@ -101,8 +87,8 @@ export default function ContributionDialog({
     return m;
   }, [impactsQ.data?.impacts]);
 
-  const impactLabel = impactMetaByKey[activeImpact]?.label ?? activeImpact;
-  const impactColorRaw = impactMetaByKey[activeImpact]?.color ?? "";
+  const impactLabel = impactMetaByKey[impactKey]?.label ?? impactKey;
+  const impactColorRaw = impactMetaByKey[impactKey]?.color ?? "";
   const impactColor = impactColorRaw || theme.palette.primary.main;
 
   const payload = useMemo<JobRequest>(() => {
@@ -117,9 +103,9 @@ export default function ContributionDialog({
       year,
       language,
       selection: sel,
-      analysis: { type: "contrib_breakdown", impacts: [activeImpact], params: { stage_id: stageId, dimension: dim, top_n: 30 } },
+      analysis: { type: "contrib_breakdown", impacts: [impactKey], params: { stage_id: stageId, dimension: dim, top_n: 30 } },
     };
-  }, [activeImpact, dim, language, selection, stageId, year]);
+  }, [dim, impactKey, language, selection, stageId, year]);
 
   const createJobM = useMutation({
     mutationFn: () => api.createJob(payload),
@@ -154,7 +140,7 @@ export default function ContributionDialog({
     if (!open) return;
     start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, dim, activeImpact, stageId]);
+  }, [open, dim, impactKey, stageId]);
 
   const pieOption = useMemo(() => {
     if (!table || table.kind !== "contrib_table_v1") return null;
@@ -199,21 +185,6 @@ export default function ContributionDialog({
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2}>
-          {impactKeys.length > 1 ? (
-            <Tabs
-              value={activeImpact}
-              onChange={(_, v) => setActiveImpact(String(v))}
-              variant="scrollable"
-              allowScrollButtonsMobile
-              textColor="inherit"
-              indicatorColor="secondary"
-            >
-              {impactKeys.map((k) => (
-                <Tab key={k} value={k} label={impactMetaByKey[k]?.label ?? k} />
-              ))}
-            </Tabs>
-          ) : null}
-
           <Tabs value={dim} onChange={(_, v) => setDim(v)} textColor="inherit" indicatorColor="secondary">
             <Tab value="sectors" label="Sectors" />
             <Tab value="regions" label="Regions" />

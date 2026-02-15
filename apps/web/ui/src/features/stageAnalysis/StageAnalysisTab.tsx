@@ -358,8 +358,7 @@ export default function StageAnalysisTab({
         <ContributionDialog
           open={contribOpen}
           onClose={() => setContribOpen(false)}
-          impactKeys={stage.impacts}
-          initialImpactKey={contribImpactKey}
+          impactKey={contribImpactKey}
           stageId={contribStageId}
           stageLabel={contribStageLabel}
         />
