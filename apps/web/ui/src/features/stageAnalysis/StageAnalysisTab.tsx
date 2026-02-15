@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  Autocomplete,
   Box,
   Button,
   Card,
   CardContent,
-  Checkbox,
   CircularProgress,
   FormControl,
   InputLabel,
   MenuItem,
   Select,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import { api, type JobRequest } from "../../api";
@@ -118,6 +119,12 @@ export default function StageAnalysisTab() {
     return map;
   }, [impactsQ.data?.impacts]);
 
+  const impactOptions = impactsQ.data?.impacts ?? [];
+  const selectedImpactOptions = useMemo(() => {
+    const byKey = new Map(impactOptions.map((o) => [o.key, o] as const));
+    return impacts.map((k) => byKey.get(k)).filter(Boolean) as typeof impactOptions;
+  }, [impactOptions, impacts]);
+
   const onRun = () => {
     setError(null);
     createJobM.mutate(undefined, { onError: (e) => setError(String(e)) });
@@ -150,30 +157,63 @@ export default function StageAnalysisTab() {
               </Select>
             </FormControl>
 
-            <FormControl sx={{ minWidth: 320, flex: 1 }}>
-              <InputLabel id="impact-label">Impact</InputLabel>
-              <Select
-                labelId="impact-label"
-                label="Impact"
-                multiple
-                value={impacts}
-                onChange={(e) =>
-                  setStage((s) => ({
-                    ...s,
-                    impacts: typeof e.target.value === "string" ? e.target.value.split(",") : e.target.value,
-                  }))
-                }
-                renderValue={(selected) => (selected as string[]).map((k) => labelByKey[k] ?? k).join(", ")}
-              >
-                {(impactsQ.data?.impacts ?? []).map((it) => (
-                  <MenuItem key={it.key} value={it.key}>
-                    <Checkbox size="small" checked={impacts.includes(it.key)} sx={{ mr: 1 }} />
-                    {it.label}
-                    {it.unit ? ` (${it.unit})` : ""}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Autocomplete
+              multiple
+              disableCloseOnSelect
+              options={impactOptions}
+              value={selectedImpactOptions}
+              onChange={(_, next) => setStage((s) => ({ ...s, impacts: next.map((x) => x.key) }))}
+              getOptionLabel={(o) => `${o.label}${o.unit ? ` (${o.unit})` : ""}`}
+              filterOptions={(opts, state) => {
+                const q = state.inputValue.trim().toLowerCase();
+                if (!q) return opts;
+                return opts.filter(
+                  (o) => (o.label ?? "").toLowerCase().includes(q) || (o.key ?? "").toLowerCase().includes(q),
+                );
+              }}
+              renderInput={(params) => <TextField {...params} label="Impact" placeholder="Search impacts…" size="small" />}
+              sx={{ minWidth: 360, flex: 1 }}
+              isOptionEqualToValue={(a, b) => a.key === b.key}
+              renderOption={(props, option, { selected }) => (
+                <li {...props} key={option.key}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+                    <Box
+                      sx={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 999,
+                        background: option.color || "rgba(255,255,255,0.3)",
+                        border: "1px solid rgba(0,0,0,0.3)",
+                        flex: "0 0 auto",
+                      }}
+                    />
+                    <Box sx={{ flex: 1, minWidth: 0, opacity: selected ? 0.95 : 0.8 }}>
+                      <Box
+                        sx={{
+                          fontWeight: selected ? 700 : 500,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {option.label}
+                      </Box>
+                      <Box
+                        sx={{
+                          fontSize: "0.8rem",
+                          opacity: 0.7,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {option.key}
+                      </Box>
+                    </Box>
+                  </Box>
+                </li>
+              )}
+            />
 
             <Button variant="contained" onClick={onRun} disabled={runDisabled}>
               Run

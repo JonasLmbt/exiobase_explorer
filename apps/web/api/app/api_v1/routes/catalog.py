@@ -86,6 +86,15 @@ def impacts(
     impact_sheets = _available_sheets(impacts_path)
     unit_sheets = _available_sheets(units_path)
 
+    color_map: dict[str, str] = {}
+    if "color" in impact_sheets:
+        try:
+            cdf = pd.read_excel(str(impacts_path), sheet_name="color")
+            if cdf.shape[1] >= 2:
+                color_map = dict(zip(cdf.iloc[:, 0].astype(str).tolist(), cdf.iloc[:, 1].astype(str).tolist()))
+        except Exception:
+            color_map = {}
+
     # Canonical keys should always come from the "Exiobase" sheet when possible.
     key_sheet = "Exiobase" if "Exiobase" in impact_sheets else language
     label_sheet = language if language in impact_sheets else key_sheet
@@ -135,6 +144,7 @@ def impacts(
                 "key": str(key),
                 "label": str(label),
                 "unit": unit,
+                "color": str(color_map.get(str(key), "") or ""),
                 "decimal_places": decimal_places,
                 "divisor": divisor,
             }

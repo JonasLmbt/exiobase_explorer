@@ -17,7 +17,7 @@ export type JobCreateResponse = { job_id: string; cached?: boolean };
 export type JobStatus = { job_id: string; state: "queued" | "running" | "done" | "failed"; progress: number; message?: string | null };
 export type JobResult = { job_id: string; result: unknown };
 export type Impacts = {
-  impacts: { key: string; label: string; unit?: string; decimal_places?: number }[];
+  impacts: { key: string; label: string; unit?: string; color?: string; decimal_places?: number }[];
   key_sheet?: string;
   label_sheet?: string;
   unit_sheet?: string | null;

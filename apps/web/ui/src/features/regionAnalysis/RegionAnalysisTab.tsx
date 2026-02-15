@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -96,6 +97,12 @@ export default function RegionAnalysisTab() {
     return map;
   }, [impactsQ.data?.impacts]);
 
+  const impactOptions = impactsQ.data?.impacts ?? [];
+  const selectedImpactOptions = useMemo(() => {
+    const byKey = new Map(impactOptions.map((o) => [o.key, o] as const));
+    return impacts.map((k) => byKey.get(k)).filter(Boolean) as typeof impactOptions;
+  }, [impactOptions, impacts]);
+
   const runDisabled = impacts.length === 0 || createJobM.isPending;
 
   const onRun = () => {
@@ -135,34 +142,78 @@ export default function RegionAnalysisTab() {
               />
             )}
 
-            <FormControl sx={{ minWidth: 320, flex: 1 }}>
-              <InputLabel id="impact-label">Impact</InputLabel>
-              <Select
-                labelId="impact-label"
-                label="Impact"
-                multiple={method.maxImpacts > 1}
-                value={method.maxImpacts > 1 ? impacts : impacts.slice(0, 1)}
-                onChange={(e) => {
-                  const v = typeof e.target.value === "string" ? e.target.value.split(",") : e.target.value;
-                  const next = (v as string[]).slice(0, method.maxImpacts);
-                  setImpacts(next);
-                }}
-                renderValue={(selected) => {
-                  const arr = Array.isArray(selected) ? (selected as string[]) : [String(selected)];
-                  return arr.map((k) => labelByKey[k] ?? k).join(", ");
-                }}
-              >
-                {(impactsQ.data?.impacts ?? []).map((it) => (
-                  <MenuItem key={it.key} value={it.key}>
+            <Autocomplete
+              multiple={method.maxImpacts > 1}
+              disableCloseOnSelect={method.maxImpacts > 1}
+              options={impactOptions}
+              value={
+                method.maxImpacts > 1
+                  ? selectedImpactOptions
+                  : (selectedImpactOptions[0] ?? null)
+              }
+              onChange={(_, next) => {
+                if (method.maxImpacts > 1) {
+                  const arr = Array.isArray(next) ? next : [];
+                  setImpacts(arr.slice(0, method.maxImpacts).map((x) => x.key));
+                } else {
+                  const one = Array.isArray(next) ? next[0] : next;
+                  setImpacts(one ? [one.key] : []);
+                }
+              }}
+              getOptionLabel={(o) => `${o.label}${o.unit ? ` (${o.unit})` : ""}`}
+              filterOptions={(opts, state) => {
+                const q = state.inputValue.trim().toLowerCase();
+                if (!q) return opts;
+                return opts.filter(
+                  (o) => (o.label ?? "").toLowerCase().includes(q) || (o.key ?? "").toLowerCase().includes(q),
+                );
+              }}
+              renderInput={(params) => <TextField {...params} label="Impact" placeholder="Search impacts…" size="small" />}
+              sx={{ minWidth: 360, flex: 1 }}
+              isOptionEqualToValue={(a, b) => a.key === b.key}
+              renderOption={(props, option, { selected }) => (
+                <li {...props} key={option.key}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
                     {method.maxImpacts > 1 ? (
-                      <Checkbox size="small" checked={impacts.includes(it.key)} sx={{ mr: 1 }} />
+                      <Checkbox size="small" checked={selected} sx={{ mr: 0.5 }} />
                     ) : null}
-                    {it.label}
-                    {it.unit ? ` (${it.unit})` : ""}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+                    <Box
+                      sx={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 999,
+                        background: option.color || "rgba(255,255,255,0.3)",
+                        border: "1px solid rgba(0,0,0,0.3)",
+                        flex: "0 0 auto",
+                      }}
+                    />
+                    <Box sx={{ flex: 1, minWidth: 0, opacity: selected ? 0.95 : 0.8 }}>
+                      <Box
+                        sx={{
+                          fontWeight: selected ? 700 : 500,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {option.label}
+                      </Box>
+                      <Box
+                        sx={{
+                          fontSize: "0.8rem",
+                          opacity: 0.7,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {option.key}
+                      </Box>
+                    </Box>
+                  </Box>
+                </li>
+              )}
+            />
 
             <Button variant="contained" onClick={onRun} disabled={runDisabled}>
               Run
