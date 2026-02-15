@@ -21,11 +21,11 @@ import { stageMethods } from "./methodRegistry";
 import StageMatrixChart, { type StageTableV1 } from "./StageMatrixChart";
 
 export default function StageAnalysisTab() {
-  const { year, language, selection } = useAppState();
+  const { year, language, selection, stage, setStage } = useAppState();
   const log = useLog();
-  const [methodId, setMethodId] = useState(stageMethods[0]?.id ?? "bubble");
-  const [impacts, setImpacts] = useState<string[]>([]);
-  const [jobId, setJobId] = useState<string | null>(null);
+  const methodId = stage.methodId;
+  const impacts = stage.impacts;
+  const jobId = stage.jobId;
   const [error, setError] = useState<string | null>(null);
 
   const method = useMemo(() => stageMethods.find((m) => m.id === methodId) ?? stageMethods[0], [methodId]);
@@ -55,13 +55,13 @@ export default function StageAnalysisTab() {
 
     const defaults = want.map((w) => keyByWanted[w]).filter(Boolean) as string[];
     if (defaults.length) {
-      setImpacts(defaults);
+      setStage((s) => ({ ...s, impacts: defaults }));
       return;
     }
 
     const first = items[0]?.key;
-    if (first) setImpacts([first]);
-  }, [impacts.length, impactsQ.data?.impacts]);
+    if (first) setStage((s) => ({ ...s, impacts: [first] }));
+  }, [impacts.length, impactsQ.data?.impacts, setStage]);
 
   const payload = useMemo<JobRequest>(() => {
     const sel =
@@ -82,7 +82,7 @@ export default function StageAnalysisTab() {
   const createJobM = useMutation({
     mutationFn: () => api.createJob(payload),
     onSuccess: (data) => {
-      setJobId(data.job_id);
+      setStage((s) => ({ ...s, jobId: data.job_id }));
       log.info(`Stage job started: ${data.job_id}`);
     },
     onError: (e) => log.error(`Stage job failed: ${String(e)}`),
@@ -102,6 +102,11 @@ export default function StageAnalysisTab() {
     enabled: Boolean(jobId) && jobStatusQ.data?.state === "done",
     retry: false,
   });
+
+  useEffect(() => {
+    if (!jobResultQ.data?.result) return;
+    setStage((s) => ({ ...s, lastResult: jobResultQ.data!.result }));
+  }, [jobResultQ.data?.result, setStage]);
 
   const labelByKey = useMemo(() => {
     const map: Record<string, string> = {};
@@ -129,7 +134,12 @@ export default function StageAnalysisTab() {
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <FormControl sx={{ minWidth: 220 }}>
               <InputLabel id="method-label">Method</InputLabel>
-              <Select labelId="method-label" label="Method" value={methodId} onChange={(e) => setMethodId(String(e.target.value))}>
+              <Select
+                labelId="method-label"
+                label="Method"
+                value={methodId}
+                onChange={(e) => setStage((s) => ({ ...s, methodId: String(e.target.value) }))}
+              >
                 {stageMethods.map((m) => (
                   <MenuItem key={m.id} value={m.id}>
                     {m.label}
@@ -145,7 +155,12 @@ export default function StageAnalysisTab() {
                 label="Impact"
                 multiple
                 value={impacts}
-                onChange={(e) => setImpacts(typeof e.target.value === "string" ? e.target.value.split(",") : e.target.value)}
+                onChange={(e) =>
+                  setStage((s) => ({
+                    ...s,
+                    impacts: typeof e.target.value === "string" ? e.target.value.split(",") : e.target.value,
+                  }))
+                }
                 renderValue={(selected) => (selected as string[]).map((k) => labelByKey[k] ?? k).join(", ")}
               >
                 {(impactsQ.data?.impacts ?? []).map((it) => (
@@ -199,6 +214,16 @@ export default function StageAnalysisTab() {
           {jobResultQ.data?.result && isStageTable(jobResultQ.data.result) ? (
             <StageMatrixChart
               data={jobResultQ.data.result}
+              impactLabelByKey={labelByKey}
+              onCellClick={({ impactKey, stage, value }) =>
+                log.info(`Clicked cell: ${labelByKey[impactKey] ?? impactKey} / ${stage} = ${(value * 100).toFixed(2)}%`)
+              }
+            />
+          ) : null}
+
+          {!jobResultQ.data?.result && stage.lastResult && isStageTable(stage.lastResult) ? (
+            <StageMatrixChart
+              data={stage.lastResult}
               impactLabelByKey={labelByKey}
               onCellClick={({ impactKey, stage, value }) =>
                 log.info(`Clicked cell: ${labelByKey[impactKey] ?? impactKey} / ${stage} = ${(value * 100).toFixed(2)}%`)
