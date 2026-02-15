@@ -211,7 +211,7 @@ export default function WorldMapLeaflet({
   return (
     <Box sx={{ position: "relative" }}>
       <MapContainer
-        style={{ height: 520, width: "100%", background: bg, borderRadius: 14 }}
+        style={{ height: "100%", width: "100%", background: bg, borderRadius: 14, minHeight: 520 }}
         center={[20, 0]}
         zoom={1.3}
         scrollWheelZoom
@@ -309,4 +309,3 @@ export default function WorldMapLeaflet({
     </Box>
   );
 }
-

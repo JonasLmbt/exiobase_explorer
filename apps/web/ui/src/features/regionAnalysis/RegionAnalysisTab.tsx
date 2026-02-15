@@ -138,10 +138,12 @@ export default function RegionAnalysisTab({
     return m;
   }, [impactsQ.data?.impacts]);
 
+  const panelHeight = 720;
+
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "420px 1fr" }, gap: 2, alignItems: "start" }}>
-      <Card>
-        <CardContent>
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "420px 1fr" }, gap: 2, alignItems: "stretch" }}>
+      <Card sx={{ height: { xs: "auto", lg: panelHeight } }}>
+        <CardContent sx={{ height: { xs: "auto", lg: "100%" }, overflow: { xs: "visible", lg: "auto" } }}>
           <Stack spacing={2}>
             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
               Region analysis
@@ -410,34 +412,36 @@ export default function RegionAnalysisTab({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
+      <Card sx={{ height: { xs: "auto", lg: panelHeight } }}>
+        <CardContent sx={{ height: { xs: "auto", lg: "100%" } }}>
           {result && isGeoJson(result) ? (
-            <WorldMapLeaflet
-              data={result}
-              settings={{
-                palette: mapPalette,
-                reverse: mapReverse,
-                showLegend: mapShowLegend,
-                title: mapTitle,
-                mode: mapMode,
-                relative: mapRelative,
-                k: mapK,
-                customBins: mapCustomBins,
-                normMode: mapNormMode,
-                robust: mapRobust,
-                gamma: mapGamma,
-              }}
-              onRegionClick={({ exiobase, region }) => {
-                if (!impactKey) return;
-                setContribRegionExiobase(exiobase);
-                setContribRegionLabel(region);
-                setContribOpen(true);
-              }}
-            />
+            <Box sx={{ height: { xs: 520, lg: "100%" } }}>
+              <WorldMapLeaflet
+                data={result}
+                settings={{
+                  palette: mapPalette,
+                  reverse: mapReverse,
+                  showLegend: mapShowLegend,
+                  title: mapTitle,
+                  mode: mapMode,
+                  relative: mapRelative,
+                  k: mapK,
+                  customBins: mapCustomBins,
+                  normMode: mapNormMode,
+                  robust: mapRobust,
+                  gamma: mapGamma,
+                }}
+                onRegionClick={({ exiobase, region }) => {
+                  if (!impactKey) return;
+                  setContribRegionExiobase(exiobase);
+                  setContribRegionLabel(region);
+                  setContribOpen(true);
+                }}
+              />
+            </Box>
           ) : null}
-          {result && isTable(result) ? <ReactECharts option={tableToBarOption(result)} style={{ height: 480, width: "100%" }} /> : null}
-          {result && isPie(result) ? <ReactECharts option={pieToOption(result)} style={{ height: 420, width: "100%" }} /> : null}
+          {result && isTable(result) ? <ReactECharts option={tableToBarOption(result)} style={{ height: panelHeight - 40, width: "100%" }} /> : null}
+          {result && isPie(result) ? <ReactECharts option={pieToOption(result)} style={{ height: panelHeight - 40, width: "100%" }} /> : null}
 
           {result && !isGeoJson(result) && !isTable(result) && !isPie(result) ? (
             <Box
