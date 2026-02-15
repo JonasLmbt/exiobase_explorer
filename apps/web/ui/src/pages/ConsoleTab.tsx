@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Box, Button, Card, CardContent, Container, Stack, TextField, Typography } from "@mui/material";
-import { api } from "../api";
+import { api, type JobRequest } from "../api";
 import { useLog } from "../app/log";
 import { useAppState } from "../app/state";
 import LogConsole from "../components/LogConsole";
@@ -89,6 +89,28 @@ export default function ConsoleTab() {
       if (head === "selection") {
         log.info(`selection = ${JSON.stringify(selection)}`);
         if (selectionSummary) log.info(`selectionSummary = ${selectionSummary.supplychain_repr}`);
+        return;
+      }
+
+      if (head === "app.supplychain" || head === "supplychain") {
+        const sel =
+          selection.mode === "all"
+            ? { mode: "all" as const, regions: [], sectors: [], indices: [] }
+            : selection.mode === "indices"
+              ? { mode: "indices" as const, regions: [], sectors: [], indices: selection.indices }
+              : { mode: "regions_sectors" as const, regions: selection.regions, sectors: selection.sectors, indices: [] };
+
+        const payload: { year: number; language: string; selection: JobRequest["selection"] } = {
+          year,
+          language,
+          selection: sel,
+        };
+
+        const sum = await api.selectionSummary(payload);
+        log.info(sum.supplychain_repr);
+        if (sum.hierarchy_kwargs && Object.keys(sum.hierarchy_kwargs).length) {
+          log.info(`hierarchy_kwargs = ${JSON.stringify(sum.hierarchy_kwargs)}`);
+        }
         return;
       }
 

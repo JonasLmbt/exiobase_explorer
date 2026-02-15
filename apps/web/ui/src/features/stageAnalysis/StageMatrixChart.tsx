@@ -35,19 +35,21 @@ export default function StageMatrixChart({
   const impacts = data.impacts;
 
   // Use category strings (not indices) for better compatibility with ECharts category axes.
-  const points: Array<[string, string, number, number, string, string, string]> = [];
+  const points: Array<{ value: [string, string, number, number, string, string, string] }> = [];
   for (let y = 0; y < impacts.length; y++) {
     const yLabel = impactLabelByKey[impacts[y].key] ?? impacts[y].key;
     for (let x = 0; x < stages.length; x++) {
-      points.push([
-        stages[x],
-        yLabel,
-        impacts[y].relative[x] ?? 0,
-        impacts[y].absolute[x] ?? 0,
-        impacts[y].key,
-        stages[x],
-        stageIds[x] ?? String(x),
-      ]);
+      points.push({
+        value: [
+          stages[x],
+          yLabel,
+          impacts[y].relative[x] ?? 0,
+          impacts[y].absolute[x] ?? 0,
+          impacts[y].key,
+          stages[x],
+          stageIds[x] ?? String(x),
+        ],
+      });
     }
   }
 
@@ -65,7 +67,8 @@ export default function StageMatrixChart({
     tooltip: {
       trigger: "item",
       formatter: (p: any) => {
-        const [, , vRel, vAbs, k, s] = p.data as any[];
+        const v = (p?.data?.value ?? p?.value ?? []) as any[];
+        const [, , vRel, vAbs, k, s] = v;
         const label = impactLabelByKey[k] ?? k;
         const rel = typeof vRel === "number" ? vRel : Number(vRel);
         const abs = typeof vAbs === "number" ? vAbs : Number(vAbs);
@@ -77,9 +80,11 @@ export default function StageMatrixChart({
     series: [
       {
         type: "scatter",
+        dimensions: ["x", "y", "rel", "abs", "impactKey", "stageLabel", "stageId"],
+        encode: { x: "x", y: "y" },
         data: points,
         symbolSize: (val: any[]) => {
-          const v = Number(val[2] ?? 0);
+          const v = Number(val?.[2] ?? 0);
           // Scale bubbles based on available row height to avoid overlapping for many impacts.
           const rowHeight = 64;
           const maxBubble = Math.max(18, Math.min(56, rowHeight * 0.85));
@@ -87,7 +92,7 @@ export default function StageMatrixChart({
         },
         itemStyle: {
           color: (p: any) => {
-            const impactKey = p.data?.[4];
+            const impactKey = p.data?.value?.[4];
             const row = impacts.find((i) => i.key === impactKey);
             return row?.color || "#8ab4f8";
           },
@@ -106,7 +111,8 @@ export default function StageMatrixChart({
         onCellClick
           ? {
               click: (p: any) => {
-                const [, , v, , k, sLabel, sId] = p.data as any[];
+                const arr = (p?.data?.value ?? p?.value ?? []) as any[];
+                const [, , v, , k, sLabel, sId] = arr;
                 onCellClick({
                   impactKey: String(k),
                   stageId: String(sId),
