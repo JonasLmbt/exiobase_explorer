@@ -7,6 +7,7 @@ import SettingsTab from "../pages/SettingsTab";
 import ConsoleTab from "../pages/ConsoleTab";
 import { api } from "../api";
 import { useLog } from "./log";
+import { useT } from "./i18n";
 
 type TabId = "selection" | "visualisation" | "console" | "settings";
 
@@ -14,6 +15,7 @@ export default function AppShell() {
   const [tab, setTab] = useState<TabId>("selection");
   const log = useLog();
   const lastApiOnline = useRef<boolean | null>(null);
+  const { t } = useT();
 
   const healthQ = useQuery({
     queryKey: ["health"],
@@ -57,17 +59,17 @@ export default function AppShell() {
             EXIOBASE Explorer
           </Typography>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} textColor="inherit" indicatorColor="secondary">
-            <Tab value="selection" label="Selection" />
-            <Tab value="visualisation" label="Visualisation" />
-            <Tab value="console" label="Console" />
-            <Tab value="settings" label="Settings" />
+            <Tab value="selection" label={t("Selection")} />
+            <Tab value="visualisation" label={t("Visualisation")} />
+            <Tab value="console" label={t("Console")} />
+            <Tab value="settings" label={t("Settings")} />
           </Tabs>
 
           <Box sx={{ flex: 1 }} />
           <Chip
             size="small"
             variant="outlined"
-            label={healthQ.data?.status === "ok" ? "API: online" : "API: offline"}
+            label={healthQ.data?.status === "ok" ? `${t("API")}: ${t("online")}` : `${t("API")}: ${t("offline")}`}
             color={healthQ.data?.status === "ok" ? "success" : "error"}
           />
         </Toolbar>

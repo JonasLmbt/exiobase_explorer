@@ -23,6 +23,7 @@ export type Impacts = {
   unit_sheet?: string | null;
 };
 export type Languages = { languages: string[] };
+export type Translations = { language: string; translations: Record<string, string> };
 export type Hierarchy = { names: string[]; tree: Record<string, unknown>; leaves: { index: number; path: string[] }[] };
 export type SelectionSummary = {
   year: number;
@@ -47,6 +48,8 @@ export const api = {
   health: () => fetchJson<Health>("/api/v1/health"),
   years: () => fetchJson<Years>("/api/v1/meta/years"),
   languages: (year: number) => fetchJson<Languages>(`/api/v1/meta/languages?year=${encodeURIComponent(year)}`),
+  translations: (year: number, language: string) =>
+    fetchJson<Translations>(`/api/v1/meta/translations?year=${encodeURIComponent(year)}&language=${encodeURIComponent(language)}`),
   impacts: (year: number, language: string) =>
     fetchJson<Impacts>(`/api/v1/impacts?year=${encodeURIComponent(year)}&language=${encodeURIComponent(language)}`),
   regionHierarchy: (year: number, language: string) =>
