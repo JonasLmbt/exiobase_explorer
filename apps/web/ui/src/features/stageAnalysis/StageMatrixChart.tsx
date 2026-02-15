@@ -55,6 +55,7 @@ export default function StageMatrixChart({
 
   const option = {
     grid: { left: 220, right: 30, top: 20, bottom: 90 },
+    animation: false,
     xAxis: {
       type: "category",
       data: stages,
@@ -83,8 +84,11 @@ export default function StageMatrixChart({
         dimensions: ["x", "y", "rel", "abs", "impactKey", "stageLabel", "stageId"],
         encode: { x: "x", y: "y" },
         data: points,
-        symbolSize: (val: any[]) => {
-          const v = Number(val?.[2] ?? 0);
+        progressive: 0,
+        animation: false,
+        symbolSize: (val: any, params: any) => {
+          const arr = (Array.isArray(val) ? val : (params?.data?.value ?? [])) as any[];
+          const v = Number(arr?.[2] ?? 0);
           // Scale bubbles based on available row height to avoid overlapping for many impacts.
           const rowHeight = 64;
           const maxBubble = Math.max(18, Math.min(56, rowHeight * 0.85));
@@ -105,8 +109,12 @@ export default function StageMatrixChart({
   return (
     <ReactECharts
       option={option as any}
+      notMerge
+      lazyUpdate={false}
+      opts={{ renderer: "canvas" }}
       // Ensure enough vertical spacing per impact row for multi-impact selections.
       style={{ height: Math.max(360, 160 + impacts.length * 64), width: "100%" }}
+      onChartReady={(chart) => chart.resize()}
       onEvents={
         onCellClick
           ? {
