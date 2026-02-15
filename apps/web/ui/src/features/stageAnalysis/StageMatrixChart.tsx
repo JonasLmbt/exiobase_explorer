@@ -58,11 +58,14 @@ export default function StageMatrixChart({
         data: points,
         symbolSize: (val: any[]) => {
           const v = Number(val[2] ?? 0);
-          return Math.max(6, Math.min(50, 6 + Math.sqrt(Math.max(v, 0)) * 60));
+          // Scale bubbles based on available row height to avoid overlapping for many impacts.
+          const rowHeight = 64;
+          const maxBubble = Math.max(18, Math.min(56, rowHeight * 0.85));
+          return Math.max(6, Math.min(maxBubble, 6 + Math.sqrt(Math.max(v, 0)) * maxBubble));
         },
         itemStyle: {
           color: (p: any) => {
-            const impactKey = p.data?.[3];
+            const impactKey = p.data?.[4];
             const row = impacts.find((i) => i.key === impactKey);
             return row?.color || "#8ab4f8";
           },
@@ -75,7 +78,8 @@ export default function StageMatrixChart({
   return (
     <ReactECharts
       option={option as any}
-      style={{ height: Math.max(320, 70 + impacts.length * 32), width: "100%" }}
+      // Ensure enough vertical spacing per impact row for multi-impact selections.
+      style={{ height: Math.max(360, 160 + impacts.length * 64), width: "100%" }}
       onEvents={
         onCellClick
           ? {
