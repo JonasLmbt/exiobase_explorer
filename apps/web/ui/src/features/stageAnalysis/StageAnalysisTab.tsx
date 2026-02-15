@@ -49,7 +49,7 @@ export default function StageAnalysisTab() {
       const lbl = (it.label ?? "").toString().trim().toLowerCase();
       for (const w of want) {
         if (keyByWanted[w]) continue;
-        if (lbl === w) keyByWanted[w] = it.key;
+        if (lbl === w || lbl.startsWith(w) || lbl.includes(w)) keyByWanted[w] = it.key;
       }
     }
 
