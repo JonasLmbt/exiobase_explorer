@@ -1,4 +1,5 @@
 import ReactECharts from "echarts-for-react";
+import { useTheme } from "@mui/material/styles";
 
 type ImpactRow = { key: string; unit: string; color: string; relative: number[]; absolute: number[] };
 export type StageTableV1 = { kind: "stage_table_v1"; stage_ids?: string[]; stages: string[]; impacts: ImpactRow[] };
@@ -37,6 +38,13 @@ export default function StageMatrixChart({
   const stages = data.stages;
   const stageIds = data.stage_ids ?? stages.map((_, i) => String(i));
   const impacts = data.impacts;
+  const theme = useTheme();
+
+  const showLabels = Boolean(showStagePercentLabels || showTotalAbsoluteLabel);
+  const rowHeight = showLabels ? 78 : 64;
+
+  const axisTextColor = theme.palette.mode === "dark" ? "rgba(255,255,255,0.72)" : "rgba(0,0,0,0.72)";
+  const axisLineColor = theme.palette.mode === "dark" ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)";
 
   // Use category strings (not indices) for better compatibility with ECharts category axes.
   const points: Array<{ value: [string, string, number, number, string, string, string] }> = [];
@@ -58,16 +66,27 @@ export default function StageMatrixChart({
   }
 
   const option = {
-    grid: { left: 220, right: 30, top: 20, bottom: 90 },
+    grid: { left: 220, right: 30, top: 20, bottom: showLabels ? 110 : 90 },
     animation: false,
     xAxis: {
       type: "category",
       data: stages,
-      axisLabel: { rotate: 0, interval: 0, lineHeight: 14, formatter: (v: string) => wrapLabel(v, 18) },
+      axisLabel: {
+        rotate: 0,
+        interval: 0,
+        lineHeight: 14,
+        color: axisTextColor,
+        formatter: (v: string) => wrapLabel(v, 18),
+      },
+      axisLine: { lineStyle: { color: axisLineColor } },
+      axisTick: { lineStyle: { color: axisLineColor } },
     },
     yAxis: {
       type: "category",
       data: impacts.map((i) => impactLabelByKey[i.key] ?? i.key),
+      axisLabel: { color: axisTextColor },
+      axisLine: { lineStyle: { color: axisLineColor } },
+      axisTick: { lineStyle: { color: axisLineColor } },
     },
     tooltip: {
       trigger: "item",
@@ -96,11 +115,11 @@ export default function StageMatrixChart({
         animation: false,
         labelLayout: { hideOverlap: true },
         label: {
-          show: Boolean(showStagePercentLabels || showTotalAbsoluteLabel),
+          show: showLabels,
           position: "bottom",
           distance: 6,
           fontSize: 11,
-          color: "rgba(0,0,0,0.72)",
+          color: axisTextColor,
           formatter: (p: any) => {
             const arr = (p?.data?.value ?? p?.value ?? []) as any[];
             const rel = Number(arr?.[2] ?? 0);
@@ -122,7 +141,6 @@ export default function StageMatrixChart({
           const arr = (Array.isArray(val) ? val : (params?.data?.value ?? [])) as any[];
           const v = Number(arr?.[2] ?? 0);
           // Scale bubbles based on available row height to avoid overlapping for many impacts.
-          const rowHeight = 64;
           const maxBubble = Math.max(18, Math.min(56, rowHeight * 0.85));
           return Math.max(6, Math.min(maxBubble, 6 + Math.sqrt(Math.max(v, 0)) * maxBubble));
         },
@@ -145,7 +163,7 @@ export default function StageMatrixChart({
       lazyUpdate={false}
       opts={{ renderer: "canvas" }}
       // Ensure enough vertical spacing per impact row for multi-impact selections.
-      style={{ height: Math.max(360, 160 + impacts.length * 64), width: "100%" }}
+      style={{ height: Math.max(360, 160 + impacts.length * rowHeight), width: "100%" }}
       onChartReady={(chart) => chart.resize()}
       onEvents={
         onCellClick
