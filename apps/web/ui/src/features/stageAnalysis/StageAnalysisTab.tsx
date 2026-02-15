@@ -182,6 +182,16 @@ export default function StageAnalysisTab({
               value={selectedImpactOptions}
               onChange={(_, next) => setStage((s) => ({ ...s, impacts: next.map((x) => x.key) }))}
               getOptionLabel={(o) => `${o.label}${o.unit ? ` (${o.unit})` : ""}`}
+              slotProps={{
+                paper: {
+                  sx: (t) => ({
+                    bgcolor: t.palette.mode === "dark" ? "#0f172a" : t.palette.background.paper,
+                    backgroundImage: "none",
+                    opacity: 1,
+                    border: t.palette.mode === "dark" ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.12)",
+                  }),
+                },
+              }}
               filterOptions={(opts, state) => {
                 const q = state.inputValue.trim().toLowerCase();
                 if (!q) return opts;
