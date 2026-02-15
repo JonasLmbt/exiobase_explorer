@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Box, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import { GeoJSON, MapContainer } from "react-leaflet";
+import { GeoJSON, MapContainer, useMap } from "react-leaflet";
 import type { Feature, FeatureCollection, GeoJsonObject } from "geojson";
 import type { Layer, PathOptions } from "leaflet";
+import L from "leaflet";
 
 export type GeoJsonV1 = { kind: "geojson_v1"; geojson: string; meta: { impact: string; relative: boolean } };
 export type MapSettings = {
@@ -116,6 +117,57 @@ function tooltipHtml(props: any): string {
   return parts.join("");
 }
 
+function InvalidateSizeOnResize({ watchEl }: { watchEl: () => HTMLElement | null }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const el = watchEl();
+    if (!el) return;
+
+    const invalidate = () => {
+      try {
+        map.invalidateSize({ pan: false });
+      } catch {
+        // ignore
+      }
+    };
+
+    // Initial: often needed after tab switches / flex layout changes.
+    const t1 = window.setTimeout(invalidate, 0);
+    const t2 = window.setTimeout(invalidate, 60);
+
+    const ro = new ResizeObserver(() => invalidate());
+    ro.observe(el);
+
+    const onVis = () => invalidate();
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      ro.disconnect();
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [map, watchEl]);
+
+  return null;
+}
+
+function FitBoundsOnData({ fc }: { fc: FeatureCollection }) {
+  const map = useMap();
+
+  useEffect(() => {
+    try {
+      const bounds = L.geoJSON(fc as any).getBounds();
+      if (bounds && bounds.isValid()) map.fitBounds(bounds, { padding: [18, 18] });
+    } catch {
+      // ignore
+    }
+  }, [map, fc]);
+
+  return null;
+}
+
 export default function WorldMapLeaflet({
   data,
   settings,
@@ -125,7 +177,8 @@ export default function WorldMapLeaflet({
   settings: MapSettings;
   onRegionClick?: (info: { exiobase: string; region: string }) => void;
 }) {
-  const fc = parse(data.geojson);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const fc = useMemo(() => parse(data.geojson), [data.geojson]);
   const theme = useTheme();
 
   const border = theme.palette.mode === "dark" ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.28)";
@@ -209,13 +262,15 @@ export default function WorldMapLeaflet({
   };
 
   return (
-    <Box sx={{ position: "relative" }}>
+    <Box ref={containerRef} sx={{ position: "relative", height: "100%" }}>
       <MapContainer
         style={{ height: "100%", width: "100%", background: bg, borderRadius: 14, minHeight: 520 }}
         center={[20, 0]}
         zoom={1.3}
         scrollWheelZoom
       >
+        <InvalidateSizeOnResize watchEl={() => containerRef.current} />
+        <FitBoundsOnData fc={fc} />
         <GeoJSON
           data={fc as unknown as GeoJsonObject}
           style={styleFor}
