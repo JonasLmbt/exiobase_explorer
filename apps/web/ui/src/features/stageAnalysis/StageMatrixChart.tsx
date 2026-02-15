@@ -1,5 +1,7 @@
 import ReactECharts from "echarts-for-react";
+import type { EChartsType } from "echarts";
 import { useTheme } from "@mui/material/styles";
+import { useEffect, useMemo, useRef } from "react";
 
 type ImpactRow = { key: string; unit: string; color: string; relative: number[]; absolute: number[] };
 export type StageTableV1 = { kind: "stage_table_v1"; stage_ids?: string[]; stages: string[]; impacts: ImpactRow[] };
@@ -41,10 +43,11 @@ export default function StageMatrixChart({
   const theme = useTheme();
 
   const showLabels = Boolean(showStagePercentLabels || showTotalAbsoluteLabel);
-  const rowHeight = showLabels ? 78 : 64;
+  const rowHeight = showLabels ? 90 : 64;
 
   const axisTextColor = theme.palette.mode === "dark" ? "rgba(255,255,255,0.72)" : "rgba(0,0,0,0.72)";
   const axisLineColor = theme.palette.mode === "dark" ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)";
+  const chartRef = useRef<EChartsType | null>(null);
 
   // Use category strings (not indices) for better compatibility with ECharts category axes.
   const points: Array<{ value: [string, string, number, number, string, string, string] }> = [];
@@ -65,7 +68,8 @@ export default function StageMatrixChart({
     }
   }
 
-  const option = {
+  const option = useMemo(
+    () => ({
     grid: { left: 220, right: 30, top: 20, bottom: showLabels ? 110 : 90 },
     animation: false,
     xAxis: {
@@ -94,6 +98,7 @@ export default function StageMatrixChart({
       showDelay: 0,
       hideDelay: 50,
       confine: true,
+      transitionDuration: 0,
       formatter: (p: any) => {
         const v = (p?.data?.value ?? p?.value ?? []) as any[];
         const [, , vRel, vAbs, k, s] = v;
@@ -154,7 +159,28 @@ export default function StageMatrixChart({
         },
       },
     ],
-  };
+  }),
+    [axisLineColor, axisTextColor, impactLabelByKey, impacts, rowHeight, showLabels, showStagePercentLabels, showTotalAbsoluteLabel, stageIds, stages],
+  );
+
+  useEffect(() => {
+    // Ensure tooltip appears on "resting hover" by explicitly showing it on mouseover events.
+    const chart = chartRef.current;
+    if (!chart) return;
+    const onOver = (p: any) => {
+      if (!p || p.componentType !== "series") return;
+      if (typeof p.dataIndex !== "number") return;
+      chart.dispatchAction({ type: "showTip", seriesIndex: p.seriesIndex, dataIndex: p.dataIndex });
+    };
+    chart.on("mouseover", onOver);
+    return () => {
+      try {
+        chart.off("mouseover", onOver);
+      } catch {
+        // ignore
+      }
+    };
+  }, [option]);
 
   return (
     <ReactECharts
@@ -164,7 +190,10 @@ export default function StageMatrixChart({
       opts={{ renderer: "canvas" }}
       // Ensure enough vertical spacing per impact row for multi-impact selections.
       style={{ height: Math.max(360, 160 + impacts.length * rowHeight), width: "100%" }}
-      onChartReady={(chart) => chart.resize()}
+      onChartReady={(chart) => {
+        chartRef.current = chart as unknown as EChartsType;
+        chart.resize();
+      }}
       onEvents={
         onCellClick
           ? {
