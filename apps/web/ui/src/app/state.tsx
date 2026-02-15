@@ -11,6 +11,8 @@ export type AppState = {
   setYear: (y: number) => void;
   language: string;
   setLanguage: (l: string) => void;
+  themeMode: "dark" | "light";
+  setThemeMode: (m: "dark" | "light") => void;
   stage: StageState;
   setStage: Dispatch<SetStateAction<StageState>>;
   pendingSelection: AppSelection;
@@ -26,12 +28,24 @@ export type StageState = { methodId: string; impacts: string[]; jobId: string | 
 const Ctx = createContext<AppState | null>(null);
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
+  const [themeMode, setThemeMode] = useState<"dark" | "light">(() => {
+    const raw = localStorage.getItem("exiobase_explorer_theme_mode");
+    return raw === "light" ? "light" : "dark";
+  });
   const [year, setYear] = useState<number>(2022);
   const [language, setLanguage] = useState<string>("Deutsch");
   const [stage, setStage] = useState<StageState>({ methodId: "bubble", impacts: [], jobId: null, lastResult: null });
   const [selection, setSelection] = useState<AppSelection>({ mode: "all" });
   const [pendingSelection, setPendingSelection] = useState<AppSelection>({ mode: "all" });
   const [selectionSummary, setSelectionSummary] = useState<SelectionSummary | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("exiobase_explorer_theme_mode", themeMode);
+    } catch {
+      // ignore
+    }
+  }, [themeMode]);
 
   useEffect(() => {
     setSelection({ mode: "all" });
@@ -46,6 +60,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setYear,
       language,
       setLanguage,
+      themeMode,
+      setThemeMode,
       stage,
       setStage,
       pendingSelection,
@@ -55,7 +71,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       selectionSummary,
       setSelectionSummary,
     }),
-    [language, pendingSelection, selection, selectionSummary, stage, year],
+    [language, pendingSelection, selection, selectionSummary, stage, themeMode, year],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, Container, FormControl, InputLabel, MenuItem, Select, Stack, Typography } from "@mui/material";
+import { Card, CardContent, Container, FormControl, InputLabel, MenuItem, Select, Stack, Switch, Typography } from "@mui/material";
 import { api } from "../api";
 import { useAppState } from "../app/state";
 import LogConsole from "../components/LogConsole";
 
 export default function SettingsTab() {
-  const { year, setYear, language, setLanguage } = useAppState();
+  const { year, setYear, language, setLanguage, themeMode, setThemeMode } = useAppState();
 
   const yearsQ = useQuery({ queryKey: ["years"], queryFn: api.years, retry: false });
   const languagesQ = useQuery({ queryKey: ["languages", year], queryFn: () => api.languages(year), retry: false });
@@ -53,6 +53,20 @@ export default function SettingsTab() {
                   ))}
                 </Select>
               </FormControl>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+              Appearance
+            </Typography>
+            <Stack direction="row" spacing={2} alignItems="center">
+              <Switch checked={themeMode === "dark"} onChange={(e) => setThemeMode(e.target.checked ? "dark" : "light")} />
+              <Typography variant="body2" sx={{ opacity: 0.85 }}>
+                {themeMode === "dark" ? "Dark mode" : "Light mode"}
+              </Typography>
             </Stack>
           </CardContent>
         </Card>
