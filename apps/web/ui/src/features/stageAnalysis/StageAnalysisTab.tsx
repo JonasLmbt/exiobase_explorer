@@ -25,9 +25,11 @@ import ContributionDialog from "./ContributionDialog";
 export default function StageAnalysisTab() {
   const { year, language, selection, stage, setStage } = useAppState();
   const log = useLog();
+
   const methodId = stage.methodId;
   const impacts = stage.impacts;
   const jobId = stage.jobId;
+
   const [error, setError] = useState<string | null>(null);
   const [contribOpen, setContribOpen] = useState(false);
   const [contribImpactKey, setContribImpactKey] = useState<string | null>(null);
@@ -41,6 +43,20 @@ export default function StageAnalysisTab() {
     queryFn: () => api.impacts(year, language),
     retry: false,
   });
+
+  const labelByKey = useMemo(() => {
+    const map: Record<string, string> = {};
+    (impactsQ.data?.impacts ?? []).forEach((it) => {
+      map[it.key] = it.label;
+    });
+    return map;
+  }, [impactsQ.data?.impacts]);
+
+  const impactOptions = impactsQ.data?.impacts ?? [];
+  const selectedImpactOptions = useMemo(() => {
+    const byKey = new Map(impactOptions.map((o) => [o.key, o] as const));
+    return impacts.map((k) => byKey.get(k)).filter(Boolean) as typeof impactOptions;
+  }, [impactOptions, impacts]);
 
   useEffect(() => {
     if (impacts.length) return;
@@ -116,20 +132,6 @@ export default function StageAnalysisTab() {
     setStage((s) => ({ ...s, lastResult: jobResultQ.data!.result }));
   }, [jobResultQ.data?.result, setStage]);
 
-  const labelByKey = useMemo(() => {
-    const map: Record<string, string> = {};
-    (impactsQ.data?.impacts ?? []).forEach((it) => {
-      map[it.key] = it.label;
-    });
-    return map;
-  }, [impactsQ.data?.impacts]);
-
-  const impactOptions = impactsQ.data?.impacts ?? [];
-  const selectedImpactOptions = useMemo(() => {
-    const byKey = new Map(impactOptions.map((o) => [o.key, o] as const));
-    return impacts.map((k) => byKey.get(k)).filter(Boolean) as typeof impactOptions;
-  }, [impactOptions, impacts]);
-
   const onRun = () => {
     setError(null);
     createJobM.mutate(undefined, { onError: (e) => setError(String(e)) });
@@ -138,15 +140,15 @@ export default function StageAnalysisTab() {
   const runDisabled = impacts.length === 0 || createJobM.isPending;
 
   return (
-    <Card>
-      <CardContent>
-        <Stack spacing={2}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Stage analysis
-          </Typography>
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "420px 1fr" }, gap: 2, alignItems: "start" }}>
+      <Card>
+        <CardContent>
+          <Stack spacing={2}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              Stage analysis
+            </Typography>
 
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-            <FormControl sx={{ minWidth: 220 }}>
+            <FormControl>
               <InputLabel id="method-label">Method</InputLabel>
               <Select
                 labelId="method-label"
@@ -177,7 +179,6 @@ export default function StageAnalysisTab() {
                 );
               }}
               renderInput={(params) => <TextField {...params} label="Impact" placeholder="Search impacts…" size="small" />}
-              sx={{ minWidth: 360, flex: 1 }}
               isOptionEqualToValue={(a, b) => a.key === b.key}
               renderOption={(props, option, { selected }) => (
                 <li {...props} key={option.key}>
@@ -193,25 +194,10 @@ export default function StageAnalysisTab() {
                       }}
                     />
                     <Box sx={{ flex: 1, minWidth: 0, opacity: selected ? 0.95 : 0.8 }}>
-                      <Box
-                        sx={{
-                          fontWeight: selected ? 700 : 500,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
+                      <Box sx={{ fontWeight: selected ? 700 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {option.label}
                       </Box>
-                      <Box
-                        sx={{
-                          fontSize: "0.8rem",
-                          opacity: 0.7,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
+                      <Box sx={{ fontSize: "0.8rem", opacity: 0.7, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {option.key}
                       </Box>
                     </Box>
@@ -220,44 +206,53 @@ export default function StageAnalysisTab() {
               )}
             />
 
-            <Button variant="contained" onClick={onRun} disabled={runDisabled}>
+            <Button variant="contained" onClick={onRun} disabled={runDisabled} size="large" sx={{ py: 1.2 }}>
               Run
             </Button>
-          </Stack>
 
-          <Typography variant="body2" sx={{ opacity: 0.75 }}>
-            Auswahl kommt aus dem Tab <b>Selection</b> (Region/Sektor). Ohne Auswahl wird global gerechnet.
-          </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.75 }}>
+              Auswahl kommt aus dem Tab <b>Selection</b> (Region/Sektor). Ohne Auswahl wird global gerechnet.
+            </Typography>
 
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ opacity: 0.9 }}>
-            <Box sx={{ minWidth: 100 }}>Job</Box>
-            <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{jobId ?? "—"}</Box>
-          </Stack>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ opacity: 0.9 }}>
-            <Box sx={{ minWidth: 100 }}>Status</Box>
-            <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
-              {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : "—"}
-            </Box>
-          </Stack>
-
-          {jobStatusQ.data?.state === "failed" ? (
-            <Box sx={{ color: "#ffd2d2" }}>
-              <Typography
-                variant="body2"
-                sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}
-              >
-                {jobStatusQ.data.message ?? "Job failed"}
-              </Typography>
-            </Box>
-          ) : null}
-
-          {(createJobM.isPending || jobStatusQ.isFetching) && (
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.9 }}>
-              <CircularProgress size={18} />
-              <Typography variant="body2">Berechne…</Typography>
+            <Stack spacing={1} sx={{ opacity: 0.9 }}>
+              <Stack direction="row" spacing={2}>
+                <Box sx={{ minWidth: 80 }}>Job</Box>
+                <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{jobId ?? "—"}</Box>
+              </Stack>
+              <Stack direction="row" spacing={2}>
+                <Box sx={{ minWidth: 80 }}>Status</Box>
+                <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
+                  {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : "—"}
+                </Box>
+              </Stack>
             </Stack>
-          )}
 
+            {jobStatusQ.data?.state === "failed" ? (
+              <Box sx={{ color: "#ffd2d2" }}>
+                <Typography variant="body2" sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
+                  {jobStatusQ.data.message ?? "Job failed"}
+                </Typography>
+              </Box>
+            ) : null}
+
+            {(createJobM.isPending || jobStatusQ.isFetching) && (
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.9 }}>
+                <CircularProgress size={18} />
+                <Typography variant="body2">Berechne…</Typography>
+              </Stack>
+            )}
+
+            {error ? (
+              <Box sx={{ color: "#ffd2d2" }}>
+                <Typography variant="body2">{error}</Typography>
+              </Box>
+            ) : null}
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
           {jobResultQ.data?.result && isStageTable(jobResultQ.data.result) ? (
             <StageMatrixChart
               data={jobResultQ.data.result}
@@ -295,9 +290,7 @@ export default function StageAnalysisTab() {
             />
           ) : null}
 
-          {jobResultQ.data?.result &&
-          !isImageResult(jobResultQ.data.result) &&
-          !isStageTable(jobResultQ.data.result) ? (
+          {jobResultQ.data?.result && !isImageResult(jobResultQ.data.result) && !isStageTable(jobResultQ.data.result) ? (
             <Box
               component="pre"
               sx={{
@@ -311,14 +304,8 @@ export default function StageAnalysisTab() {
               {JSON.stringify(jobResultQ.data.result, null, 2)}
             </Box>
           ) : null}
-
-          {error ? (
-            <Box sx={{ color: "#ffd2d2" }}>
-              <Typography variant="body2">{error}</Typography>
-            </Box>
-          ) : null}
-        </Stack>
-      </CardContent>
+        </CardContent>
+      </Card>
 
       {contribImpactKey && contribStageId ? (
         <ContributionDialog
@@ -330,7 +317,7 @@ export default function StageAnalysisTab() {
           stageLabel={contribStageLabel}
         />
       ) : null}
-    </Card>
+    </Box>
   );
 }
 
@@ -345,3 +332,4 @@ function isStageTable(v: unknown): v is StageTableV1 {
   const obj = v as any;
   return obj.kind === "stage_table_v1" && Array.isArray(obj.stages) && Array.isArray(obj.impacts);
 }
+
