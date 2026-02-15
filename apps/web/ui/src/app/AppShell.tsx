@@ -8,7 +8,7 @@ import ConsoleTab from "../pages/ConsoleTab";
 import { api } from "../api";
 import { useLog } from "./log";
 import { useT } from "./i18n";
-import exioLogo2 from "../assets/exiobase_logo_2_transparent.png";
+import exioLogo2 from "../assets/exiobase_logo_2_transparent_128.png";
 
 type TabId = "selection" | "visualisation" | "console" | "settings";
 
