@@ -39,6 +39,7 @@ export default function RegionAnalysisTab({
   const [contribOpen, setContribOpen] = useState(false);
   const [contribRegionExiobase, setContribRegionExiobase] = useState<string | null>(null);
   const [contribRegionLabel, setContribRegionLabel] = useState<string>("");
+  const [contribInitialImpactKey, setContribInitialImpactKey] = useState<string | undefined>(undefined);
   const methodId = region.methodId;
   const impacts = region.impacts;
   const n = region.n;
@@ -138,11 +139,12 @@ export default function RegionAnalysisTab({
     return m;
   }, [impactsQ.data?.impacts]);
 
-  const openContribution = (exiobase: string, label: string) => {
+  const openContribution = (exiobase: string, label: string, initialImpact?: string) => {
     if (!impactKey) return;
     if (!exiobase) return;
     setContribRegionExiobase(exiobase);
     setContribRegionLabel(label || exiobase);
+    setContribInitialImpactKey(initialImpact);
     setContribOpen(true);
   };
 
@@ -440,7 +442,7 @@ export default function RegionAnalysisTab({
                   gamma: mapGamma,
                 }}
                 onRegionClick={({ exiobase, region }) => {
-                  openContribution(exiobase, region);
+                  openContribution(exiobase, region, impactKey);
                 }}
               />
             </Box>
@@ -455,7 +457,10 @@ export default function RegionAnalysisTab({
                   if (!Number.isFinite(i)) return;
                   const ex = result.index_exiobase?.[i] ?? "";
                   const label = result.index?.[i] ?? ex;
-                  openContribution(ex, label);
+                  const trimmed = impacts.slice(0, method.maxImpacts);
+                  const seriesIndex = Number(params?.seriesIndex);
+                  const initial = Number.isFinite(seriesIndex) ? trimmed[seriesIndex] : trimmed[0];
+                  openContribution(ex, label, initial);
                 },
               }}
             />
@@ -470,7 +475,7 @@ export default function RegionAnalysisTab({
                   if (!Number.isFinite(i)) return;
                   const row = result.rows?.[i];
                   if (!row) return;
-                  openContribution(row.region_exiobase ?? "", row.label);
+                  openContribution(row.region_exiobase ?? "", row.label, impactKey);
                 },
               }}
             />
@@ -497,8 +502,8 @@ export default function RegionAnalysisTab({
         <RegionContributionDialog
           open={contribOpen}
           onClose={() => setContribOpen(false)}
-          impactKey={impactKey}
-          impactLabel={impactLabelByKey[impactKey] ?? impactKey}
+          impactKeys={impacts.slice(0, method.maxImpacts)}
+          initialImpactKey={contribInitialImpactKey}
           regionExiobase={contribRegionExiobase}
           regionLabel={contribRegionLabel || contribRegionExiobase}
         />
