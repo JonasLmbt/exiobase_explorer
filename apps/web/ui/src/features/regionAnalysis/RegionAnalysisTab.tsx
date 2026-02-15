@@ -8,7 +8,9 @@ import {
   CardContent,
   Checkbox,
   CircularProgress,
+  Divider,
   FormControl,
+  FormControlLabel,
   InputLabel,
   MenuItem,
   Select,
@@ -41,6 +43,17 @@ export default function RegionAnalysisTab({
   const impacts = region.impacts;
   const n = region.n;
   const jobId = region.jobId;
+  const mapPalette = region.mapPalette;
+  const mapReverse = region.mapReverse;
+  const mapShowLegend = region.mapShowLegend;
+  const mapTitle = region.mapTitle;
+  const mapMode = region.mapMode;
+  const mapRelative = region.mapRelative;
+  const mapK = region.mapK;
+  const mapCustomBins = region.mapCustomBins;
+  const mapNormMode = region.mapNormMode;
+  const mapRobust = region.mapRobust;
+  const mapGamma = region.mapGamma;
 
   const method = useMemo(() => regionMethods.find((m) => m.id === methodId) ?? regionMethods[0], [methodId]);
 
@@ -222,6 +235,136 @@ export default function RegionAnalysisTab({
               )}
             />
 
+            {method.analysisType === "region_world_map" ? (
+              <Stack spacing={1}>
+                <Divider sx={{ opacity: 0.5 }} />
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <FormControl fullWidth>
+                    <InputLabel id="palette-label">Palette</InputLabel>
+                    <Select
+                      labelId="palette-label"
+                      label="Palette"
+                      value={mapPalette}
+                      onChange={(e) => setRegion((s) => ({ ...s, mapPalette: e.target.value as any }))}
+                      size="small"
+                    >
+                      <MenuItem value="Reds">Rottöne</MenuItem>
+                      <MenuItem value="Blues">Blautöne</MenuItem>
+                      <MenuItem value="Greens">Grüntöne</MenuItem>
+                      <MenuItem value="Greys">Grautöne</MenuItem>
+                      <MenuItem value="Viridis">Viridis</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <FormControlLabel
+                    control={<Checkbox checked={mapReverse} onChange={(e) => setRegion((s) => ({ ...s, mapReverse: e.target.checked }))} />}
+                    label="Umkehren"
+                  />
+                </Stack>
+
+                <FormControlLabel
+                  control={
+                    <Checkbox checked={mapShowLegend} onChange={(e) => setRegion((s) => ({ ...s, mapShowLegend: e.target.checked }))} />
+                  }
+                  label="Legende anzeigen"
+                />
+
+                <TextField
+                  label="Titel (optional)"
+                  size="small"
+                  value={mapTitle}
+                  onChange={(e) => setRegion((s) => ({ ...s, mapTitle: e.target.value }))}
+                />
+
+                <FormControl fullWidth>
+                  <InputLabel id="mode-label">Modus</InputLabel>
+                  <Select
+                    labelId="mode-label"
+                    label="Modus"
+                    value={mapMode}
+                    onChange={(e) => setRegion((s) => ({ ...s, mapMode: e.target.value as any }))}
+                    size="small"
+                  >
+                    <MenuItem value="binned">binned</MenuItem>
+                    <MenuItem value="continuous">continuous</MenuItem>
+                  </Select>
+                </FormControl>
+
+                {mapMode === "binned" ? (
+                  <Stack spacing={1}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={mapRelative}
+                          onChange={(e) => setRegion((s) => ({ ...s, mapRelative: e.target.checked }))}
+                        />
+                      }
+                      label="Relativ (Summe = 100%)"
+                    />
+                    <Stack direction="row" spacing={1}>
+                      <TextField
+                        label="Klassen (k)"
+                        size="small"
+                        type="number"
+                        value={mapK}
+                        onChange={(e) => setRegion((s) => ({ ...s, mapK: Math.max(2, Math.min(20, Number(e.target.value) || 7)) }))}
+                        inputProps={{ min: 2, max: 20 }}
+                        sx={{ flex: 1 }}
+                      />
+                      <TextField
+                        label="Eigene Klassen"
+                        size="small"
+                        value={mapCustomBins}
+                        onChange={(e) => setRegion((s) => ({ ...s, mapCustomBins: e.target.value }))}
+                        placeholder="z.B. 1, 2, 5, 10"
+                        sx={{ flex: 2 }}
+                      />
+                    </Stack>
+                  </Stack>
+                ) : (
+                  <Stack spacing={1}>
+                    <FormControl fullWidth>
+                      <InputLabel id="norm-label">Normierung</InputLabel>
+                      <Select
+                        labelId="norm-label"
+                        label="Normierung"
+                        value={mapNormMode}
+                        onChange={(e) => setRegion((s) => ({ ...s, mapNormMode: e.target.value as any }))}
+                        size="small"
+                      >
+                        <MenuItem value="linear">linear</MenuItem>
+                        <MenuItem value="log">log</MenuItem>
+                        <MenuItem value="power">power</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Stack direction="row" spacing={1}>
+                      <TextField
+                        label="Robustes Clipping (%)"
+                        size="small"
+                        type="number"
+                        value={mapRobust}
+                        onChange={(e) => setRegion((s) => ({ ...s, mapRobust: Math.max(0, Math.min(49, Number(e.target.value) || 0)) }))}
+                        inputProps={{ min: 0, max: 49, step: 0.5 }}
+                        sx={{ flex: 1 }}
+                      />
+                      <TextField
+                        label="Gamma"
+                        size="small"
+                        type="number"
+                        value={mapGamma}
+                        onChange={(e) => setRegion((s) => ({ ...s, mapGamma: Math.max(0.05, Math.min(5, Number(e.target.value) || 0.7)) }))}
+                        inputProps={{ min: 0.05, max: 5, step: 0.05 }}
+                        sx={{ flex: 1 }}
+                        disabled={mapNormMode !== "power"}
+                      />
+                    </Stack>
+                    <Typography variant="caption" sx={{ opacity: 0.75 }}>
+                      Continuous-Modus nutzt absolute Werte (wie in der App).
+                    </Typography>
+                  </Stack>
+                )}
+              </Stack>
+            ) : null}
+
             <Button variant="contained" onClick={onRun} disabled={runDisabled} size="large" sx={{ py: 1.2 }}>
               Run
             </Button>
@@ -272,6 +415,19 @@ export default function RegionAnalysisTab({
           {result && isGeoJson(result) ? (
             <WorldMapLeaflet
               data={result}
+              settings={{
+                palette: mapPalette,
+                reverse: mapReverse,
+                showLegend: mapShowLegend,
+                title: mapTitle,
+                mode: mapMode,
+                relative: mapRelative,
+                k: mapK,
+                customBins: mapCustomBins,
+                normMode: mapNormMode,
+                robust: mapRobust,
+                gamma: mapGamma,
+              }}
               onRegionClick={({ exiobase, region }) => {
                 if (!impactKey) return;
                 setContribRegionExiobase(exiobase);

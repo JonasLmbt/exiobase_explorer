@@ -43,6 +43,17 @@ export type RegionState = {
   n: number;
   jobId: string | null;
   lastResult: unknown | null;
+  mapPalette: "Reds" | "Blues" | "Greens" | "Greys" | "Viridis";
+  mapReverse: boolean;
+  mapShowLegend: boolean;
+  mapTitle: string;
+  mapMode: "binned" | "continuous";
+  mapRelative: boolean;
+  mapK: number;
+  mapCustomBins: string;
+  mapNormMode: "linear" | "log" | "power";
+  mapRobust: number;
+  mapGamma: number;
 };
 
 export type StageSession = { id: string; title: string; state: StageState };
@@ -73,7 +84,24 @@ function defaultStageState(): StageState {
 }
 
 function defaultRegionState(): RegionState {
-  return { methodId: "world_map", impacts: [], n: 10, jobId: null, lastResult: null };
+  return {
+    methodId: "world_map",
+    impacts: [],
+    n: 10,
+    jobId: null,
+    lastResult: null,
+    mapPalette: "Reds",
+    mapReverse: false,
+    mapShowLegend: false,
+    mapTitle: "",
+    mapMode: "binned",
+    mapRelative: true,
+    mapK: 7,
+    mapCustomBins: "",
+    mapNormMode: "linear",
+    mapRobust: 2.0,
+    mapGamma: 0.7,
+  };
 }
 
 export function AppStateProvider({ children }: { children: ReactNode }) {

@@ -80,7 +80,28 @@ export default function VisualisationTab() {
     const title = `Region ${regionSessions.length + 1}`;
     setRegionSessions((prev) => [
       ...prev,
-      { id, title, state: { methodId: "world_map", impacts: [], n: 10, jobId: null, lastResult: null } },
+      {
+        id,
+        title,
+        state: {
+          methodId: "world_map",
+          impacts: [],
+          n: 10,
+          jobId: null,
+          lastResult: null,
+          mapPalette: "Reds",
+          mapReverse: false,
+          mapShowLegend: false,
+          mapTitle: "",
+          mapMode: "binned",
+          mapRelative: true,
+          mapK: 7,
+          mapCustomBins: "",
+          mapNormMode: "linear",
+          mapRobust: 2.0,
+          mapGamma: 0.7,
+        },
+      },
     ]);
     setActiveRegionSessionId(id);
   };
@@ -110,7 +131,30 @@ export default function VisualisationTab() {
       if (!next.length) {
         const nid = newId();
         setActiveRegionSessionId(nid);
-        return [{ id: nid, title: "Region 1", state: { methodId: "world_map", impacts: [], n: 10, jobId: null, lastResult: null } }];
+        return [
+          {
+            id: nid,
+            title: "Region 1",
+            state: {
+              methodId: "world_map",
+              impacts: [],
+              n: 10,
+              jobId: null,
+              lastResult: null,
+              mapPalette: "Reds",
+              mapReverse: false,
+              mapShowLegend: false,
+              mapTitle: "",
+              mapMode: "binned",
+              mapRelative: true,
+              mapK: 7,
+              mapCustomBins: "",
+              mapNormMode: "linear",
+              mapRobust: 2.0,
+              mapGamma: 0.7,
+            },
+          },
+        ];
       }
       if (activeRegionSessionId === id) setActiveRegionSessionId(next[0].id);
       return next;
