@@ -1,7 +1,7 @@
 import ReactECharts from "echarts-for-react";
 
 type ImpactRow = { key: string; unit: string; color: string; relative: number[]; absolute: number[] };
-export type StageTableV1 = { kind: "stage_table_v1"; stages: string[]; impacts: ImpactRow[] };
+export type StageTableV1 = { kind: "stage_table_v1"; stage_ids?: string[]; stages: string[]; impacts: ImpactRow[] };
 
 function wrapLabel(value: string, maxLen = 14): string {
   const parts = String(value ?? "").split(/\s+/).filter(Boolean);
@@ -28,12 +28,13 @@ export default function StageMatrixChart({
 }: {
   data: StageTableV1;
   impactLabelByKey: Record<string, string>;
-  onCellClick?: (info: { impactKey: string; stage: string; value: number }) => void;
+  onCellClick?: (info: { impactKey: string; stageId: string; stageLabel: string; value: number }) => void;
 }) {
   const stages = data.stages;
+  const stageIds = data.stage_ids ?? stages.map((_, i) => String(i));
   const impacts = data.impacts;
 
-  const points: Array<[number, number, number, number, string, string]> = [];
+  const points: Array<[number, number, number, number, string, string, string]> = [];
   for (let y = 0; y < impacts.length; y++) {
     for (let x = 0; x < stages.length; x++) {
       points.push([
@@ -43,6 +44,7 @@ export default function StageMatrixChart({
         impacts[y].absolute[x] ?? 0,
         impacts[y].key,
         stages[x],
+        stageIds[x] ?? String(x),
       ]);
     }
   }
@@ -102,8 +104,13 @@ export default function StageMatrixChart({
         onCellClick
           ? {
               click: (p: any) => {
-                const [, , v, , k, s] = p.data as any[];
-                onCellClick({ impactKey: String(k), stage: String(s), value: Number(v) });
+                const [, , v, , k, sLabel, sId] = p.data as any[];
+                onCellClick({
+                  impactKey: String(k),
+                  stageId: String(sId),
+                  stageLabel: String(sLabel),
+                  value: Number(v),
+                });
               },
             }
           : undefined

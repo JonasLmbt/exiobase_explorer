@@ -20,6 +20,7 @@ import { useAppState } from "../../app/state";
 import { useLog } from "../../app/log";
 import { stageMethods } from "./methodRegistry";
 import StageMatrixChart, { type StageTableV1 } from "./StageMatrixChart";
+import ContributionDialog from "./ContributionDialog";
 
 export default function StageAnalysisTab() {
   const { year, language, selection, stage, setStage } = useAppState();
@@ -28,6 +29,10 @@ export default function StageAnalysisTab() {
   const impacts = stage.impacts;
   const jobId = stage.jobId;
   const [error, setError] = useState<string | null>(null);
+  const [contribOpen, setContribOpen] = useState(false);
+  const [contribImpactKey, setContribImpactKey] = useState<string | null>(null);
+  const [contribStageId, setContribStageId] = useState<string | null>(null);
+  const [contribStageLabel, setContribStageLabel] = useState<string>("");
 
   const method = useMemo(() => stageMethods.find((m) => m.id === methodId) ?? stageMethods[0], [methodId]);
 
@@ -257,9 +262,13 @@ export default function StageAnalysisTab() {
             <StageMatrixChart
               data={jobResultQ.data.result}
               impactLabelByKey={labelByKey}
-              onCellClick={({ impactKey, stage, value }) =>
-                log.info(`Clicked cell: ${labelByKey[impactKey] ?? impactKey} / ${stage} = ${(value * 100).toFixed(2)}%`)
-              }
+              onCellClick={({ impactKey, stageId, stageLabel, value }) => {
+                log.info(`Clicked cell: ${labelByKey[impactKey] ?? impactKey} / ${stageLabel} = ${(value * 100).toFixed(2)}%`);
+                setContribImpactKey(impactKey);
+                setContribStageId(stageId);
+                setContribStageLabel(stageLabel);
+                setContribOpen(true);
+              }}
             />
           ) : null}
 
@@ -267,9 +276,13 @@ export default function StageAnalysisTab() {
             <StageMatrixChart
               data={stage.lastResult}
               impactLabelByKey={labelByKey}
-              onCellClick={({ impactKey, stage, value }) =>
-                log.info(`Clicked cell: ${labelByKey[impactKey] ?? impactKey} / ${stage} = ${(value * 100).toFixed(2)}%`)
-              }
+              onCellClick={({ impactKey, stageId, stageLabel, value }) => {
+                log.info(`Clicked cell: ${labelByKey[impactKey] ?? impactKey} / ${stageLabel} = ${(value * 100).toFixed(2)}%`);
+                setContribImpactKey(impactKey);
+                setContribStageId(stageId);
+                setContribStageLabel(stageLabel);
+                setContribOpen(true);
+              }}
             />
           ) : null}
 
@@ -306,6 +319,17 @@ export default function StageAnalysisTab() {
           ) : null}
         </Stack>
       </CardContent>
+
+      {contribImpactKey && contribStageId ? (
+        <ContributionDialog
+          open={contribOpen}
+          onClose={() => setContribOpen(false)}
+          impactKey={contribImpactKey}
+          impactLabel={labelByKey[contribImpactKey] ?? contribImpactKey}
+          stageId={contribStageId}
+          stageLabel={contribStageLabel}
+        />
+      ) : null}
     </Card>
   );
 }
