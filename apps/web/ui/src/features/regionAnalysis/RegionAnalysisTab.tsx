@@ -51,6 +51,7 @@ export default function RegionAnalysisTab({
   const mapProjection = region.mapProjection;
   const mapMode = region.mapMode;
   const mapRelative = region.mapRelative;
+  const mapValueMode = region.mapValueMode;
   const mapK = region.mapK;
   const mapCustomBins = region.mapCustomBins;
   const mapNormMode = region.mapNormMode;
@@ -318,6 +319,23 @@ export default function RegionAnalysisTab({
                   </Select>
                 </FormControl>
 
+                <FormControl fullWidth>
+                  <InputLabel id="value-mode-label">Werte</InputLabel>
+                  <Select
+                    labelId="value-mode-label"
+                    label="Werte"
+                    value={mapValueMode}
+                    onChange={(e) => {
+                      const v = e.target.value as any;
+                      setRegion((s) => ({ ...s, mapValueMode: v, mapRelative: v === "per_capita" ? false : s.mapRelative }));
+                    }}
+                    size="small"
+                  >
+                    <MenuItem value="value">Absolut</MenuItem>
+                    <MenuItem value="per_capita">Pro Kopf</MenuItem>
+                  </Select>
+                </FormControl>
+
                 {mapMode === "binned" ? (
                   <Stack spacing={1}>
                     <FormControlLabel
@@ -325,6 +343,7 @@ export default function RegionAnalysisTab({
                         <Checkbox
                           checked={mapRelative}
                           onChange={(e) => setRegion((s) => ({ ...s, mapRelative: e.target.checked }))}
+                          disabled={mapValueMode === "per_capita"}
                         />
                       }
                       label="Relativ (Summe = 100%)"
@@ -387,7 +406,7 @@ export default function RegionAnalysisTab({
                       />
                     </Stack>
                     <Typography variant="caption" sx={{ opacity: 0.75 }}>
-                      Continuous-Modus nutzt absolute Werte (wie in der App).
+                      Continuous-Modus nutzt absolute Werte (oder pro Kopf, falls verfÃ¼gbar).
                     </Typography>
                   </Stack>
                 )}
@@ -453,6 +472,7 @@ export default function RegionAnalysisTab({
                   projection: mapProjection,
                   mode: mapMode,
                   relative: mapRelative,
+                  valueMode: mapValueMode,
                   k: mapK,
                   customBins: mapCustomBins,
                   normMode: mapNormMode,

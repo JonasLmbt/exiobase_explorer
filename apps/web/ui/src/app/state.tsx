@@ -50,6 +50,7 @@ export type RegionState = {
   mapProjection: "mercator" | "equirectangular" | "robinson";
   mapMode: "binned" | "continuous";
   mapRelative: boolean;
+  mapValueMode: "value" | "per_capita";
   mapK: number;
   mapCustomBins: string;
   mapNormMode: "linear" | "log" | "power";
@@ -98,6 +99,7 @@ function defaultRegionState(): RegionState {
     mapProjection: "robinson",
     mapMode: "binned",
     mapRelative: true,
+    mapValueMode: "value",
     mapK: 7,
     mapCustomBins: "",
     mapNormMode: "linear",

@@ -222,8 +222,8 @@ class PieChartMethod(AnalysisMethod):
         if state.get("cmap_reverse") and not str(color_name).endswith("_r"):
             color_name = f"{color_name}_r"
 
-        # If no custom title is provided, show a simple default with the current impact
-        title = state["title"] or f'{view._translate("Pie chart", "Pie chart")} – {impact}'
+        # If no custom title is provided, let the backend auto-generate a contextual title.
+        title = (state.get("title") or "").strip() or None
 
         return view.ui.supplychain.plot_pie_by_impact(
             impact,

@@ -728,9 +728,12 @@ class RegionAnalysisViewTab(QWidget):
         self.method_state = {
             "world_map": {
                 "color": "Reds",
+                "cmap_reverse": False,
                 "show_legend": False,
                 "title": "",
                 "mode": "binned",           # "binned" | "continuous"
+                "relative": True,           # binned: percentage shares vs absolute values
+                "value_mode": "value",      # "value" | "per_capita"
                 "k": 7,
                 "custom_bins": None,        # list[float] or None
                 "norm_mode": "linear",      # used in "continuous"
@@ -986,12 +989,18 @@ class RegionAnalysisViewTab(QWidget):
         """
         s = self.method_state.get("world_map", {})
 
+        cmap_name = str(s.get("color", "Reds"))
+        if bool(s.get("cmap_reverse", False)) and not cmap_name.endswith("_r"):
+            cmap_name = f"{cmap_name}_r"
+
         common_kwargs = dict(
-            color=s.get("color", "Reds"),
+            color=cmap_name,
             title=(s.get("title") or None),
             show_legend=bool(s.get("show_legend", False)),
             return_data=True,
             mode=s.get("mode", "binned"),
+            relative=bool(s.get("relative", True)),
+            value_mode=str(s.get("value_mode", "value") or "value"),
             k=int(s.get("k", 7)),
             custom_bins=s.get("custom_bins") or None,
             norm_mode=s.get("norm_mode", "linear"),
@@ -2125,6 +2134,17 @@ class WorldMapSettingsDialog(QDialog):
         fl_class = QFormLayout(gb_class)
         fl_class.setLabelAlignment(Qt.AlignRight)
 
+        # Value mode: absolute vs per-capita (applies to both binned and continuous)
+        self.value_mode = QComboBox(self)
+        self.value_mode.addItem(self._t("Absolute", "Absolute"), userData="value")
+        self.value_mode.addItem(self._t("Per capita", "Per capita"), userData="per_capita")
+        saved_vm = str(self._settings.get("value_mode", "value") or "value").strip().lower()
+        idx_vm = self.value_mode.findData("per_capita" if saved_vm in {"per_capita", "percapita", "pc"} else "value")
+        if idx_vm != -1:
+            self.value_mode.setCurrentIndex(idx_vm)
+        self.value_mode.setToolTip(self._t("Choose whether to show absolute values or values per capita (requires population data)."))
+        fl_class.addRow(self._t("Values"), self.value_mode)
+
         # Mode: binned vs continuous (controls which section is active)
         self.mode = QComboBox(self)
         self.mode.addItems(["binned", "continuous"])
@@ -2148,7 +2168,7 @@ class WorldMapSettingsDialog(QDialog):
         fl_binned.setLabelAlignment(Qt.AlignRight)
 
         self.relative = QCheckBox(self._t("Relative"), self)
-        self.relative.setChecked(bool(self._settings.get("relative", False)))
+        self.relative.setChecked(bool(self._settings.get("relative", True)))
         self.relative.setToolTip(self._t("If checked, classes use percentage shares (sum=100%). If unchecked, absolute values."))
         self.relative.setWhatsThis(self._t("Binned mode only: toggle between absolute values and percentage shares for the class breaks."))
         fl_binned.addRow("", self.relative)
@@ -2229,6 +2249,16 @@ class WorldMapSettingsDialog(QDialog):
         # Bind state/visibility updates
         self.mode.currentIndexChanged.connect(self._refresh_visibility)
         self.norm_mode.currentIndexChanged.connect(self._refresh_visibility)
+        self.value_mode.currentIndexChanged.connect(self._on_value_mode_changed)
+        self._refresh_visibility()
+        self._on_value_mode_changed()
+
+    def _on_value_mode_changed(self):
+        """Ensure incompatible controls are disabled when per-capita mode is selected."""
+        vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
+        is_pc = vm in {"per_capita", "percapita", "pc"}
+        if is_pc and self.relative.isChecked():
+            self.relative.setChecked(False)
         self._refresh_visibility()
 
     def _refresh_visibility(self):
@@ -2242,9 +2272,11 @@ class WorldMapSettingsDialog(QDialog):
         is_binned = self.mode.currentText() == "binned"
         is_cont = self.mode.currentText() == "continuous" or not is_binned
         is_power = self.norm_mode.currentText() == "power" if is_cont else False
+        vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
+        is_pc = vm in {"per_capita", "percapita", "pc"}
 
         # Binned controls
-        self.relative.setEnabled(is_binned)
+        self.relative.setEnabled(is_binned and not is_pc)
         self.k.setEnabled(is_binned)
         self.custom_bins.setEnabled(is_binned)
         self.gb_binned.setEnabled(is_binned)
@@ -2263,14 +2295,26 @@ class WorldMapSettingsDialog(QDialog):
     def _update_explainers(self):
         """Update the explanatory helper texts according to current mode and norm."""
         mode = self.mode.currentText()
+        vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
+        is_pc = vm in {"per_capita", "percapita", "pc"}
         if mode == "continuous":
-            self.explain_mode.setText(self._t(
-                "Continuous: Colors and legend use absolute values. Use Norm + Robust clipping + Gamma to control contrast."
-            ))
+            if is_pc:
+                self.explain_mode.setText(self._t(
+                    "Continuous: Colors and legend use per-capita values (requires population data). Use Norm + Robust clipping + Gamma to control contrast."
+                ))
+            else:
+                self.explain_mode.setText(self._t(
+                    "Continuous: Colors and legend use absolute values. Use Norm + Robust clipping + Gamma to control contrast."
+                ))
         else:
-            self.explain_mode.setText(self._t(
-                "Binned: Discrete classes. With 'Relative' you classify by percentage shares (sum = 100%); otherwise by absolute values."
-            ))
+            if is_pc:
+                self.explain_mode.setText(self._t(
+                    "Binned: Discrete classes based on per-capita values (requires population data)."
+                ))
+            else:
+                self.explain_mode.setText(self._t(
+                    "Binned: Discrete classes. With 'Relative' you classify by percentage shares (sum = 100%); otherwise by absolute values."
+                ))
 
         nm = self.norm_mode.currentText()
         if nm == "linear":
@@ -2297,12 +2341,15 @@ class WorldMapSettingsDialog(QDialog):
         cmap_internal = self.cmap.currentData() or self.cmap.currentText()
         if self.reverse_cb.isChecked() and not str(cmap_internal).endswith("_r"):
             cmap_internal = f"{cmap_internal}_r"
+        vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
+        vm_norm = "per_capita" if vm in {"per_capita", "percapita", "pc"} else "value"
         return {
             "color": cmap_internal,
             "show_legend": bool(self.legend.isChecked()),
             "title": self.title.currentText().strip() or "",
             "mode": self.mode.currentText(),
-            "relative": bool(self.relative.isChecked()),
+            "relative": bool(self.relative.isChecked()) if vm_norm == "value" else False,
+            "value_mode": vm_norm,
             "k": int(self.k.value()),
             "custom_bins": self._parse_bins(),
             "norm_mode": self.norm_mode.currentText(),
@@ -2619,15 +2666,15 @@ class TopFlopSettingsDialog(QDialog):
         fl_app.addRow(self._t("Orientation", "Orientation"), self.orientation)
 
         self.bar_color = QComboBox(self)
-        for name in [
-            "tab10", "tab20", "viridis", "plasma", "magma", "cividis", "turbo",
-            "tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown",
-        ]:
-            self.bar_color.addItem(name)
         self.bar_color.setEditable(True)
-        self.bar_color.setCurrentText(self._s.get("bar_color", "tab10"))
+        self.bar_reverse_cb = QCheckBox(self._t("cm.reverse", "Reverse"), self)
+        self.bar_reverse_cb.setToolTip(self._t("Invert the colormap (only applies to colormap names).", "Invert the colormap (only applies to colormap names)."))
+        bar_row = QHBoxLayout()
+        bar_row.addWidget(self.bar_color, 1)
+        bar_row.addWidget(self.bar_reverse_cb, 0)
         self.bar_color.setToolTip(self._t("Matplotlib colormap name (for multiple impacts) or a single color.", "Matplotlib colormap name (for multiple impacts) or a single color."))
-        fl_app.addRow(self._t("Bar color / Colormap", "Bar color / Colormap"), self.bar_color)
+        fl_app.addRow(self._t("Bar color / Colormap", "Bar color / Colormap"), bar_row)
+        self._fill_bar_color_combo()
 
         self.bar_width = QDoubleSpinBox(self)
         self.bar_width.setRange(0.1, 1.2)
@@ -2668,9 +2715,68 @@ class TopFlopSettingsDialog(QDialog):
             "title": self.title.currentText().strip() or "",
             "orientation": str(self.orientation.currentData() or self.orientation.currentText()),
             "relative": bool(self.relative.isChecked()),
-            "bar_color": self.bar_color.currentText(),
+            "bar_color": self._bar_color_value(),
             "bar_width": float(self.bar_width.value()),
         }
+
+    def _fill_bar_color_combo(self):
+        """
+        Populate the bar_color combo box with grouped, translated colormap names.
+        Keeps the field editable so users can still type a single color (e.g., 'tab:blue' or '#ff0000').
+        """
+        self.bar_color.clear()
+
+        groups = [
+            ("cm.group.perceptual", "Perceptual",
+             ["viridis", "plasma", "inferno", "magma", "cividis", "turbo"]),
+            ("cm.group.sequential", "Sequential",
+             ["Reds", "Oranges", "Greens", "Blues", "Purples", "Greys",
+              "YlGn", "YlGnBu", "GnBu", "BuGn", "PuBu", "BuPu",
+              "OrRd", "PuRd", "RdPu", "YlOrBr", "YlOrRd"]),
+            ("cm.group.diverging", "Diverging",
+             ["BrBG", "PiYG", "PRGn", "PuOr", "RdBu", "RdGy", "RdYlBu", "RdYlGn",
+              "Spectral", "coolwarm", "bwr", "seismic"]),
+            ("cm.group.cyclic", "Cyclic", ["twilight", "twilight_shifted", "hsv"]),
+            ("cm.group.qualitative", "Qualitative",
+             ["tab10", "tab20", "tab20b", "tab20c", "Set1", "Set2", "Set3",
+              "Pastel1", "Pastel2", "Accent", "Dark2", "Paired"]),
+        ]
+
+        for gi, (gkey, gname, names) in enumerate(groups):
+            header = self._t(gkey, gname)
+            self.bar_color.addItem(header)
+            idx = self.bar_color.count() - 1
+            item = self.bar_color.model().item(idx)
+            item.setFlags(Qt.NoItemFlags)
+            item.setData(True, Qt.UserRole + 1)
+
+            for name in names:
+                label = self._t(f"cmap.{name}", name)
+                self.bar_color.addItem(label, userData=name)
+
+            if gi < len(groups) - 1:
+                self.bar_color.insertSeparator(self.bar_color.count())
+
+        saved = str(self._s.get("bar_color", "tab10") or "tab10")
+        is_rev = saved.endswith("_r")
+        base = saved[:-2] if is_rev else saved
+        i = self.bar_color.findData(base)
+        if i != -1:
+            self.bar_color.setCurrentIndex(i)
+        else:
+            self.bar_color.setCurrentText(base)
+        self.bar_reverse_cb.setChecked(is_rev)
+
+    def _bar_color_value(self) -> str:
+        name = self.bar_color.currentData() or self.bar_color.currentText()
+        s = str(name or "").strip()
+        if not s:
+            return "tab10"
+        if self.bar_reverse_cb.isChecked():
+            # Only reverse colormap *names* (leave single colors untouched).
+            if ":" not in s and not s.startswith("#") and not s.endswith("_r"):
+                s = f"{s}_r"
+        return s
 
 class ExportDataDialog(QDialog):
     """

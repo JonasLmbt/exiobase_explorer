@@ -727,6 +727,7 @@ class SupplyChain:
             relative: bool = True,
             show_legend: bool = False,
             return_data: bool = False,
+            value_mode: str = "value",            # "value" | "per_capita"
             # pass-through to map function for consistent behavior
             mode: str = "binned",                 # "continuous" or "binned"
             k: int = 7,                           # classes if no custom_bins
@@ -772,6 +773,7 @@ class SupplyChain:
             title=title,
             show_legend=show_legend,
             return_data=return_data,
+            value_mode=value_mode,
             mode=mode,
             k=k,
             custom_bins=custom_bins,
@@ -788,6 +790,7 @@ class SupplyChain:
             relative: bool = True,
             show_legend: bool = False,
             return_data: bool = False,
+            value_mode: str = "value",            # "value" | "per_capita"
             # pass-through to map function
             mode: str = "binned",                 # "continuous" or "binned"
             k: int = 7,                           # classes if no custom_bins
@@ -827,6 +830,7 @@ class SupplyChain:
             title=title,
             show_legend=show_legend,
             return_data=return_data,
+            value_mode=value_mode,
             mode=mode,
             k=k,
             custom_bins=custom_bins,
@@ -845,6 +849,7 @@ class SupplyChain:
             title: str = "",
             show_legend: bool = True,
             return_data: bool = False,
+            value_mode: str = "value",       # "value" | "per_capita"
             mode: str = "binned",          # "continuous" or "binned"
             k: int = 7,                    # classes if mode="binned" and no custom_bins
             custom_bins: Optional[List[float]] = None,
@@ -895,10 +900,15 @@ class SupplyChain:
         # - absolute values: world["value"]
         # - percentage share: world["percentage"]
         # For continuous we force absolute; for binned we honor `relative`.
+        value_mode_norm = str(value_mode or "value").strip().lower()
+        base_col = "per_capita" if value_mode_norm in {"per_capita", "percapita", "pc"} else "value"
+        if base_col not in world.columns:
+            base_col = "value"
+
         if mode == "continuous":
-            world["data"] = world["value"].astype(float)       # FORCE absolute
+            world["data"] = world[base_col].astype(float)       # force absolute/per-capita
         else:
-            world["data"] = (world["percentage"] if relative else world["value"]).astype(float)
+            world["data"] = (world["percentage"] if relative else world[base_col]).astype(float)
 
         data = world["data"].astype(float)
         fig, ax = plt.subplots(1, 1, figsize=(15, 10))
@@ -948,8 +958,13 @@ class SupplyChain:
                     # if heterogeneous, we don't try to synthesize; else take single
                     unit = units if isinstance(units, str) else (list(set(units))[0] if len(set(units)) == 1 else None)
 
+                gd = getattr(self.iosystem.index, "general_dict", {}) or {}
+                column_label = column
+                if base_col == "per_capita":
+                    column_label = f"{column} ({gd.get('Per capita', 'Per capita')})"
+
                 self._add_map_legend(
-                    fig=fig, ax=ax, data=data, column=column, color_map=color_map,
+                    fig=fig, ax=ax, data=data, column=column_label, color_map=color_map,
                     relative=relative,
                     mode="continuous",
                     edges=None,
@@ -1006,11 +1021,14 @@ class SupplyChain:
                 tick_labels = [_fmt_range(edges[i], edges[i+1]) for i in range(n_classes)]
                 cbar.ax.set_yticklabels(tick_labels)
                 # If we have a single unit, display it in the label
+                gd = getattr(self.iosystem.index, "general_dict", {}) or {}
                 label = column
+                if base_col == "per_capita":
+                    label = f"{label} ({gd.get('Per capita', 'Per capita')})"
                 if isinstance(units, str):
-                    label = f"{column} [{units}]"
+                    label = f"{label} [{units}]"
                 elif hasattr(units, "__len__") and len(set(units)) == 1:
-                    label = f"{column} [{list(set(units))[0]}]"
+                    label = f"{label} [{list(set(units))[0]}]"
                 cbar.set_label(f"{label}")
 
         else:
@@ -1135,8 +1153,10 @@ class SupplyChain:
 
         # Legend placed outside on the left for readability
         ax.legend(wedges, pie_df["label"].tolist(), loc="center left", bbox_to_anchor=(1.0, 0.5))
-        if title:
-            ax.set_title(title)
+        if title is None or str(title).strip() == "":
+            gd = getattr(self.iosystem.index, "general_dict", {}) or {}
+            title = f"{gd.get('Pie chart', 'Pie chart')} – {impact} {self._get_title()}"
+        ax.set_title(str(title))
         ax.axis("equal")
         fig.tight_layout()
 
@@ -1384,7 +1404,7 @@ class SupplyChain:
         # Title: auto-generate if none provided
         if not title:
             rank_word = gd.get("Flop", "Flop") if ascending else gd.get("Top", "Top")
-            ax.set_title(f"{rank_word} {n} – {_disp(primary)}")
+            ax.set_title(f"{rank_word} {n} – {_disp(primary)} {self._get_title()}")
         else:
             ax.set_title(title)
 

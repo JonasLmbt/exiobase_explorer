@@ -18,6 +18,7 @@ export type MapSettings = {
   projection: "mercator" | "equirectangular" | "robinson";
   mode: "binned" | "continuous";
   relative: boolean;
+  valueMode?: "value" | "per_capita";
   k: number;
   customBins: string;
   normMode: "linear" | "log" | "power";
@@ -30,8 +31,11 @@ function parse(geojson: string): FeatureCollection {
 }
 
 function metricFor(props: any, settings: MapSettings): number {
-  const raw =
-    settings.mode === "continuous" ? props?.value : settings.relative ? props?.percentage : props?.value;
+  const wantPerCap = (settings.valueMode || "value") === "per_capita";
+  const baseRaw = wantPerCap ? props?.per_capita : props?.value;
+  const baseNum = Number(baseRaw);
+  const base = Number.isFinite(baseNum) ? baseNum : Number(props?.value);
+  const raw = settings.mode === "continuous" ? base : settings.relative ? props?.percentage : base;
   const n = Number(raw);
   return Number.isFinite(n) ? n : NaN;
 }
