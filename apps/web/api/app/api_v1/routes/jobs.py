@@ -5,10 +5,6 @@ import json
 import time
 import uuid
 
-from rq import Queue
-from rq.job import Job
-from rq.registry import StartedJobRegistry
-
 from fastapi import APIRouter, HTTPException
 
 from ...jobs import run_analysis
@@ -71,6 +67,10 @@ def create_job(req: JobRequest) -> dict:
             _SYNC_HASH_TO_JOB[cache_key] = job_id
             return {"job_id": job_id, "cached": False, "sync": True}
 
+    from rq import Queue
+    from rq.job import Job
+    from rq.registry import StartedJobRegistry
+
     conn = get_redis_connection()
     queue = Queue(connection=conn)
 
@@ -110,6 +110,8 @@ def get_job_status(job_id: str) -> JobStatus:
             message=rec.get("message"),
         )
 
+    from rq.job import Job
+
     conn = get_redis_connection()
     try:
         job = Job.fetch(job_id, connection=conn)
@@ -141,6 +143,8 @@ def get_job_result(job_id: str) -> dict:
         if rec.get("state") != "done":
             raise HTTPException(status_code=409, detail=f"Job not finished (state={rec.get('state')})")
         return {"job_id": job_id, "result": rec.get("result")}
+
+    from rq.job import Job
 
     conn = get_redis_connection()
     try:
