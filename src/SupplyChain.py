@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.colors as mcolors
 from matplotlib.cm import get_cmap
+from matplotlib.ticker import FuncFormatter
 import re
 from matplotlib.colors import Normalize, BoundaryNorm
 
@@ -871,16 +872,32 @@ class SupplyChain:
             `relative=False` means bins on absolute values.
         """
 
+        def _fmt_val(v: float) -> str:
+            try:
+                x = float(v)
+            except Exception:
+                return ""
+            if not np.isfinite(x):
+                return ""
+            if x == 0.0:
+                return "0"
+            axx = abs(x)
+            # Use scientific notation for very small/large values to avoid "0.00" legends.
+            if axx < 1e-2 or axx >= 1e6:
+                return f"{x:.2e}"
+            # Otherwise use a compact significant-digits format.
+            return f"{x:.4g}"
+
         # Helper for binned legend range labels (raw numbers)
         def _fmt_range(lo: float, hi: float) -> str:
             if lo is None and hi is None:
                 return ""
             if lo is None:
-                return f"≤ {hi:.2f}"
+                return f"≤ {_fmt_val(hi)}"
             elif hi is None:
-                return f"≥ {lo:.2f}"
+                return f"≥ {_fmt_val(lo)}"
             else:
-                return f"{lo:.2f} – {hi:.2f}"
+                return f"{_fmt_val(lo)} – {_fmt_val(hi)}"
 
         world = self.iosystem.index.get_map()
         column = column if column is not None else df.columns[0]
@@ -1553,6 +1570,20 @@ class SupplyChain:
         Raises:
             ValueError: If called with mode != "continuous".
         """
+        def _fmt_val(v: float) -> str:
+            try:
+                x = float(v)
+            except Exception:
+                return ""
+            if not np.isfinite(x):
+                return ""
+            if x == 0.0:
+                return "0"
+            axx = abs(x)
+            if axx < 1e-2 or axx >= 1e6:
+                return f"{x:.2e}"
+            return f"{x:.4g}"
+
         cmap = plt.get_cmap(color_map)
 
         finite = data[np.isfinite(data)]
@@ -1582,6 +1613,11 @@ class SupplyChain:
             sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
             sm.set_array([])
             cbar = fig.colorbar(sm, ax=ax, fraction=0.03, pad=0.02)
+            try:
+                cbar.formatter = FuncFormatter(lambda x, _pos: _fmt_val(x))
+                cbar.update_ticks()
+            except Exception:
+                pass
 
             # Absolute-value legend label with unit if available
             cbar.set_label(f"{column} [{unit}]" if unit not in (None, "") else f"{column}")
