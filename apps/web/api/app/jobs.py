@@ -3,7 +3,11 @@ from __future__ import annotations
 import time
 from typing import Any, Dict
 
-from rq import get_current_job
+try:
+    from rq import get_current_job
+except Exception:
+    def get_current_job():
+        return None
 
 from .analysis.registry import stage_registry
 from .analysis.region_registry import region_registry
