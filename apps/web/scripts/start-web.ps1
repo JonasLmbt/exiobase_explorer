@@ -25,6 +25,7 @@ function Resolve-NpmCmd {
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 $uiDir = Join-Path $repoRoot "apps\web\ui"
+$uiNodeModules = Join-Path $uiDir "node_modules"
 $apiRequirements = Join-Path $repoRoot "apps\web\api\requirements.txt"
 $venvPython = Join-Path $repoRoot "venv\Scripts\python.exe"
 
@@ -77,7 +78,23 @@ if ($InstallDeps) {
 
 $null = & $pythonExe -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('uvicorn') else 1)" 2>$null
 if ($LASTEXITCODE -ne 0) {
-    throw "uvicorn fehlt fuer $pythonExe. Starte mit -InstallDeps oder installiere: `"$pythonExe`" -m pip install -r apps/web/api/requirements.txt"
+    Write-Host "uvicorn fehlt - installiere API-Abhaengigkeiten automatisch..."
+    & $pythonExe -m pip install -r $apiRequirements
+    $null = & $pythonExe -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('uvicorn') else 1)" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "uvicorn konnte nicht installiert werden fuer $pythonExe. Bitte pruefe pip/venv."
+    }
+}
+
+if (-not (Test-Path $uiNodeModules)) {
+    Write-Host "node_modules fehlt - installiere UI-Abhaengigkeiten automatisch..."
+    Push-Location $uiDir
+    try {
+        & $npmCmd install
+    }
+    finally {
+        Pop-Location
+    }
 }
 
 $apiCmd = 'set "EXIOBASE_EXPLORER_DB_DIR=' + $DbDir + '" && set "USE_SYNC_JOBS=1" && "' + $pythonExe + '" -m uvicorn app.main:app --app-dir apps/web/api --host 127.0.0.1 --port 8000'
