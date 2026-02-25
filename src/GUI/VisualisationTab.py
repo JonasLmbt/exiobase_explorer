@@ -1068,7 +1068,17 @@ class RegionAnalysisViewTab(QWidget):
         except Exception:
             pc = None
         if pc is not None and math.isfinite(pc):
-            text_lines.append(f'{self._translate("Per capita", "Per capita")}: {self._format_value(pc)} {unit}')
+            u = str(unit or "").strip()
+            factor = 1.0
+            base_unit = u
+            for token, f in (("Mrd.", 1e9), ("Mio.", 1e6), ("Tsd.", 1e3)):
+                if token in u:
+                    factor = f
+                    base_unit = u.replace(token, "").strip()
+                    break
+            text_lines.append(
+                f'{self._translate("Per capita", "Per capita")}: {self._format_value(pc * factor)} {base_unit}'
+            )
         text_lines.append(f'{self._translate("Global share", "Global share")}: {self._format_value(percentage)} %')
         text = "\n".join(text_lines)
         QToolTip.showText(self.canvas.mapToGlobal(event.guiEvent.pos()), text, widget=self.canvas)
