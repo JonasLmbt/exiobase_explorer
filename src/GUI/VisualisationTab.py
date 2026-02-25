@@ -2619,7 +2619,7 @@ class TopFlopSettingsDialog(QDialog):
 
         intro = QLabel(self._t(
             "topflop.settings.intro",
-            "The first impact defines the ranking. You can add up to 3 comparison impacts via the extra-impacts button.",
+            "The first impact defines the ranking. You can add up to 3 comparison impacts via the extra-impacts button."
         ))
         intro.setWordWrap(True)
         intro.setStyleSheet("color:#555;")
