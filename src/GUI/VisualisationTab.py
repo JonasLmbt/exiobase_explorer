@@ -2341,61 +2341,124 @@ class PieChartSettingsDialog(QDialog):
 
         v = QVBoxLayout(self)
 
-        # Top slices limit
-        row_top = QHBoxLayout(); v.addLayout(row_top)
-        row_top.addWidget(QLabel(self._t("Top slices", "Top slices")))
-        self.top_slices = QSpinBox(self); self.top_slices.setRange(1, 50)
-        self.top_slices.setValue(int(self._s.get("top_slices", 10)))
-        row_top.addWidget(self.top_slices)
+        intro = QLabel(self._t(
+            "pie.settings.intro",
+            "Configure how slices are selected, sorted, and displayed. "
+            "Tip: If you enable a minimum share threshold, the 'Top slices' limit is ignored.",
+        ))
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#555;")
+        v.addWidget(intro)
 
-        # Minimum share threshold
-        row_min = QHBoxLayout(); v.addLayout(row_min)
-        row_min.addWidget(QLabel(self._t("Minimum share (%)", "Minimum share (%)")))
-        self.min_pct = QDoubleSpinBox(self); self.min_pct.setRange(0.0, 100.0); self.min_pct.setSingleStep(0.5)
-        self.min_pct.setSuffix(" %")
-        self.min_pct.setValue(float(self._s.get("min_pct", 0.0) or 0.0))
-        row_min.addWidget(self.min_pct)
+        # ---------- Data ----------
+        gb_data = QGroupBox(self._t("Data", "Data"), self)
+        fl_data = QFormLayout(gb_data)
+        fl_data.setLabelAlignment(Qt.AlignRight)
 
-        # Sort order
-        row_sort = QHBoxLayout(); v.addLayout(row_sort)
-        row_sort.addWidget(QLabel(self._t("Sort slices", "Sort slices")))
         self.sort_slices = QComboBox(self)
-        self.sort_slices.addItems(["desc", "asc", "original"])
-        self.sort_slices.setCurrentText(self._s.get("sort_slices", "desc"))
-        row_sort.addWidget(self.sort_slices)
+        self.sort_slices.addItem(self._t("Sort: descending", "Descending (largest first)"), userData="desc")
+        self.sort_slices.addItem(self._t("Sort: ascending", "Ascending (smallest first)"), userData="asc")
+        self.sort_slices.addItem(self._t("Sort: original", "Original order"), userData="original")
+        saved_sort = str(self._s.get("sort_slices", "desc"))
+        idx_sort = self.sort_slices.findData(saved_sort)
+        if idx_sort != -1:
+            self.sort_slices.setCurrentIndex(idx_sort)
+        self.sort_slices.setToolTip(self._t("How to sort slices before selecting them.", "How to sort slices before selecting them."))
+        fl_data.addRow(self._t("Sort slices", "Sort slices"), self.sort_slices)
 
-        # Optional title
-        v.addWidget(QLabel(self._t("Title (optional)", "Title (optional)")))
-        self.title = QComboBox(self); self.title.setEditable(True)
+        self.top_slices = QSpinBox(self)
+        self.top_slices.setRange(1, 50)
+        self.top_slices.setValue(int(self._s.get("top_slices", 10)))
+        self.top_slices.setToolTip(self._t("Maximum number of slices shown before grouping the rest as 'Others'.", "Maximum number of slices shown before grouping the rest as 'Others'."))
+        fl_data.addRow(self._t("Top slices", "Top slices"), self.top_slices)
+
+        self.use_min_pct = QCheckBox(self._t("Use minimum share threshold", "Use minimum share threshold"), self)
+        self.use_min_pct.setToolTip(self._t("Enable threshold-based selection instead of a fixed top-slices count.", "Enable threshold-based selection instead of a fixed top-slices count."))
+        fl_data.addRow("", self.use_min_pct)
+
+        self.min_pct = QDoubleSpinBox(self)
+        self.min_pct.setRange(0.0, 100.0)
+        self.min_pct.setSingleStep(0.5)
+        self.min_pct.setSuffix(" %")
+        saved_min = self._s.get("min_pct", None)
+        self.min_pct.setValue(float(saved_min or 1.0))
+        self.min_pct.setToolTip(self._t("Slices below this share are grouped into 'Others'.", "Slices below this share are grouped into 'Others'."))
+        fl_data.addRow(self._t("Minimum share", "Minimum share"), self.min_pct)
+
+        self.explain_limit = QLabel(self)
+        self.explain_limit.setWordWrap(True)
+        self.explain_limit.setStyleSheet("color:#555;")
+        fl_data.addRow("", self.explain_limit)
+
+        v.addWidget(gb_data)
+
+        # ---------- Appearance ----------
+        gb_app = QGroupBox(self._t("Appearance", "Appearance"), self)
+        fl_app = QFormLayout(gb_app)
+        fl_app.setLabelAlignment(Qt.AlignRight)
+
+        self.title = QComboBox(self)
+        self.title.setEditable(True)
         self.title.setInsertPolicy(QComboBox.InsertAtTop)
         self.title.setCurrentText(self._s.get("title", "") or "")
-        v.addWidget(self.title)
+        self.title.setToolTip(self._t("Optional custom title for the chart.", "Optional custom title for the chart."))
+        fl_app.addRow(self._t("Title (optional)", "Title (optional)"), self.title)
 
-        # Start angle & direction
-        row_ang = QHBoxLayout(); v.addLayout(row_ang)
-        row_ang.addWidget(QLabel(self._t("Start angle", "Start angle")))
-        self.start_angle = QSpinBox(self); self.start_angle.setRange(0, 360)
-        self.start_angle.setValue(int(self._s.get("start_angle", 90)))
-        row_ang.addWidget(self.start_angle)
-
-        self.counterclockwise = QCheckBox(self._t("Counterclockwise", "Counterclockwise"))
-        self.counterclockwise.setChecked(bool(self._s.get("counterclockwise", True)))
-        row_ang.addWidget(self.counterclockwise)
-
-        # Colormap (+ reverse), with groups & i18n
-        v.addWidget(QLabel(self._t("Colormap", "Colormap")))
-        row_cmap = QHBoxLayout(); v.addLayout(row_cmap)
         self.cmap = QComboBox(self)
-        self.reverse_cb = QCheckBox(self._t("cm.reverse", "Reverse"))
-        row_cmap.addWidget(self.cmap)
-        row_cmap.addWidget(self.reverse_cb)
+        self.reverse_cb = QCheckBox(self._t("cm.reverse", "Reverse"), self)
+        self.reverse_cb.setToolTip(self._t("Invert the colormap.", "Invert the colormap."))
+        cmap_row = QHBoxLayout()
+        cmap_row.addWidget(self.cmap, 1)
+        cmap_row.addWidget(self.reverse_cb, 0)
+        fl_app.addRow(self._t("Colormap", "Colormap"), cmap_row)
         self._fill_colormap_combo()  # also sets current selection & reverse state
 
-        # OK / Cancel buttons
+        v.addWidget(gb_app)
+
+        # ---------- Layout ----------
+        gb_layout = QGroupBox(self._t("Layout", "Layout"), self)
+        fl_layout = QFormLayout(gb_layout)
+        fl_layout.setLabelAlignment(Qt.AlignRight)
+
+        self.start_angle = QSpinBox(self)
+        self.start_angle.setRange(0, 360)
+        self.start_angle.setValue(int(self._s.get("start_angle", 90)))
+        self.start_angle.setToolTip(self._t("Rotation of the first slice.", "Rotation of the first slice."))
+        fl_layout.addRow(self._t("Start angle", "Start angle"), self.start_angle)
+
+        self.counterclockwise = QCheckBox(self._t("Counterclockwise", "Counterclockwise"), self)
+        self.counterclockwise.setChecked(bool(self._s.get("counterclockwise", True)))
+        self.counterclockwise.setToolTip(self._t("Draw wedges counterclockwise.", "Draw wedges counterclockwise."))
+        fl_layout.addRow("", self.counterclockwise)
+
+        v.addWidget(gb_layout)
+
+        # ---------- Buttons ----------
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         v.addWidget(buttons)
+
+        # Init state
+        self.use_min_pct.setChecked(saved_min is not None and float(saved_min or 0.0) > 0.0)
+        self.use_min_pct.stateChanged.connect(self._sync_limit_mode)
+        self.min_pct.valueChanged.connect(self._sync_limit_mode)
+        self._sync_limit_mode()
+
+    def _sync_limit_mode(self):
+        use_thr = bool(self.use_min_pct.isChecked())
+        self.min_pct.setEnabled(use_thr)
+        self.top_slices.setEnabled(not use_thr)
+        if use_thr:
+            self.explain_limit.setText(self._t(
+                "pie.settings.limit.explain.threshold",
+                "Threshold mode: slices below the minimum share are grouped into 'Others'.",
+            ))
+        else:
+            self.explain_limit.setText(self._t(
+                "pie.settings.limit.explain.top",
+                "Top-slices mode: the largest slices are shown, the rest are grouped into 'Others'.",
+            ))
 
     def _t(self, key: str, fallback: str | None = None) -> str:
         """Translate helper that always returns a string (falls back to key/explicit fallback)."""
@@ -2467,8 +2530,8 @@ class PieChartSettingsDialog(QDialog):
 
         return {
             "top_slices": int(self.top_slices.value()),
-            "min_pct": float(self.min_pct.value()) if self.min_pct.value() > 0 else None,
-            "sort_slices": self.sort_slices.currentText(),
+            "min_pct": float(self.min_pct.value()) if self.use_min_pct.isChecked() and self.min_pct.value() > 0 else None,
+            "sort_slices": str(self.sort_slices.currentData() or self.sort_slices.currentText()),
             "title": self.title.currentText().strip() or "",
             "start_angle": int(self.start_angle.value()),
             "counterclockwise": bool(self.counterclockwise.isChecked()),
