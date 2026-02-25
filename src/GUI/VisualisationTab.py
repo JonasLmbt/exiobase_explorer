@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, Tuple, List, Dict, Callable
 import pandas as pd
+import math
 import os
 import geopandas as gpd
 from datetime import datetime
@@ -1056,12 +1057,20 @@ class RegionAnalysisViewTab(QWidget):
 
         value = hit.get("value", 0)
         percentage = hit.get("percentage", 0)
+        per_capita = hit.get("per_capita", None)
         unit = hit.get("unit", "")
-        text = (
-            f'{self._translate("Region", "Region")}: {hit.get("region", "-")}\n'
-            f'{self._current_choice}: {self._format_value(value)} {unit}\n'
-            f'{self._translate("Global share", "Global share")}: {self._format_value(percentage)} %'
-        )
+        text_lines = [
+            f'{self._translate("Region", "Region")}: {hit.get("region", "-")}',
+            f'{self._current_choice}: {self._format_value(value)} {unit}',
+        ]
+        try:
+            pc = float(per_capita) if per_capita is not None else None
+        except Exception:
+            pc = None
+        if pc is not None and math.isfinite(pc):
+            text_lines.append(f'{self._translate("Per capita", "Per capita")}: {self._format_value(pc)} {unit}')
+        text_lines.append(f'{self._translate("Global share", "Global share")}: {self._format_value(percentage)} %')
+        text = "\n".join(text_lines)
         QToolTip.showText(self.canvas.mapToGlobal(event.guiEvent.pos()), text, widget=self.canvas)
 
     def _on_click(self, event):

@@ -112,12 +112,17 @@ function tooltipHtml(props: any): string {
   const region = String(props?.region ?? props?.exiobase ?? "—");
   const pct = Number(props?.percentage);
   const abs = Number(props?.value);
+  const perCap = Number(props?.per_capita);
   const unit = String(props?.unit ?? "");
 
   const parts: string[] = [];
   parts.push(`<div style="font-weight:700; margin-bottom:2px;">${region}</div>`);
   if (Number.isFinite(pct)) parts.push(`<div>${pct.toFixed(2)}%</div>`);
   if (Number.isFinite(abs)) parts.push(`<div style="opacity:0.85;">${abs.toLocaleString()} ${unit}</div>`);
+  if (Number.isFinite(perCap)) {
+    const formatted = perCap.toLocaleString(undefined, { maximumFractionDigits: 3 });
+    parts.push(`<div style="opacity:0.85;">pro Kopf: ${formatted} ${unit}</div>`);
+  }
   return parts.join("");
 }
 

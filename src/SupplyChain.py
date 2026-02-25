@@ -1478,6 +1478,16 @@ class SupplyChain:
                         f"Unit list length ({len(units)}) does not match number of rows ({len(world)})."
                     )
 
+        # Optional: population + per-capita values (independent of relative/percentage mode)
+        pop_map = getattr(self.iosystem, "population_by_exiobase", None) or {}
+        if isinstance(pop_map, dict) and len(pop_map) > 0:
+            pop = pd.to_numeric([pop_map.get(code) for code in regions_exiobase], errors="coerce")
+            world["population"] = pop
+            with np.errstate(divide="ignore", invalid="ignore"):
+                pc = pd.to_numeric(world["value"], errors="coerce") / pop
+            # Ensure non-finite values become NaN (so JSON sanitizers can drop them)
+            world["per_capita"] = pc.where(np.isfinite(pc), np.nan)
+
         return world
 
     def _add_map_legend(
