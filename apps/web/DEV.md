@@ -17,6 +17,7 @@ $env:USE_SYNC_JOBS="1"
 python -m pip install -r apps/web/api/requirements.txt
 python -m uvicorn app.main:app --app-dir apps/web/api --reload --port 8000
 ```
+Optional: Wenn `regions.xlsx` ein Sheet `population` (EXIOBASE-Code -> Einwohner) enthÃ¤lt, zeigt die Karte im Hover-Tooltip zusÃ¤tzlich "pro Kopf" an.
 
 ### 3) Worker starten
 ```powershell

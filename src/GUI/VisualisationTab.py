@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, Tuple, List, Dict, Callable
 import pandas as pd
+import math
 import os
 import geopandas as gpd
 from datetime import datetime
@@ -727,9 +728,12 @@ class RegionAnalysisViewTab(QWidget):
         self.method_state = {
             "world_map": {
                 "color": "Reds",
+                "cmap_reverse": False,
                 "show_legend": False,
                 "title": "",
                 "mode": "binned",           # "binned" | "continuous"
+                "relative": True,           # binned: percentage shares vs absolute values
+                "value_mode": "value",      # "value" | "per_capita"
                 "k": 7,
                 "custom_bins": None,        # list[float] or None
                 "norm_mode": "linear",      # used in "continuous"
@@ -985,12 +989,18 @@ class RegionAnalysisViewTab(QWidget):
         """
         s = self.method_state.get("world_map", {})
 
+        cmap_name = str(s.get("color", "Reds"))
+        if bool(s.get("cmap_reverse", False)) and not cmap_name.endswith("_r"):
+            cmap_name = f"{cmap_name}_r"
+
         common_kwargs = dict(
-            color=s.get("color", "Reds"),
+            color=cmap_name,
             title=(s.get("title") or None),
             show_legend=bool(s.get("show_legend", False)),
             return_data=True,
             mode=s.get("mode", "binned"),
+            relative=bool(s.get("relative", True)),
+            value_mode=str(s.get("value_mode", "value") or "value"),
             k=int(s.get("k", 7)),
             custom_bins=s.get("custom_bins") or None,
             norm_mode=s.get("norm_mode", "linear"),
@@ -1056,12 +1066,30 @@ class RegionAnalysisViewTab(QWidget):
 
         value = hit.get("value", 0)
         percentage = hit.get("percentage", 0)
+        per_capita = hit.get("per_capita", None)
         unit = hit.get("unit", "")
-        text = (
-            f'{self._translate("Region", "Region")}: {hit.get("region", "-")}\n'
-            f'{self._current_choice}: {self._format_value(value)} {unit}\n'
-            f'{self._translate("Global share", "Global share")}: {self._format_value(percentage)} %'
-        )
+        text_lines = [
+            f'{self._translate("Region", "Region")}: {hit.get("region", "-")}',
+            f'{self._current_choice}: {self._format_value(value)} {unit}',
+        ]
+        try:
+            pc = float(per_capita) if per_capita is not None else None
+        except Exception:
+            pc = None
+        if pc is not None and math.isfinite(pc):
+            u = str(unit or "").strip()
+            factor = 1.0
+            base_unit = u
+            for token, f in (("Mrd.", 1e9), ("Mio.", 1e6), ("Tsd.", 1e3)):
+                if token in u:
+                    factor = f
+                    base_unit = u.replace(token, "").strip()
+                    break
+            text_lines.append(
+                f'{self._translate("Per capita", "Per capita")}: {self._format_value(pc * factor)} {base_unit}'
+            )
+        text_lines.append(f'{self._translate("Global share", "Global share")}: {self._format_value(percentage)} %')
+        text = "\n".join(text_lines)
         QToolTip.showText(self.canvas.mapToGlobal(event.guiEvent.pos()), text, widget=self.canvas)
 
     def _on_click(self, event):
@@ -2106,6 +2134,17 @@ class WorldMapSettingsDialog(QDialog):
         fl_class = QFormLayout(gb_class)
         fl_class.setLabelAlignment(Qt.AlignRight)
 
+        # Value mode: absolute vs per-capita (applies to both binned and continuous)
+        self.value_mode = QComboBox(self)
+        self.value_mode.addItem(self._t("Absolute", "Absolute"), userData="value")
+        self.value_mode.addItem(self._t("Per capita", "Per capita"), userData="per_capita")
+        saved_vm = str(self._settings.get("value_mode", "value") or "value").strip().lower()
+        idx_vm = self.value_mode.findData("per_capita" if saved_vm in {"per_capita", "percapita", "pc"} else "value")
+        if idx_vm != -1:
+            self.value_mode.setCurrentIndex(idx_vm)
+        self.value_mode.setToolTip(self._t("Choose whether to show absolute values or values per capita (requires population data)."))
+        fl_class.addRow(self._t("Values"), self.value_mode)
+
         # Mode: binned vs continuous (controls which section is active)
         self.mode = QComboBox(self)
         self.mode.addItems(["binned", "continuous"])
@@ -2129,7 +2168,7 @@ class WorldMapSettingsDialog(QDialog):
         fl_binned.setLabelAlignment(Qt.AlignRight)
 
         self.relative = QCheckBox(self._t("Relative"), self)
-        self.relative.setChecked(bool(self._settings.get("relative", False)))
+        self.relative.setChecked(bool(self._settings.get("relative", True)))
         self.relative.setToolTip(self._t("If checked, classes use percentage shares (sum=100%). If unchecked, absolute values."))
         self.relative.setWhatsThis(self._t("Binned mode only: toggle between absolute values and percentage shares for the class breaks."))
         fl_binned.addRow("", self.relative)
@@ -2210,6 +2249,16 @@ class WorldMapSettingsDialog(QDialog):
         # Bind state/visibility updates
         self.mode.currentIndexChanged.connect(self._refresh_visibility)
         self.norm_mode.currentIndexChanged.connect(self._refresh_visibility)
+        self.value_mode.currentIndexChanged.connect(self._on_value_mode_changed)
+        self._refresh_visibility()
+        self._on_value_mode_changed()
+
+    def _on_value_mode_changed(self):
+        """Ensure incompatible controls are disabled when per-capita mode is selected."""
+        vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
+        is_pc = vm in {"per_capita", "percapita", "pc"}
+        if is_pc and self.relative.isChecked():
+            self.relative.setChecked(False)
         self._refresh_visibility()
 
     def _refresh_visibility(self):
@@ -2223,9 +2272,11 @@ class WorldMapSettingsDialog(QDialog):
         is_binned = self.mode.currentText() == "binned"
         is_cont = self.mode.currentText() == "continuous" or not is_binned
         is_power = self.norm_mode.currentText() == "power" if is_cont else False
+        vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
+        is_pc = vm in {"per_capita", "percapita", "pc"}
 
         # Binned controls
-        self.relative.setEnabled(is_binned)
+        self.relative.setEnabled(is_binned and not is_pc)
         self.k.setEnabled(is_binned)
         self.custom_bins.setEnabled(is_binned)
         self.gb_binned.setEnabled(is_binned)
@@ -2244,14 +2295,26 @@ class WorldMapSettingsDialog(QDialog):
     def _update_explainers(self):
         """Update the explanatory helper texts according to current mode and norm."""
         mode = self.mode.currentText()
+        vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
+        is_pc = vm in {"per_capita", "percapita", "pc"}
         if mode == "continuous":
-            self.explain_mode.setText(self._t(
-                "Continuous: Colors and legend use absolute values. Use Norm + Robust clipping + Gamma to control contrast."
-            ))
+            if is_pc:
+                self.explain_mode.setText(self._t(
+                    "Continuous: Colors and legend use per-capita values (requires population data). Use Norm + Robust clipping + Gamma to control contrast."
+                ))
+            else:
+                self.explain_mode.setText(self._t(
+                    "Continuous: Colors and legend use absolute values. Use Norm + Robust clipping + Gamma to control contrast."
+                ))
         else:
-            self.explain_mode.setText(self._t(
-                "Binned: Discrete classes. With 'Relative' you classify by percentage shares (sum = 100%); otherwise by absolute values."
-            ))
+            if is_pc:
+                self.explain_mode.setText(self._t(
+                    "Binned: Discrete classes based on per-capita values (requires population data)."
+                ))
+            else:
+                self.explain_mode.setText(self._t(
+                    "Binned: Discrete classes. With 'Relative' you classify by percentage shares (sum = 100%); otherwise by absolute values."
+                ))
 
         nm = self.norm_mode.currentText()
         if nm == "linear":
@@ -2278,12 +2341,15 @@ class WorldMapSettingsDialog(QDialog):
         cmap_internal = self.cmap.currentData() or self.cmap.currentText()
         if self.reverse_cb.isChecked() and not str(cmap_internal).endswith("_r"):
             cmap_internal = f"{cmap_internal}_r"
+        vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
+        vm_norm = "per_capita" if vm in {"per_capita", "percapita", "pc"} else "value"
         return {
             "color": cmap_internal,
             "show_legend": bool(self.legend.isChecked()),
             "title": self.title.currentText().strip() or "",
             "mode": self.mode.currentText(),
-            "relative": bool(self.relative.isChecked()),
+            "relative": bool(self.relative.isChecked()) if vm_norm == "value" else False,
+            "value_mode": vm_norm,
             "k": int(self.k.value()),
             "custom_bins": self._parse_bins(),
             "norm_mode": self.norm_mode.currentText(),
@@ -2322,61 +2388,124 @@ class PieChartSettingsDialog(QDialog):
 
         v = QVBoxLayout(self)
 
-        # Top slices limit
-        row_top = QHBoxLayout(); v.addLayout(row_top)
-        row_top.addWidget(QLabel(self._t("Top slices", "Top slices")))
-        self.top_slices = QSpinBox(self); self.top_slices.setRange(1, 50)
-        self.top_slices.setValue(int(self._s.get("top_slices", 10)))
-        row_top.addWidget(self.top_slices)
+        intro = QLabel(self._t(
+            "pie.settings.intro",
+            "Configure how slices are selected, sorted, and displayed. "
+            "Tip: If you enable a minimum share threshold, the 'Top slices' limit is ignored.",
+        ))
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#555;")
+        v.addWidget(intro)
 
-        # Minimum share threshold
-        row_min = QHBoxLayout(); v.addLayout(row_min)
-        row_min.addWidget(QLabel(self._t("Minimum share (%)", "Minimum share (%)")))
-        self.min_pct = QDoubleSpinBox(self); self.min_pct.setRange(0.0, 100.0); self.min_pct.setSingleStep(0.5)
-        self.min_pct.setSuffix(" %")
-        self.min_pct.setValue(float(self._s.get("min_pct", 0.0) or 0.0))
-        row_min.addWidget(self.min_pct)
+        # ---------- Data ----------
+        gb_data = QGroupBox(self._t("Data", "Data"), self)
+        fl_data = QFormLayout(gb_data)
+        fl_data.setLabelAlignment(Qt.AlignRight)
 
-        # Sort order
-        row_sort = QHBoxLayout(); v.addLayout(row_sort)
-        row_sort.addWidget(QLabel(self._t("Sort slices", "Sort slices")))
         self.sort_slices = QComboBox(self)
-        self.sort_slices.addItems(["desc", "asc", "original"])
-        self.sort_slices.setCurrentText(self._s.get("sort_slices", "desc"))
-        row_sort.addWidget(self.sort_slices)
+        self.sort_slices.addItem(self._t("Sort: descending", "Descending (largest first)"), userData="desc")
+        self.sort_slices.addItem(self._t("Sort: ascending", "Ascending (smallest first)"), userData="asc")
+        self.sort_slices.addItem(self._t("Sort: original", "Original order"), userData="original")
+        saved_sort = str(self._s.get("sort_slices", "desc"))
+        idx_sort = self.sort_slices.findData(saved_sort)
+        if idx_sort != -1:
+            self.sort_slices.setCurrentIndex(idx_sort)
+        self.sort_slices.setToolTip(self._t("How to sort slices before selecting them.", "How to sort slices before selecting them."))
+        fl_data.addRow(self._t("Sort slices", "Sort slices"), self.sort_slices)
 
-        # Optional title
-        v.addWidget(QLabel(self._t("Title (optional)", "Title (optional)")))
-        self.title = QComboBox(self); self.title.setEditable(True)
+        self.top_slices = QSpinBox(self)
+        self.top_slices.setRange(1, 50)
+        self.top_slices.setValue(int(self._s.get("top_slices", 10)))
+        self.top_slices.setToolTip(self._t("Maximum number of slices shown before grouping the rest as 'Others'.", "Maximum number of slices shown before grouping the rest as 'Others'."))
+        fl_data.addRow(self._t("Top slices", "Top slices"), self.top_slices)
+
+        self.use_min_pct = QCheckBox(self._t("Use minimum share threshold", "Use minimum share threshold"), self)
+        self.use_min_pct.setToolTip(self._t("Enable threshold-based selection instead of a fixed top-slices count.", "Enable threshold-based selection instead of a fixed top-slices count."))
+        fl_data.addRow("", self.use_min_pct)
+
+        self.min_pct = QDoubleSpinBox(self)
+        self.min_pct.setRange(0.0, 100.0)
+        self.min_pct.setSingleStep(0.5)
+        self.min_pct.setSuffix(" %")
+        saved_min = self._s.get("min_pct", None)
+        self.min_pct.setValue(float(saved_min or 1.0))
+        self.min_pct.setToolTip(self._t("Slices below this share are grouped into 'Others'.", "Slices below this share are grouped into 'Others'."))
+        fl_data.addRow(self._t("Minimum share", "Minimum share"), self.min_pct)
+
+        self.explain_limit = QLabel(self)
+        self.explain_limit.setWordWrap(True)
+        self.explain_limit.setStyleSheet("color:#555;")
+        fl_data.addRow("", self.explain_limit)
+
+        v.addWidget(gb_data)
+
+        # ---------- Appearance ----------
+        gb_app = QGroupBox(self._t("Appearance", "Appearance"), self)
+        fl_app = QFormLayout(gb_app)
+        fl_app.setLabelAlignment(Qt.AlignRight)
+
+        self.title = QComboBox(self)
+        self.title.setEditable(True)
         self.title.setInsertPolicy(QComboBox.InsertAtTop)
         self.title.setCurrentText(self._s.get("title", "") or "")
-        v.addWidget(self.title)
+        self.title.setToolTip(self._t("Optional custom title for the chart.", "Optional custom title for the chart."))
+        fl_app.addRow(self._t("Title (optional)", "Title (optional)"), self.title)
 
-        # Start angle & direction
-        row_ang = QHBoxLayout(); v.addLayout(row_ang)
-        row_ang.addWidget(QLabel(self._t("Start angle", "Start angle")))
-        self.start_angle = QSpinBox(self); self.start_angle.setRange(0, 360)
-        self.start_angle.setValue(int(self._s.get("start_angle", 90)))
-        row_ang.addWidget(self.start_angle)
-
-        self.counterclockwise = QCheckBox(self._t("Counterclockwise", "Counterclockwise"))
-        self.counterclockwise.setChecked(bool(self._s.get("counterclockwise", True)))
-        row_ang.addWidget(self.counterclockwise)
-
-        # Colormap (+ reverse), with groups & i18n
-        v.addWidget(QLabel(self._t("Colormap", "Colormap")))
-        row_cmap = QHBoxLayout(); v.addLayout(row_cmap)
         self.cmap = QComboBox(self)
-        self.reverse_cb = QCheckBox(self._t("cm.reverse", "Reverse"))
-        row_cmap.addWidget(self.cmap)
-        row_cmap.addWidget(self.reverse_cb)
+        self.reverse_cb = QCheckBox(self._t("cm.reverse", "Reverse"), self)
+        self.reverse_cb.setToolTip(self._t("Invert the colormap.", "Invert the colormap."))
+        cmap_row = QHBoxLayout()
+        cmap_row.addWidget(self.cmap, 1)
+        cmap_row.addWidget(self.reverse_cb, 0)
+        fl_app.addRow(self._t("Colormap", "Colormap"), cmap_row)
         self._fill_colormap_combo()  # also sets current selection & reverse state
 
-        # OK / Cancel buttons
+        v.addWidget(gb_app)
+
+        # ---------- Layout ----------
+        gb_layout = QGroupBox(self._t("Layout", "Layout"), self)
+        fl_layout = QFormLayout(gb_layout)
+        fl_layout.setLabelAlignment(Qt.AlignRight)
+
+        self.start_angle = QSpinBox(self)
+        self.start_angle.setRange(0, 360)
+        self.start_angle.setValue(int(self._s.get("start_angle", 90)))
+        self.start_angle.setToolTip(self._t("Rotation of the first slice.", "Rotation of the first slice."))
+        fl_layout.addRow(self._t("Start angle", "Start angle"), self.start_angle)
+
+        self.counterclockwise = QCheckBox(self._t("Counterclockwise", "Counterclockwise"), self)
+        self.counterclockwise.setChecked(bool(self._s.get("counterclockwise", True)))
+        self.counterclockwise.setToolTip(self._t("Draw wedges counterclockwise.", "Draw wedges counterclockwise."))
+        fl_layout.addRow("", self.counterclockwise)
+
+        v.addWidget(gb_layout)
+
+        # ---------- Buttons ----------
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         v.addWidget(buttons)
+
+        # Init state
+        self.use_min_pct.setChecked(saved_min is not None and float(saved_min or 0.0) > 0.0)
+        self.use_min_pct.stateChanged.connect(self._sync_limit_mode)
+        self.min_pct.valueChanged.connect(self._sync_limit_mode)
+        self._sync_limit_mode()
+
+    def _sync_limit_mode(self):
+        use_thr = bool(self.use_min_pct.isChecked())
+        self.min_pct.setEnabled(use_thr)
+        self.top_slices.setEnabled(not use_thr)
+        if use_thr:
+            self.explain_limit.setText(self._t(
+                "pie.settings.limit.explain.threshold",
+                "Threshold mode: slices below the minimum share are grouped into 'Others'.",
+            ))
+        else:
+            self.explain_limit.setText(self._t(
+                "pie.settings.limit.explain.top",
+                "Top-slices mode: the largest slices are shown, the rest are grouped into 'Others'.",
+            ))
 
     def _t(self, key: str, fallback: str | None = None) -> str:
         """Translate helper that always returns a string (falls back to key/explicit fallback)."""
@@ -2448,8 +2577,8 @@ class PieChartSettingsDialog(QDialog):
 
         return {
             "top_slices": int(self.top_slices.value()),
-            "min_pct": float(self.min_pct.value()) if self.min_pct.value() > 0 else None,
-            "sort_slices": self.sort_slices.currentText(),
+            "min_pct": float(self.min_pct.value()) if self.use_min_pct.isChecked() and self.min_pct.value() > 0 else None,
+            "sort_slices": str(self.sort_slices.currentData() or self.sort_slices.currentText()),
             "title": self.title.currentText().strip() or "",
             "start_angle": int(self.start_angle.value()),
             "counterclockwise": bool(self.counterclockwise.isChecked()),
@@ -2488,52 +2617,75 @@ class TopFlopSettingsDialog(QDialog):
 
         v = QVBoxLayout(self)
 
-        # Count (n)
-        row_n = QHBoxLayout(); v.addLayout(row_n)
-        row_n.addWidget(QLabel(self._t("Count (n)", "Count (n)")))
-        self.n = QSpinBox(self); self.n.setRange(1, 50)
-        self.n.setValue(int(self._s.get("n", 10)))
-        row_n.addWidget(self.n)
+        intro = QLabel(self._t(
+            "topflop.settings.intro",
+            "The first impact defines the ranking. You can add up to 3 comparison impacts via the extra-impacts button."
+        ))
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#555;")
+        v.addWidget(intro)
 
-        # Optional title
-        v.addWidget(QLabel(self._t("Title (optional)", "Title (optional)")))
-        self.title = QComboBox(self); self.title.setEditable(True)
+        # ---------- Data ----------
+        gb_data = QGroupBox(self._t("Data", "Data"), self)
+        fl_data = QFormLayout(gb_data)
+        fl_data.setLabelAlignment(Qt.AlignRight)
+
+        self.n = QSpinBox(self)
+        self.n.setRange(1, 50)
+        self.n.setValue(int(self._s.get("n", 10)))
+        self.n.setToolTip(self._t("Number of regions shown.", "Number of regions shown."))
+        fl_data.addRow(self._t("Count (n)", "Count (n)"), self.n)
+
+        self.relative = QCheckBox(self._t("Relative (%)", "Relative (%)"), self)
+        self.relative.setChecked(bool(self._s.get("relative", True)))
+        self.relative.setToolTip(self._t("If enabled, show values as percentages instead of absolute units.", "If enabled, show values as percentages instead of absolute units."))
+        fl_data.addRow("", self.relative)
+
+        v.addWidget(gb_data)
+
+        # ---------- Appearance ----------
+        gb_app = QGroupBox(self._t("Appearance", "Appearance"), self)
+        fl_app = QFormLayout(gb_app)
+        fl_app.setLabelAlignment(Qt.AlignRight)
+
+        self.title = QComboBox(self)
+        self.title.setEditable(True)
         self.title.setInsertPolicy(QComboBox.InsertAtTop)
         self.title.setCurrentText(self._s.get("title", "") or "")
-        v.addWidget(self.title)
+        self.title.setToolTip(self._t("Optional custom title. Leave empty for an automatic title.", "Optional custom title. Leave empty for an automatic title."))
+        fl_app.addRow(self._t("Title (optional)", "Title (optional)"), self.title)
 
-        # Orientation
-        row_or = QHBoxLayout(); v.addLayout(row_or)
-        row_or.addWidget(QLabel(self._t("Orientation", "Orientation")))
         self.orientation = QComboBox(self)
-        self.orientation.addItems(["vertical", "horizontal"])
-        self.orientation.setCurrentText(self._s.get("orientation", "vertical"))
-        row_or.addWidget(self.orientation)
+        self.orientation.addItem(self._t("Vertical", "Vertical"), userData="vertical")
+        self.orientation.addItem(self._t("Horizontal", "Horizontal"), userData="horizontal")
+        saved_or = str(self._s.get("orientation", "vertical"))
+        idx_or = self.orientation.findData(saved_or)
+        if idx_or != -1:
+            self.orientation.setCurrentIndex(idx_or)
+        self.orientation.setToolTip(self._t("Chart orientation.", "Chart orientation."))
+        fl_app.addRow(self._t("Orientation", "Orientation"), self.orientation)
 
-        # Relative values
-        self.relative = QCheckBox(self._t("Relative (%)", "Relative (%)"))
-        self.relative.setChecked(bool(self._s.get("relative", True)))
-        v.addWidget(self.relative)
-
-        # Bar color / colormap
-        row_c = QHBoxLayout(); v.addLayout(row_c)
-        row_c.addWidget(QLabel(self._t("Bar color / Colormap", "Bar color / Colormap")))
         self.bar_color = QComboBox(self)
-        for name in ["tab10","tab20","viridis","plasma","magma","cividis","turbo",
-                     "tab:blue","tab:orange","tab:green","tab:red","tab:purple","tab:brown"]:
-            self.bar_color.addItem(name)
         self.bar_color.setEditable(True)
-        self.bar_color.setCurrentText(self._s.get("bar_color", "tab10"))
-        row_c.addWidget(self.bar_color)
+        self.bar_reverse_cb = QCheckBox(self._t("cm.reverse", "Reverse"), self)
+        self.bar_reverse_cb.setToolTip(self._t("Invert the colormap (only applies to colormap names).", "Invert the colormap (only applies to colormap names)."))
+        bar_row = QHBoxLayout()
+        bar_row.addWidget(self.bar_color, 1)
+        bar_row.addWidget(self.bar_reverse_cb, 0)
+        self.bar_color.setToolTip(self._t("Matplotlib colormap name (for multiple impacts) or a single color.", "Matplotlib colormap name (for multiple impacts) or a single color."))
+        fl_app.addRow(self._t("Bar color / Colormap", "Bar color / Colormap"), bar_row)
+        self._fill_bar_color_combo()
 
-        # Bar width
-        row_w = QHBoxLayout(); v.addLayout(row_w)
-        row_w.addWidget(QLabel(self._t("Bar width", "Bar width")))
-        self.bar_width = QDoubleSpinBox(self); self.bar_width.setRange(0.1, 1.2); self.bar_width.setSingleStep(0.05)
+        self.bar_width = QDoubleSpinBox(self)
+        self.bar_width.setRange(0.1, 1.2)
+        self.bar_width.setSingleStep(0.05)
         self.bar_width.setValue(float(self._s.get("bar_width", 0.8)))
-        row_w.addWidget(self.bar_width)
+        self.bar_width.setToolTip(self._t("Total width of a region's bar group (distributed across impacts).", "Total width of a region's bar group (distributed across impacts)."))
+        fl_app.addRow(self._t("Bar width", "Bar width"), self.bar_width)
 
-        # OK / Cancel buttons
+        v.addWidget(gb_app)
+
+        # ---------- Buttons ----------
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -2561,11 +2713,70 @@ class TopFlopSettingsDialog(QDialog):
         return {
             "n": int(self.n.value()),
             "title": self.title.currentText().strip() or "",
-            "orientation": self.orientation.currentText(),
+            "orientation": str(self.orientation.currentData() or self.orientation.currentText()),
             "relative": bool(self.relative.isChecked()),
-            "bar_color": self.bar_color.currentText(),
+            "bar_color": self._bar_color_value(),
             "bar_width": float(self.bar_width.value()),
         }
+
+    def _fill_bar_color_combo(self):
+        """
+        Populate the bar_color combo box with grouped, translated colormap names.
+        Keeps the field editable so users can still type a single color (e.g., 'tab:blue' or '#ff0000').
+        """
+        self.bar_color.clear()
+
+        groups = [
+            ("cm.group.perceptual", "Perceptual",
+             ["viridis", "plasma", "inferno", "magma", "cividis", "turbo"]),
+            ("cm.group.sequential", "Sequential",
+             ["Reds", "Oranges", "Greens", "Blues", "Purples", "Greys",
+              "YlGn", "YlGnBu", "GnBu", "BuGn", "PuBu", "BuPu",
+              "OrRd", "PuRd", "RdPu", "YlOrBr", "YlOrRd"]),
+            ("cm.group.diverging", "Diverging",
+             ["BrBG", "PiYG", "PRGn", "PuOr", "RdBu", "RdGy", "RdYlBu", "RdYlGn",
+              "Spectral", "coolwarm", "bwr", "seismic"]),
+            ("cm.group.cyclic", "Cyclic", ["twilight", "twilight_shifted", "hsv"]),
+            ("cm.group.qualitative", "Qualitative",
+             ["tab10", "tab20", "tab20b", "tab20c", "Set1", "Set2", "Set3",
+              "Pastel1", "Pastel2", "Accent", "Dark2", "Paired"]),
+        ]
+
+        for gi, (gkey, gname, names) in enumerate(groups):
+            header = self._t(gkey, gname)
+            self.bar_color.addItem(header)
+            idx = self.bar_color.count() - 1
+            item = self.bar_color.model().item(idx)
+            item.setFlags(Qt.NoItemFlags)
+            item.setData(True, Qt.UserRole + 1)
+
+            for name in names:
+                label = self._t(f"cmap.{name}", name)
+                self.bar_color.addItem(label, userData=name)
+
+            if gi < len(groups) - 1:
+                self.bar_color.insertSeparator(self.bar_color.count())
+
+        saved = str(self._s.get("bar_color", "tab10") or "tab10")
+        is_rev = saved.endswith("_r")
+        base = saved[:-2] if is_rev else saved
+        i = self.bar_color.findData(base)
+        if i != -1:
+            self.bar_color.setCurrentIndex(i)
+        else:
+            self.bar_color.setCurrentText(base)
+        self.bar_reverse_cb.setChecked(is_rev)
+
+    def _bar_color_value(self) -> str:
+        name = self.bar_color.currentData() or self.bar_color.currentText()
+        s = str(name or "").strip()
+        if not s:
+            return "tab10"
+        if self.bar_reverse_cb.isChecked():
+            # Only reverse colormap *names* (leave single colors untouched).
+            if ":" not in s and not s.startswith("#") and not s.endswith("_r"):
+                s = f"{s}_r"
+        return s
 
 class ExportDataDialog(QDialog):
     """

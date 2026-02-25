@@ -18,6 +18,7 @@ export type MapSettings = {
   projection: "mercator" | "equirectangular" | "robinson";
   mode: "binned" | "continuous";
   relative: boolean;
+  valueMode?: "value" | "per_capita";
   k: number;
   customBins: string;
   normMode: "linear" | "log" | "power";
@@ -30,8 +31,11 @@ function parse(geojson: string): FeatureCollection {
 }
 
 function metricFor(props: any, settings: MapSettings): number {
-  const raw =
-    settings.mode === "continuous" ? props?.value : settings.relative ? props?.percentage : props?.value;
+  const wantPerCap = (settings.valueMode || "value") === "per_capita";
+  const baseRaw = wantPerCap ? props?.per_capita : props?.value;
+  const baseNum = Number(baseRaw);
+  const base = Number.isFinite(baseNum) ? baseNum : Number(props?.value);
+  const raw = settings.mode === "continuous" ? base : settings.relative ? props?.percentage : base;
   const n = Number(raw);
   return Number.isFinite(n) ? n : NaN;
 }
@@ -112,12 +116,49 @@ function tooltipHtml(props: any): string {
   const region = String(props?.region ?? props?.exiobase ?? "—");
   const pct = Number(props?.percentage);
   const abs = Number(props?.value);
+  const perCap = Number(props?.per_capita);
   const unit = String(props?.unit ?? "");
+
+  const parseUnitScale = (u: string): { factor: number; baseUnit: string } => {
+    const raw = String(u || "").trim();
+    if (!raw) return { factor: 1, baseUnit: "" };
+
+    const german = [
+      { re: /\bMrd\.?\b/i, factor: 1e9 },
+      { re: /\bMio\.?\b/i, factor: 1e6 },
+      { re: /\bTsd\.?\b/i, factor: 1e3 },
+    ];
+    for (const it of german) {
+      if (it.re.test(raw)) return { factor: it.factor, baseUnit: raw.replace(it.re, "").replace(/\s+/g, " ").trim() };
+    }
+
+    const english = [
+      { re: /\bbn\b|\bbillion\b/i, factor: 1e9 },
+      { re: /\bmn\b|\bmillion\b/i, factor: 1e6 },
+      { re: /\bthousand\b|\bk\b/i, factor: 1e3 },
+    ];
+    for (const it of english) {
+      if (it.re.test(raw)) return { factor: it.factor, baseUnit: raw.replace(it.re, "").replace(/\s+/g, " ").trim() };
+    }
+
+    return { factor: 1, baseUnit: raw };
+  };
+
+  const formatAuto = (n: number): string => {
+    const x = Math.abs(n);
+    const maxFractionDigits = x >= 1000 ? 0 : x >= 100 ? 1 : x >= 10 ? 2 : x >= 1 ? 3 : 6;
+    return n.toLocaleString(undefined, { maximumFractionDigits: maxFractionDigits });
+  };
 
   const parts: string[] = [];
   parts.push(`<div style="font-weight:700; margin-bottom:2px;">${region}</div>`);
   if (Number.isFinite(pct)) parts.push(`<div>${pct.toFixed(2)}%</div>`);
   if (Number.isFinite(abs)) parts.push(`<div style="opacity:0.85;">${abs.toLocaleString()} ${unit}</div>`);
+  if (Number.isFinite(perCap)) {
+    const { factor, baseUnit } = parseUnitScale(unit);
+    const scaled = perCap * factor;
+    parts.push(`<div style="opacity:0.85;">pro Kopf: ${formatAuto(scaled)} ${baseUnit}</div>`);
+  }
   return parts.join("");
 }
 

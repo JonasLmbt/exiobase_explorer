@@ -67,6 +67,7 @@ class Index:
         self.raw_materials_df = None
         self.regions_df = None
         self.exiobase_to_map_df = None
+        self.population_df = None
         self.impacts_df = None
         self.impact_color_df = None
         self.units_df = None
@@ -166,6 +167,9 @@ class Index:
             # Create a dictionary from the 'general_df' DataFrame, mapping 'exiobase' to 'translation'
             self.general_dict = dict(zip(self.general_df['exiobase'], self.general_df['translation']))
 
+            # Optional: population data for per-capita metrics in maps/tooltips
+            self._read_population_sheet()
+
             # Create list of all raw material indices
             self._create_raw_material_indices()
 
@@ -210,6 +214,83 @@ class Index:
         except FileNotFoundError:
             logging.warning("Could not find 'general.xlsx' to determine available languages")
             self.languages = []
+
+    def _read_population_sheet(self) -> None:
+        """
+        Best-effort loading of a 'population' sheet from regions.xlsx.
+
+        The sheet is optional. If present, it should contain at least:
+          - a region code column (preferably EXIOBASE codes like 'AT', 'DE', ...)
+          - a numeric population column
+
+        The loader tries the year-specific fast database first, then falls back to config/regions.xlsx.
+        """
+        self.population_df = None
+        candidates = [
+            os.path.join(self.iosystem.current_fast_database_path, "regions.xlsx"),
+            os.path.join(self.iosystem.config_dir, "regions.xlsx"),
+        ]
+        for path in candidates:
+            if not os.path.exists(path):
+                continue
+            try:
+                with pd.ExcelFile(path) as xls:
+                    sheet = next((s for s in xls.sheet_names if str(s).strip().lower() == "population"), None)
+                if not sheet:
+                    continue
+                df = pd.read_excel(path, sheet_name=sheet)
+                if df is None or getattr(df, "empty", True):
+                    continue
+                self.population_df = df
+                logging.debug(f"Loaded population sheet from: {path}")
+                return
+            except Exception:
+                continue
+
+    def _population_by_exiobase(self) -> Dict[str, float]:
+        """
+        Parse the optional population_df into a mapping: EXIOBASE code -> population.
+        """
+        df = self.population_df
+        if df is None or getattr(df, "empty", True):
+            return {}
+
+        cols = [str(c).strip().lower() for c in df.columns.tolist()]
+        if not cols:
+            return {}
+
+        code_col = 0
+        for i, c in enumerate(cols):
+            if "exiobase" in c or c in {"code", "region", "country"}:
+                code_col = i
+                break
+
+        pop_col = None
+        for i, c in enumerate(cols):
+            if "population" in c or "einwohner" in c:
+                pop_col = i
+                break
+        if pop_col is None:
+            pop_col = 1 if df.shape[1] >= 2 else None
+        if pop_col is None:
+            return {}
+
+        codes = df.iloc[:, code_col].astype(str).str.strip()
+        pops = pd.to_numeric(df.iloc[:, pop_col], errors="coerce")
+
+        out: Dict[str, float] = {}
+        for code, pop in zip(codes.tolist(), pops.tolist()):
+            c = str(code or "").strip()
+            if not c or c.lower() == "nan":
+                continue
+            try:
+                p = float(pop)
+            except Exception:
+                continue
+            if not np.isfinite(p) or p <= 0:
+                continue
+            out[c] = p
+        return out
 
     def create_multiindices(self) -> None:
         """
@@ -304,10 +385,28 @@ class Index:
         self.iosystem.impacts = self.impacts_df.iloc[:, -1].unique().tolist()
         self.iosystem.units = self.units_df.iloc[:, -1].tolist()
 
-        # Load 'regions_exiobase' data
-        regions_exiobase_path = os.path.join(self.iosystem.current_fast_database_path, 'regions.xlsx')
-        regions_exiobase_df = pd.read_excel(regions_exiobase_path, sheet_name="Exiobase")
-        self.iosystem.regions_exiobase = regions_exiobase_df.iloc[:, -1].unique().tolist()
+        # Load 'regions_exiobase' data (fast db first, fallback to config)
+        regions_xlsx_candidates = [
+            os.path.join(self.iosystem.current_fast_database_path, "regions.xlsx"),
+            os.path.join(self.iosystem.config_dir, "regions.xlsx"),
+        ]
+        regions_exiobase = None
+        for p in regions_xlsx_candidates:
+            if not os.path.exists(p):
+                continue
+            try:
+                df = pd.read_excel(p, sheet_name="Exiobase")
+                regions_exiobase = df.iloc[:, -1].unique().tolist()
+                break
+            except Exception:
+                continue
+        self.iosystem.regions_exiobase = regions_exiobase or []
+
+        # Optional population mapping for per-capita tooltips/maps
+        try:
+            self.iosystem.population_by_exiobase = self._population_by_exiobase()
+        except Exception:
+            self.iosystem.population_by_exiobase = {}
 
         # Update impact units DataFrame
         self.iosystem.impact.unit = pd.DataFrame(
@@ -793,6 +892,7 @@ class IOSystem:
         self.regions: Optional[List[str]] = None
         self.sectors: Optional[List[str]] = None
         self.regions_exiobase: Optional[List[str]] = None
+        self.population_by_exiobase: Dict[str, float] = {}
 
         # Initialize components
         self.index = Index(self)
