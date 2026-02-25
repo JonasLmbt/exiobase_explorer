@@ -2570,52 +2570,75 @@ class TopFlopSettingsDialog(QDialog):
 
         v = QVBoxLayout(self)
 
-        # Count (n)
-        row_n = QHBoxLayout(); v.addLayout(row_n)
-        row_n.addWidget(QLabel(self._t("Count (n)", "Count (n)")))
-        self.n = QSpinBox(self); self.n.setRange(1, 50)
-        self.n.setValue(int(self._s.get("n", 10)))
-        row_n.addWidget(self.n)
+        intro = QLabel(self._t(
+            "topflop.settings.intro",
+            "The first impact defines the ranking. You can add up to 3 comparison impacts via the extra-impacts button.",
+        ))
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#555;")
+        v.addWidget(intro)
 
-        # Optional title
-        v.addWidget(QLabel(self._t("Title (optional)", "Title (optional)")))
-        self.title = QComboBox(self); self.title.setEditable(True)
+        # ---------- Data ----------
+        gb_data = QGroupBox(self._t("Data", "Data"), self)
+        fl_data = QFormLayout(gb_data)
+        fl_data.setLabelAlignment(Qt.AlignRight)
+
+        self.n = QSpinBox(self)
+        self.n.setRange(1, 50)
+        self.n.setValue(int(self._s.get("n", 10)))
+        self.n.setToolTip(self._t("Number of regions shown.", "Number of regions shown."))
+        fl_data.addRow(self._t("Count (n)", "Count (n)"), self.n)
+
+        self.relative = QCheckBox(self._t("Relative (%)", "Relative (%)"), self)
+        self.relative.setChecked(bool(self._s.get("relative", True)))
+        self.relative.setToolTip(self._t("If enabled, show values as percentages instead of absolute units.", "If enabled, show values as percentages instead of absolute units."))
+        fl_data.addRow("", self.relative)
+
+        v.addWidget(gb_data)
+
+        # ---------- Appearance ----------
+        gb_app = QGroupBox(self._t("Appearance", "Appearance"), self)
+        fl_app = QFormLayout(gb_app)
+        fl_app.setLabelAlignment(Qt.AlignRight)
+
+        self.title = QComboBox(self)
+        self.title.setEditable(True)
         self.title.setInsertPolicy(QComboBox.InsertAtTop)
         self.title.setCurrentText(self._s.get("title", "") or "")
-        v.addWidget(self.title)
+        self.title.setToolTip(self._t("Optional custom title. Leave empty for an automatic title.", "Optional custom title. Leave empty for an automatic title."))
+        fl_app.addRow(self._t("Title (optional)", "Title (optional)"), self.title)
 
-        # Orientation
-        row_or = QHBoxLayout(); v.addLayout(row_or)
-        row_or.addWidget(QLabel(self._t("Orientation", "Orientation")))
         self.orientation = QComboBox(self)
-        self.orientation.addItems(["vertical", "horizontal"])
-        self.orientation.setCurrentText(self._s.get("orientation", "vertical"))
-        row_or.addWidget(self.orientation)
+        self.orientation.addItem(self._t("Vertical", "Vertical"), userData="vertical")
+        self.orientation.addItem(self._t("Horizontal", "Horizontal"), userData="horizontal")
+        saved_or = str(self._s.get("orientation", "vertical"))
+        idx_or = self.orientation.findData(saved_or)
+        if idx_or != -1:
+            self.orientation.setCurrentIndex(idx_or)
+        self.orientation.setToolTip(self._t("Chart orientation.", "Chart orientation."))
+        fl_app.addRow(self._t("Orientation", "Orientation"), self.orientation)
 
-        # Relative values
-        self.relative = QCheckBox(self._t("Relative (%)", "Relative (%)"))
-        self.relative.setChecked(bool(self._s.get("relative", True)))
-        v.addWidget(self.relative)
-
-        # Bar color / colormap
-        row_c = QHBoxLayout(); v.addLayout(row_c)
-        row_c.addWidget(QLabel(self._t("Bar color / Colormap", "Bar color / Colormap")))
         self.bar_color = QComboBox(self)
-        for name in ["tab10","tab20","viridis","plasma","magma","cividis","turbo",
-                     "tab:blue","tab:orange","tab:green","tab:red","tab:purple","tab:brown"]:
+        for name in [
+            "tab10", "tab20", "viridis", "plasma", "magma", "cividis", "turbo",
+            "tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown",
+        ]:
             self.bar_color.addItem(name)
         self.bar_color.setEditable(True)
         self.bar_color.setCurrentText(self._s.get("bar_color", "tab10"))
-        row_c.addWidget(self.bar_color)
+        self.bar_color.setToolTip(self._t("Matplotlib colormap name (for multiple impacts) or a single color.", "Matplotlib colormap name (for multiple impacts) or a single color."))
+        fl_app.addRow(self._t("Bar color / Colormap", "Bar color / Colormap"), self.bar_color)
 
-        # Bar width
-        row_w = QHBoxLayout(); v.addLayout(row_w)
-        row_w.addWidget(QLabel(self._t("Bar width", "Bar width")))
-        self.bar_width = QDoubleSpinBox(self); self.bar_width.setRange(0.1, 1.2); self.bar_width.setSingleStep(0.05)
+        self.bar_width = QDoubleSpinBox(self)
+        self.bar_width.setRange(0.1, 1.2)
+        self.bar_width.setSingleStep(0.05)
         self.bar_width.setValue(float(self._s.get("bar_width", 0.8)))
-        row_w.addWidget(self.bar_width)
+        self.bar_width.setToolTip(self._t("Total width of a region's bar group (distributed across impacts).", "Total width of a region's bar group (distributed across impacts)."))
+        fl_app.addRow(self._t("Bar width", "Bar width"), self.bar_width)
 
-        # OK / Cancel buttons
+        v.addWidget(gb_app)
+
+        # ---------- Buttons ----------
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -2643,7 +2666,7 @@ class TopFlopSettingsDialog(QDialog):
         return {
             "n": int(self.n.value()),
             "title": self.title.currentText().strip() or "",
-            "orientation": self.orientation.currentText(),
+            "orientation": str(self.orientation.currentData() or self.orientation.currentText()),
             "relative": bool(self.relative.isChecked()),
             "bar_color": self.bar_color.currentText(),
             "bar_width": float(self.bar_width.value()),
