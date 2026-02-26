@@ -70,7 +70,7 @@ export default function SelectionTab() {
               {t("Selection")}
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.8 }}>
-              {t("SelectionTab.CurrentSettings", { year, language })} <b>{t("Settings")}</b>
+              {t("SelectionTab.CurrentSettings", { year, language, settings: t("Settings") })}
             </Typography>
             <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
               <Button variant="contained" onClick={apply} disabled={summaryM.isPending}>
