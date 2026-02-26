@@ -8,6 +8,7 @@ import L from "leaflet";
 import proj4 from "proj4";
 // eslint-disable-next-line import/no-unassigned-import
 import "proj4leaflet";
+import { useT } from "../../app/i18n";
 
 export type GeoJsonV1 = { kind: "geojson_v1"; geojson: string; meta: { impact: string; relative: boolean } };
 export type MapSettings = {
@@ -112,37 +113,17 @@ function sampleStops(stops: string[], k: number): string[] {
   return out;
 }
 
-function tooltipHtml(props: any): string {
-  const region = String(props?.region ?? props?.exiobase ?? "—");
+function tooltipHtml(
+  props: any,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  const region = String(props?.region ?? props?.exiobase ?? t("—"));
   const pct = Number(props?.percentage);
   const abs = Number(props?.value);
   const perCap = Number(props?.per_capita);
   const unit = String(props?.unit ?? "");
-
-  const parseUnitScale = (u: string): { factor: number; baseUnit: string } => {
-    const raw = String(u || "").trim();
-    if (!raw) return { factor: 1, baseUnit: "" };
-
-    const german = [
-      { re: /\bMrd\.?\b/i, factor: 1e9 },
-      { re: /\bMio\.?\b/i, factor: 1e6 },
-      { re: /\bTsd\.?\b/i, factor: 1e3 },
-    ];
-    for (const it of german) {
-      if (it.re.test(raw)) return { factor: it.factor, baseUnit: raw.replace(it.re, "").replace(/\s+/g, " ").trim() };
-    }
-
-    const english = [
-      { re: /\bbn\b|\bbillion\b/i, factor: 1e9 },
-      { re: /\bmn\b|\bmillion\b/i, factor: 1e6 },
-      { re: /\bthousand\b|\bk\b/i, factor: 1e3 },
-    ];
-    for (const it of english) {
-      if (it.re.test(raw)) return { factor: it.factor, baseUnit: raw.replace(it.re, "").replace(/\s+/g, " ").trim() };
-    }
-
-    return { factor: 1, baseUnit: raw };
-  };
+  const perCapUnit = String(props?.per_capita_unit ?? "");
+  const perCapFmt = String(props?.per_capita_formatted ?? "");
 
   const formatAuto = (n: number): string => {
     const x = Math.abs(n);
@@ -152,12 +133,12 @@ function tooltipHtml(props: any): string {
 
   const parts: string[] = [];
   parts.push(`<div style="font-weight:700; margin-bottom:2px;">${region}</div>`);
-  if (Number.isFinite(pct)) parts.push(`<div>${pct.toFixed(2)}%</div>`);
-  if (Number.isFinite(abs)) parts.push(`<div style="opacity:0.85;">${abs.toLocaleString()} ${unit}</div>`);
+  if (Number.isFinite(pct)) parts.push(`<div>${t("Global share")}: ${pct.toFixed(2)}%</div>`);
+  if (Number.isFinite(abs)) parts.push(`<div style="opacity:0.85;">${t("Value")}: ${abs.toLocaleString()} ${unit}</div>`);
   if (Number.isFinite(perCap)) {
-    const { factor, baseUnit } = parseUnitScale(unit);
-    const scaled = perCap * factor;
-    parts.push(`<div style="opacity:0.85;">pro Kopf: ${formatAuto(scaled)} ${baseUnit}</div>`);
+    const unitPc = perCapUnit || unit;
+    const valPc = perCapFmt && perCapFmt !== "nan" ? perCapFmt : formatAuto(perCap);
+    parts.push(`<div style="opacity:0.85;">${t("Per capita")}: ${valPc} ${unitPc}</div>`);
   }
   return parts.join("");
 }
@@ -275,6 +256,7 @@ export default function WorldMapLeaflet({
   settings: MapSettings;
   onRegionClick?: (info: { exiobase: string; region: string }) => void;
 }) {
+  const { t } = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const fc = useMemo(() => parse(data.geojson), [data.geojson]);
   const theme = useTheme();
@@ -287,6 +269,13 @@ export default function WorldMapLeaflet({
   const features = (fc.features ?? []) as Feature[];
   const values = useMemo(() => features.map((f) => metricFor((f.properties ?? {}) as any, settings)), [features, settings]);
   const finite = useMemo(() => values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b), [values]);
+  const legendUnit = useMemo(() => {
+    const props: any = (features[0] as any)?.properties || {};
+    if (settings.relative) return "%";
+    const wantPerCap = (settings.valueMode || "value") === "per_capita";
+    const u = wantPerCap ? String(props?.per_capita_unit ?? "") : String(props?.unit ?? "");
+    return u.trim();
+  }, [features, settings.relative, settings.valueMode]);
 
   const scale = useMemo(() => {
     const palStops = PALETTES[settings.palette] ?? PALETTES.Reds;
@@ -377,11 +366,11 @@ export default function WorldMapLeaflet({
           style={styleFor}
           onEachFeature={(feature: Feature, layer: Layer) => {
             const props: any = feature.properties || {};
-            const label = String(props.region || props.exiobase || "—");
+            const label = String(props.region || props.exiobase || t("—"));
             const exiobase = String(props.exiobase || "");
             const base = styleFor(feature);
 
-            (layer as any).bindTooltip(tooltipHtml(props), { sticky: true, opacity: 0.95, direction: "auto" });
+            (layer as any).bindTooltip(tooltipHtml(props, t), { sticky: true, opacity: 0.95, direction: "auto" });
 
             (layer as any).on("mouseover", () => {
               try {
@@ -430,7 +419,7 @@ export default function WorldMapLeaflet({
           }}
         >
           <Typography variant="caption" sx={{ display: "block", opacity: 0.85, mb: 0.75 }}>
-            Legend
+            {legendUnit ? `${t("Legend")} (${legendUnit})` : t("Legend")}
           </Typography>
           {scale.kind === "binned" ? (
             <Box sx={{ display: "grid", gap: 0.5 }}>

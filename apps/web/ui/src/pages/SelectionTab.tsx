@@ -4,11 +4,13 @@ import { api } from "../api";
 import { useAppState } from "../app/state";
 import { useLog } from "../app/log";
 import TreeMultiSelect from "../components/TreeMultiSelect";
+import { useT } from "../app/i18n";
 
 export default function SelectionTab() {
   const { year, language, pendingSelection, setPendingSelection, setSelection, selectionSummary, setSelectionSummary } =
     useAppState();
   const log = useLog();
+  const { t } = useT();
 
   const regionsQ = useQuery({
     queryKey: ["regionsHierarchy", year, language],
@@ -65,21 +67,21 @@ export default function SelectionTab() {
         <Card>
           <CardContent>
             <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-              Selection
+              {t("Selection")}
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.8 }}>
-              Year/Language kommen aus <b>Settings</b>. Aktuell: {year} / {language}
+              {t("SelectionTab.CurrentSettings", { year, language })} <b>{t("Settings")}</b>
             </Typography>
             <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
               <Button variant="contained" onClick={apply} disabled={summaryM.isPending}>
-                Apply selection
+                {t("Apply selection")}
               </Button>
               <Button
                 variant="outlined"
                 onClick={() => setPendingSelection({ mode: "all" })}
                 disabled={pendingSelection.mode === "all"}
               >
-                Clear pending
+                {t("Clear pending")}
               </Button>
             </Stack>
             {selectionSummary ? (
@@ -107,18 +109,18 @@ export default function SelectionTab() {
           <Card sx={{ flex: 1, minWidth: 320 }}>
             <CardContent>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-                Regions
+                {t("Regions")}
               </Typography>
               {regionsQ.data ? (
                 <TreeMultiSelect
                   leaves={regionsQ.data.leaves}
                   selected={regionSel}
                   onChange={setRegionSel}
-                  placeholder="Search region..."
+                  placeholder={t("Search region...")}
                 />
               ) : (
                 <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  {regionsQ.isLoading ? "Loading..." : regionsQ.error ? String(regionsQ.error) : "—"}
+                  {regionsQ.isLoading ? t("Loading...") : regionsQ.error ? String(regionsQ.error) : t("—")}
                 </Typography>
               )}
             </CardContent>
@@ -127,18 +129,18 @@ export default function SelectionTab() {
           <Card sx={{ flex: 1, minWidth: 320 }}>
             <CardContent>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-                Sectors
+                {t("Sectors")}
               </Typography>
               {sectorsQ.data ? (
                 <TreeMultiSelect
                   leaves={sectorsQ.data.leaves}
                   selected={sectorSel}
                   onChange={setSectorSel}
-                  placeholder="Search sector..."
+                  placeholder={t("Search sector...")}
                 />
               ) : (
                 <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  {sectorsQ.isLoading ? "Loading..." : sectorsQ.error ? String(sectorsQ.error) : "—"}
+                  {sectorsQ.isLoading ? t("Loading...") : sectorsQ.error ? String(sectorsQ.error) : t("—")}
                 </Typography>
               )}
             </CardContent>

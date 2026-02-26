@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AppBar, Box, Chip, Tab, Tabs, Toolbar, Typography } from "@mui/material";
+import { AppBar, Box, Chip, IconButton, Tab, Tabs, Toolbar, Tooltip, Typography } from "@mui/material";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import SelectionTab from "../pages/SelectionTab";
 import VisualisationTab from "../pages/VisualisationTab";
 import SettingsTab from "../pages/SettingsTab";
@@ -9,11 +10,13 @@ import { api } from "../api";
 import { useLog } from "./log";
 import { useT } from "./i18n";
 import exioLogo2 from "../assets/exiobase_logo_2_transparent_128.png";
+import HelpDialog from "./HelpDialog";
 
 type TabId = "selection" | "visualisation" | "console" | "settings";
 
 export default function AppShell() {
   const [tab, setTab] = useState<TabId>("selection");
+  const [helpOpen, setHelpOpen] = useState(false);
   const log = useLog();
   const lastApiOnline = useRef<boolean | null>(null);
   const { t } = useT();
@@ -75,6 +78,13 @@ export default function AppShell() {
           </Tabs>
 
           <Box sx={{ flex: 1 }} />
+
+          <Tooltip title={t("Help")}>
+            <IconButton color="inherit" onClick={() => setHelpOpen(true)} aria-label={t("Help")}>
+              <HelpOutlineIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
           <Chip
             size="small"
             variant="outlined"
@@ -85,6 +95,7 @@ export default function AppShell() {
       </AppBar>
 
       {content}
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
     </Box>
   );
 }

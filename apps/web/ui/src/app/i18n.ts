@@ -22,8 +22,11 @@ export function useT() {
   const dict = q.data?.translations ?? {};
 
   return useMemo(() => {
-    const t = (key: string) => dict[key] ?? key;
+    const t = (key: string, params?: Record<string, string | number>) => {
+      const raw = (dict[key] ?? key) as string;
+      if (!params) return raw;
+      return raw.replace(/\{(\w+)\}/g, (_m, name) => (name in params ? String(params[name]) : `{${name}}`));
+    };
     return { t, ready: Boolean(q.data), language: q.data?.language ?? language };
   }, [dict, language, q.data]);
 }
-

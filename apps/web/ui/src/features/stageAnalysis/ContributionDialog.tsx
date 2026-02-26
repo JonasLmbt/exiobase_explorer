@@ -18,6 +18,7 @@ import { alpha, useTheme } from "@mui/material/styles";
 import ReactECharts from "echarts-for-react";
 import { api, type JobRequest } from "../../api";
 import { useAppState } from "../../app/state";
+import { useT } from "../../app/i18n";
 
 type Dimension = "sectors" | "regions";
 type ContribTableV1 = {
@@ -67,6 +68,7 @@ export default function ContributionDialog({
   stageLabel: string;
 }) {
   const { year, language, selection } = useAppState();
+  const { t } = useT();
   const theme = useTheme();
 
   const [dim, setDim] = useState<Dimension>("sectors");
@@ -176,7 +178,7 @@ export default function ContributionDialog({
       <DialogTitle>
         <Stack spacing={0.5}>
           <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-            Beitragsanalyse
+            {t("Contribution analysis")}
           </Typography>
           <Typography variant="body2" sx={{ opacity: 0.8 }}>
             {impactLabel} • {stageLabel}
@@ -186,8 +188,8 @@ export default function ContributionDialog({
       <DialogContent>
         <Stack spacing={2}>
           <Tabs value={dim} onChange={(_, v) => setDim(v)} textColor="inherit" indicatorColor="secondary">
-            <Tab value="sectors" label="Sectors" />
-            <Tab value="regions" label="Regions" />
+            <Tab value="sectors" label={t("Sectors")} />
+            <Tab value="regions" label={t("Regions")} />
           </Tabs>
 
           <ToggleButtonGroup
@@ -197,17 +199,17 @@ export default function ContributionDialog({
             size="small"
             sx={{ alignSelf: "flex-start" }}
           >
-            <ToggleButton value="bars">Bars</ToggleButton>
-            <ToggleButton value="pie">Pie</ToggleButton>
+            <ToggleButton value="bars">{t("Bars")}</ToggleButton>
+            <ToggleButton value="pie">{t("Pie")}</ToggleButton>
           </ToggleButtonGroup>
 
           <Stack direction="row" spacing={2} alignItems="center">
             <Button variant="outlined" onClick={start} disabled={createJobM.isPending}>
-              Refresh
+              {t("Refresh")}
             </Button>
             <Box sx={{ flex: 1 }} />
             <Typography variant="body2" sx={{ opacity: 0.75 }}>
-              {statusQ.data ? `${statusQ.data.state} (${Math.round(statusQ.data.progress * 100)}%)` : "—"}
+              {statusQ.data ? `${statusQ.data.state} (${Math.round(statusQ.data.progress * 100)}%)` : t("—")}
             </Typography>
           </Stack>
 
@@ -220,7 +222,7 @@ export default function ContributionDialog({
           {(createJobM.isPending || statusQ.isFetching || resultQ.isFetching) && (
             <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.85 }}>
               <CircularProgress size={18} />
-              <Typography variant="body2">Lade…</Typography>
+              <Typography variant="body2">{t("Loading…")}</Typography>
             </Stack>
           )}
 

@@ -20,6 +20,7 @@ import {
 import { api, type JobRequest } from "../../api";
 import { useAppState, type StageState } from "../../app/state";
 import { useLog } from "../../app/log";
+import { useT } from "../../app/i18n";
 import { stageMethods } from "./methodRegistry";
 import StageMatrixChart, { type StageTableV1 } from "./StageMatrixChart";
 import ContributionDialog from "./ContributionDialog";
@@ -33,6 +34,7 @@ export default function StageAnalysisTab({
 }) {
   const { year, language, selection } = useAppState();
   const log = useLog();
+  const { t } = useT();
 
   const methodId = stage.methodId;
   const impacts = stage.impacts;
@@ -155,20 +157,23 @@ export default function StageAnalysisTab({
         <CardContent>
           <Stack spacing={2}>
             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              Stage analysis
+              {t("Stage analysis")}
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.8 }}>
+              {t("StageTab.Intro")}
             </Typography>
 
             <FormControl>
-              <InputLabel id="method-label">Method</InputLabel>
+              <InputLabel id="method-label">{t("Method")}</InputLabel>
               <Select
                 labelId="method-label"
-                label="Method"
+                label={t("Method")}
                 value={methodId}
                 onChange={(e) => setStage((s) => ({ ...s, methodId: String(e.target.value) }))}
               >
                 {stageMethods.map((m) => (
                   <MenuItem key={m.id} value={m.id}>
-                    {m.label}
+                    {t(m.label)}
                   </MenuItem>
                 ))}
               </Select>
@@ -199,7 +204,7 @@ export default function StageAnalysisTab({
                   (o) => (o.label ?? "").toLowerCase().includes(q) || (o.key ?? "").toLowerCase().includes(q),
                 );
               }}
-              renderInput={(params) => <TextField {...params} label="Impact" placeholder="Search impacts…" size="small" />}
+              renderInput={(params) => <TextField {...params} label={t("Impact")} placeholder={t("Search impacts…")} size="small" />}
               ListboxProps={{ style: { maxHeight: 360 } }}
               isOptionEqualToValue={(a, b) => a.key === b.key}
               renderOption={(props, option, { selected }) => (
@@ -236,7 +241,7 @@ export default function StageAnalysisTab({
                     onChange={(e) => setStage((s) => ({ ...s, showStagePercentLabels: e.target.checked }))}
                   />
                 }
-                label="Percent labels per stage"
+                label={t("Percent labels per stage")}
               />
               <FormControlLabel
                 control={
@@ -245,43 +250,43 @@ export default function StageAnalysisTab({
                     onChange={(e) => setStage((s) => ({ ...s, showTotalAbsoluteLabel: e.target.checked }))}
                   />
                 }
-                label="Absolute total label"
+                label={t("Absolute total label")}
               />
             </Stack>
 
             <Button variant="contained" onClick={onRun} disabled={runDisabled} size="large" sx={{ py: 1.2 }}>
-              Run
+              {t("Run")}
             </Button>
 
             <Typography variant="body2" sx={{ opacity: 0.75 }}>
-              Auswahl kommt aus dem Tab <b>Selection</b> (Region/Sektor). Ohne Auswahl wird global gerechnet.
+              {t("StageTab.SelectionHint")} <b>{t("Selection")}</b>
             </Typography>
 
             <Stack spacing={1} sx={{ opacity: 0.9 }}>
               <Stack direction="row" spacing={2}>
-                <Box sx={{ minWidth: 80 }}>Job</Box>
-                <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{jobId ?? "—"}</Box>
+                <Box sx={{ minWidth: 80 }}>{t("Job")}</Box>
+                <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{jobId ?? t("—")}</Box>
               </Stack>
               <Stack direction="row" spacing={2}>
-                <Box sx={{ minWidth: 80 }}>Status</Box>
+                <Box sx={{ minWidth: 80 }}>{t("Status")}</Box>
                 <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
-                  {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : "—"}
+                  {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : t("—")}
                 </Box>
               </Stack>
             </Stack>
 
             {jobStatusQ.data?.state === "failed" ? (
               <Box sx={{ color: "#ffd2d2" }}>
-                <Typography variant="body2" sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
-                  {jobStatusQ.data.message ?? "Job failed"}
-                </Typography>
+                  <Typography variant="body2" sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
+                  {jobStatusQ.data.message ?? t("Job failed")}
+                  </Typography>
               </Box>
             ) : null}
 
             {(createJobM.isPending || jobStatusQ.isFetching) && (
               <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.9 }}>
                 <CircularProgress size={18} />
-                <Typography variant="body2">Berechne…</Typography>
+                <Typography variant="body2">{t("Calculating…")}</Typography>
               </Stack>
             )}
 

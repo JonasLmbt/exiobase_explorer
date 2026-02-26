@@ -4,9 +4,11 @@ import { api, type JobRequest } from "../api";
 import { useLog } from "../app/log";
 import { useAppState } from "../app/state";
 import LogConsole from "../components/LogConsole";
+import { useT } from "../app/i18n";
 
 export default function ConsoleTab() {
   const log = useLog();
+  const { t } = useT();
   const {
     year,
     setYear,
@@ -164,7 +166,7 @@ export default function ConsoleTab() {
       <Stack spacing={2}>
         <Card>
           <CardContent>
-            <LogConsole title="Console output" />
+            <LogConsole title={t("Console output")} />
           </CardContent>
         </Card>
 
@@ -175,8 +177,8 @@ export default function ConsoleTab() {
                 <TextField
                   fullWidth
                   size="small"
-                  label="Command"
-                  placeholder='Type "help"…'
+                  label={t("Command")}
+                  placeholder={t('Type "help"…')}
                   value={cmd}
                   onChange={(e) => setCmd(e.target.value)}
                   onKeyDown={(e) => {
@@ -188,17 +190,17 @@ export default function ConsoleTab() {
                   disabled={running}
                 />
                 <Typography variant="caption" sx={{ opacity: 0.75 }}>
-                  Quick: `health`, `year 2022`, `lang Deutsch`, `theme dark|light`, `job &lt;id&gt;`, `clear`
+                  {t("ConsoleTab.QuickHelp")}
                 </Typography>
               </Box>
               <Button variant="contained" onClick={run} disabled={running || !cmd.trim()}>
-                Run
+                {t("Run")}
               </Button>
               <Button variant="outlined" onClick={() => setCmd("")} disabled={running || !cmd}>
-                Reset
+                {t("Reset")}
               </Button>
               <Button variant="outlined" onClick={() => log.info(`mode=${themeMode}, year=${year}, language=${language}`)} disabled={running}>
-                Info
+                {t("Info")}
               </Button>
             </Stack>
           </CardContent>

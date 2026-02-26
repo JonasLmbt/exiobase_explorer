@@ -18,6 +18,7 @@ import { alpha, useTheme } from "@mui/material/styles";
 import ReactECharts from "echarts-for-react";
 import { api, type JobRequest } from "../../api";
 import { useAppState } from "../../app/state";
+import { useT } from "../../app/i18n";
 
 type ContribTableV1 = {
   kind: "contrib_table_v1";
@@ -68,6 +69,7 @@ export default function RegionContributionDialog({
   regionLabel: string;
 }) {
   const { year, language, selection } = useAppState();
+  const { t } = useT();
   const theme = useTheme();
 
   const [activeImpact, setActiveImpact] = useState<string>(() => initialImpactKey || impactKeys[0] || "");
@@ -188,7 +190,7 @@ export default function RegionContributionDialog({
       <DialogTitle>
         <Stack spacing={0.5}>
           <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-            Beitragsanalyse
+            {t("Contribution analysis")}
           </Typography>
           <Typography variant="body2" sx={{ opacity: 0.8 }}>
             {impactLabel} • {regionLabel}
@@ -219,17 +221,17 @@ export default function RegionContributionDialog({
             size="small"
             sx={{ alignSelf: "flex-start" }}
           >
-            <ToggleButton value="bars">Bars</ToggleButton>
-            <ToggleButton value="pie">Pie</ToggleButton>
+            <ToggleButton value="bars">{t("Bars")}</ToggleButton>
+            <ToggleButton value="pie">{t("Pie")}</ToggleButton>
           </ToggleButtonGroup>
 
           <Stack direction="row" spacing={2} alignItems="center">
             <Button variant="outlined" onClick={start} disabled={createJobM.isPending}>
-              Refresh
+              {t("Refresh")}
             </Button>
             <Box sx={{ flex: 1 }} />
             <Typography variant="body2" sx={{ opacity: 0.75 }}>
-              {statusQ.data ? `${statusQ.data.state} (${Math.round(statusQ.data.progress * 100)}%)` : "—"}
+              {statusQ.data ? `${statusQ.data.state} (${Math.round(statusQ.data.progress * 100)}%)` : t("—")}
             </Typography>
           </Stack>
 
@@ -242,7 +244,7 @@ export default function RegionContributionDialog({
           {(createJobM.isPending || statusQ.isFetching || resultQ.isFetching) && (
             <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.85 }}>
               <CircularProgress size={18} />
-              <Typography variant="body2">Lade…</Typography>
+              <Typography variant="body2">{t("Loading…")}</Typography>
             </Stack>
           )}
 

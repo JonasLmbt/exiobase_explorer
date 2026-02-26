@@ -21,6 +21,7 @@ import {
 import { api, type JobRequest } from "../../api";
 import { useAppState, type RegionState } from "../../app/state";
 import { useLog } from "../../app/log";
+import { useT } from "../../app/i18n";
 import { regionMethods } from "./methodRegistry";
 import WorldMapLeaflet, { type GeoJsonV1 } from "./WorldMapLeaflet";
 import ReactECharts from "echarts-for-react";
@@ -35,6 +36,7 @@ export default function RegionAnalysisTab({
 }) {
   const { year, language, selection } = useAppState();
   const log = useLog();
+  const { t } = useT();
   const [error, setError] = useState<string | null>(null);
   const [contribOpen, setContribOpen] = useState(false);
   const [contribRegionExiobase, setContribRegionExiobase] = useState<string | null>(null);
@@ -158,20 +160,23 @@ export default function RegionAnalysisTab({
         <CardContent sx={{ height: { xs: "auto", lg: "100%" }, overflow: { xs: "visible", lg: "auto" } }}>
           <Stack spacing={2}>
             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              Region analysis
+              {t("Region analysis")}
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.8 }}>
+              {t("RegionTab.Intro")}
             </Typography>
 
             <FormControl>
-              <InputLabel id="method-label">Method</InputLabel>
+              <InputLabel id="method-label">{t("Method")}</InputLabel>
               <Select
                 labelId="method-label"
-                label="Method"
+                label={t("Method")}
                 value={methodId}
                 onChange={(e) => setRegion((s) => ({ ...s, methodId: String(e.target.value) }))}
               >
                 {regionMethods.map((m) => (
                   <MenuItem key={m.id} value={m.id}>
-                    {m.label}
+                    {t(m.label)}
                   </MenuItem>
                 ))}
               </Select>
@@ -219,7 +224,7 @@ export default function RegionAnalysisTab({
                 if (!q) return opts;
                 return opts.filter((o) => (o.label ?? "").toLowerCase().includes(q) || (o.key ?? "").toLowerCase().includes(q));
               }}
-              renderInput={(params) => <TextField {...params} label="Impact" placeholder="Search impacts…" size="small" />}
+              renderInput={(params) => <TextField {...params} label={t("Impact")} placeholder={t("Search impacts…")} size="small" />}
               ListboxProps={{ style: { maxHeight: 360 } }}
               isOptionEqualToValue={(a, b) => a.key === b.key}
               renderOption={(props, option, { selected }) => (
@@ -252,12 +257,15 @@ export default function RegionAnalysisTab({
             {method.analysisType === "region_world_map" ? (
               <Stack spacing={1}>
                 <Divider sx={{ opacity: 0.5 }} />
+                <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                  {t("RegionTab.MapIntro")}
+                </Typography>
 
                 <FormControl fullWidth>
-                  <InputLabel id="projection-label">Projektion</InputLabel>
+                  <InputLabel id="projection-label">{t("Projection")}</InputLabel>
                   <Select
                     labelId="projection-label"
-                    label="Projektion"
+                    label={t("Projection")}
                     value={mapProjection}
                     onChange={(e) => setRegion((s) => ({ ...s, mapProjection: e.target.value as any }))}
                     size="small"
@@ -270,24 +278,24 @@ export default function RegionAnalysisTab({
 
                 <Stack direction="row" spacing={1} alignItems="center">
                   <FormControl fullWidth>
-                    <InputLabel id="palette-label">Palette</InputLabel>
+                    <InputLabel id="palette-label">{t("Palette")}</InputLabel>
                     <Select
                       labelId="palette-label"
-                      label="Palette"
+                      label={t("Palette")}
                       value={mapPalette}
                       onChange={(e) => setRegion((s) => ({ ...s, mapPalette: e.target.value as any }))}
                       size="small"
                     >
-                      <MenuItem value="Reds">Rottöne</MenuItem>
-                      <MenuItem value="Blues">Blautöne</MenuItem>
-                      <MenuItem value="Greens">Grüntöne</MenuItem>
-                      <MenuItem value="Greys">Grautöne</MenuItem>
+                      <MenuItem value="Reds">{t("Reds")}</MenuItem>
+                      <MenuItem value="Blues">{t("Blues")}</MenuItem>
+                      <MenuItem value="Greens">{t("Greens")}</MenuItem>
+                      <MenuItem value="Greys">{t("Greys")}</MenuItem>
                       <MenuItem value="Viridis">Viridis</MenuItem>
                     </Select>
                   </FormControl>
                   <FormControlLabel
                     control={<Checkbox checked={mapReverse} onChange={(e) => setRegion((s) => ({ ...s, mapReverse: e.target.checked }))} />}
-                    label="Umkehren"
+                    label={t("Reverse")}
                   />
                 </Stack>
 
@@ -295,35 +303,35 @@ export default function RegionAnalysisTab({
                   control={
                     <Checkbox checked={mapShowLegend} onChange={(e) => setRegion((s) => ({ ...s, mapShowLegend: e.target.checked }))} />
                   }
-                  label="Legende anzeigen"
+                  label={t("Show legend")}
                 />
 
                 <TextField
-                  label="Titel (optional)"
+                  label={t("Title (optional)")}
                   size="small"
                   value={mapTitle}
                   onChange={(e) => setRegion((s) => ({ ...s, mapTitle: e.target.value }))}
                 />
 
                 <FormControl fullWidth>
-                  <InputLabel id="mode-label">Modus</InputLabel>
+                  <InputLabel id="mode-label">{t("Mode")}</InputLabel>
                   <Select
                     labelId="mode-label"
-                    label="Modus"
+                    label={t("Mode")}
                     value={mapMode}
                     onChange={(e) => setRegion((s) => ({ ...s, mapMode: e.target.value as any }))}
                     size="small"
                   >
-                    <MenuItem value="binned">binned</MenuItem>
-                    <MenuItem value="continuous">continuous</MenuItem>
+                    <MenuItem value="binned">{t("Binned")}</MenuItem>
+                    <MenuItem value="continuous">{t("Continuous")}</MenuItem>
                   </Select>
                 </FormControl>
 
                 <FormControl fullWidth>
-                  <InputLabel id="value-mode-label">Werte</InputLabel>
+                  <InputLabel id="value-mode-label">{t("Values")}</InputLabel>
                   <Select
                     labelId="value-mode-label"
-                    label="Werte"
+                    label={t("Values")}
                     value={mapValueMode}
                     onChange={(e) => {
                       const v = e.target.value as any;
@@ -331,8 +339,8 @@ export default function RegionAnalysisTab({
                     }}
                     size="small"
                   >
-                    <MenuItem value="value">Absolut</MenuItem>
-                    <MenuItem value="per_capita">Pro Kopf</MenuItem>
+                    <MenuItem value="value">{t("Absolute")}</MenuItem>
+                    <MenuItem value="per_capita">{t("Per capita")}</MenuItem>
                   </Select>
                 </FormControl>
 
@@ -346,11 +354,11 @@ export default function RegionAnalysisTab({
                           disabled={mapValueMode === "per_capita"}
                         />
                       }
-                      label="Relativ (Summe = 100%)"
+                      label={t("Relative (sum = 100%)")}
                     />
                     <Stack direction="row" spacing={1}>
                       <TextField
-                        label="Klassen (k)"
+                        label={t("Classes (k)")}
                         size="small"
                         type="number"
                         value={mapK}
@@ -359,11 +367,11 @@ export default function RegionAnalysisTab({
                         sx={{ flex: 1 }}
                       />
                       <TextField
-                        label="Eigene Klassen"
+                        label={t("Custom classes")}
                         size="small"
                         value={mapCustomBins}
                         onChange={(e) => setRegion((s) => ({ ...s, mapCustomBins: e.target.value }))}
-                        placeholder="z.B. 1, 2, 5, 10"
+                        placeholder={t("e.g. 1, 2, 5, 10")}
                         sx={{ flex: 2 }}
                       />
                     </Stack>
@@ -371,10 +379,10 @@ export default function RegionAnalysisTab({
                 ) : (
                   <Stack spacing={1}>
                     <FormControl fullWidth>
-                      <InputLabel id="norm-label">Normierung</InputLabel>
+                      <InputLabel id="norm-label">{t("Normalization")}</InputLabel>
                       <Select
                         labelId="norm-label"
-                        label="Normierung"
+                        label={t("Normalization")}
                         value={mapNormMode}
                         onChange={(e) => setRegion((s) => ({ ...s, mapNormMode: e.target.value as any }))}
                         size="small"
@@ -386,7 +394,7 @@ export default function RegionAnalysisTab({
                     </FormControl>
                     <Stack direction="row" spacing={1}>
                       <TextField
-                        label="Robustes Clipping (%)"
+                        label={t("Robust clipping (%)")}
                         size="small"
                         type="number"
                         value={mapRobust}
@@ -406,7 +414,7 @@ export default function RegionAnalysisTab({
                       />
                     </Stack>
                     <Typography variant="caption" sx={{ opacity: 0.75 }}>
-                      Continuous-Modus nutzt absolute Werte (oder pro Kopf, falls verfÃ¼gbar).
+                      {t("RegionTab.ContinuousHint")}
                     </Typography>
                   </Stack>
                 )}
@@ -414,22 +422,22 @@ export default function RegionAnalysisTab({
             ) : null}
 
             <Button variant="contained" onClick={onRun} disabled={runDisabled} size="large" sx={{ py: 1.2 }}>
-              Run
+              {t("Run")}
             </Button>
 
             <Typography variant="body2" sx={{ opacity: 0.75 }}>
-              Auswahl kommt aus dem Tab <b>Selection</b> (Region/Sektor). Ohne Auswahl wird global gerechnet.
+              {t("RegionTab.SelectionHint")} <b>{t("Selection")}</b>
             </Typography>
 
             <Stack spacing={1} sx={{ opacity: 0.9 }}>
               <Stack direction="row" spacing={2}>
-                <Box sx={{ minWidth: 80 }}>Job</Box>
-                <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{jobId ?? "—"}</Box>
+                <Box sx={{ minWidth: 80 }}>{t("Job")}</Box>
+                <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{jobId ?? t("—")}</Box>
               </Stack>
               <Stack direction="row" spacing={2}>
-                <Box sx={{ minWidth: 80 }}>Status</Box>
+                <Box sx={{ minWidth: 80 }}>{t("Status")}</Box>
                 <Box sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
-                  {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : "—"}
+                  {jobStatusQ.data ? `${jobStatusQ.data.state} (${Math.round(jobStatusQ.data.progress * 100)}%)` : t("—")}
                 </Box>
               </Stack>
             </Stack>
@@ -437,7 +445,7 @@ export default function RegionAnalysisTab({
             {jobStatusQ.data?.state === "failed" ? (
               <Box sx={{ color: "#ffd2d2" }}>
                 <Typography variant="body2" sx={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>
-                  {jobStatusQ.data.message ?? "Job failed"}
+                  {jobStatusQ.data.message ?? t("Job failed")}
                 </Typography>
               </Box>
             ) : null}
@@ -445,7 +453,7 @@ export default function RegionAnalysisTab({
             {(createJobM.isPending || jobStatusQ.isFetching) && (
               <Stack direction="row" spacing={1} alignItems="center" sx={{ opacity: 0.9 }}>
                 <CircularProgress size={18} />
-                <Typography variant="body2">Berechne…</Typography>
+                <Typography variant="body2">{t("Calculating…")}</Typography>
               </Stack>
             )}
 

@@ -6,6 +6,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import StageAnalysisTab from "../features/stageAnalysis/StageAnalysisTab";
 import RegionAnalysisTab from "../features/regionAnalysis/RegionAnalysisTab";
 import { useAppState, type RegionState, type StageState } from "../app/state";
+import { useT } from "../app/i18n";
 
 type Inner = "stage" | "region";
 
@@ -31,6 +32,7 @@ export default function VisualisationTab() {
     activeRegionSessionId,
     setActiveRegionSessionId,
   } = useAppState();
+  const { t } = useT();
   const [inner, setInner] = useState<Inner>("stage");
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameKind, setRenameKind] = useState<Inner>("stage");
@@ -68,7 +70,7 @@ export default function VisualisationTab() {
 
   const addStage = () => {
     const id = newId();
-    const title = `Stage ${stageSessions.length + 1}`;
+    const title = t("Stage {n}", { n: stageSessions.length + 1 });
     setStageSessions((prev) => [
       ...prev,
       {
@@ -82,7 +84,7 @@ export default function VisualisationTab() {
 
   const addRegion = () => {
     const id = newId();
-    const title = `Region ${regionSessions.length + 1}`;
+    const title = t("Region {n}", { n: regionSessions.length + 1 });
     setRegionSessions((prev) => [
       ...prev,
       {
@@ -121,7 +123,7 @@ export default function VisualisationTab() {
   };
 
   const applyRename = () => {
-    const title = renameValue.trim() || (renameKind === "stage" ? "Stage" : "Region");
+    const title = renameValue.trim() || (renameKind === "stage" ? t("Stage") : t("Region"));
     if (renameKind === "stage") {
       setStageSessions((prev) => prev.map((s) => (s.id === renameId ? { ...s, title } : s)));
     } else {
@@ -139,7 +141,7 @@ export default function VisualisationTab() {
         return [
           {
             id: nid,
-            title: "Stage 1",
+            title: t("Stage {n}", { n: 1 }),
             state: { methodId: "bubble", impacts: [], jobId: null, lastResult: null, showStagePercentLabels: true, showTotalAbsoluteLabel: true },
           },
         ];
@@ -158,7 +160,7 @@ export default function VisualisationTab() {
         return [
           {
             id: nid,
-            title: "Region 1",
+            title: t("Region {n}", { n: 1 }),
             state: {
               methodId: "world_map",
               impacts: [],
@@ -191,15 +193,15 @@ export default function VisualisationTab() {
     <Container maxWidth={false} sx={{ py: 3, px: { xs: 2, md: 3 } }}>
       <Stack spacing={2}>
         <Tabs value={inner} onChange={(_, v) => setInner(v)} textColor="inherit" indicatorColor="secondary">
-          <Tab value="stage" label="Stage analysis" />
-          <Tab value="region" label="Region analysis" />
+          <Tab value="stage" label={t("Stage analysis")} />
+          <Tab value="region" label={t("Region analysis")} />
         </Tabs>
 
         {inner === "stage" ? (
           <Stack spacing={2}>
             <Stack direction="row" spacing={1} alignItems="center">
               <Typography variant="subtitle2" sx={{ fontWeight: 700, opacity: 0.8 }}>
-                Tabs
+                {t("Tabs")}
               </Typography>
               <Tabs
                 value={activeStageSessionId}
@@ -243,7 +245,7 @@ export default function VisualisationTab() {
                   />
                 ))}
               </Tabs>
-              <Tooltip title="New stage tab">
+              <Tooltip title={t("New stage tab")}>
                 <IconButton onClick={addStage} size="small">
                   <AddIcon />
                 </IconButton>
@@ -256,7 +258,7 @@ export default function VisualisationTab() {
           <Stack spacing={2}>
             <Stack direction="row" spacing={1} alignItems="center">
               <Typography variant="subtitle2" sx={{ fontWeight: 700, opacity: 0.8 }}>
-                Tabs
+                {t("Tabs")}
               </Typography>
               <Tabs
                 value={activeRegionSessionId}
@@ -300,7 +302,7 @@ export default function VisualisationTab() {
                   />
                 ))}
               </Tabs>
-              <Tooltip title="New region tab">
+              <Tooltip title={t("New region tab")}>
                 <IconButton onClick={addRegion} size="small">
                   <AddIcon />
                 </IconButton>
@@ -313,12 +315,12 @@ export default function VisualisationTab() {
       </Stack>
 
       <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Tab umbenennen</DialogTitle>
+        <DialogTitle>{t("Rename tab")}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             margin="dense"
-            label="Name"
+            label={t("Name")}
             fullWidth
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
@@ -328,9 +330,9 @@ export default function VisualisationTab() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRenameOpen(false)}>Abbrechen</Button>
+          <Button onClick={() => setRenameOpen(false)}>{t("Cancel")}</Button>
           <Button variant="contained" onClick={applyRename}>
-            OK
+            {t("OK")}
           </Button>
         </DialogActions>
       </Dialog>
