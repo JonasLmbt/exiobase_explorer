@@ -20,6 +20,8 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
+from .unit_display import UnitFormatter, UnitsConfigError
+
 # Configure logging for clear output
 logging.basicConfig(
     level=logging.INFO,
@@ -81,6 +83,7 @@ class Index:
         self.raw_material_indices = []
         self.not_raw_material_indices = []
         self.languages = []
+        self.unit_formatter: Optional[UnitFormatter] = None
 
     def read_configs(self) -> None:
         """
@@ -167,6 +170,9 @@ class Index:
             # Create a dictionary from the 'general_df' DataFrame, mapping 'exiobase' to 'translation'
             self.general_dict = dict(zip(self.general_df['exiobase'], self.general_df['translation']))
 
+            # Optional: load unit display scaling config (new units.xlsx structure)
+            self.load_unit_display_config()
+
             # Optional: population data for per-capita metrics in maps/tooltips
             self._read_population_sheet()
 
@@ -181,6 +187,60 @@ class Index:
         except Exception as e:
             logging.error(f"Error during Excel reading and processing: {e}")
             raise
+
+    def load_unit_display_config(self, units_xlsx_path: Optional[str] = None) -> None:
+        """
+        Best-effort: load unit display scaling + i18n config from `units.xlsx`.
+
+        This does not affect internal computations; it only provides a formatter
+        to scale units and format numbers for UI display.
+        """
+        candidates = []
+        if units_xlsx_path:
+            candidates.append(units_xlsx_path)
+        candidates.extend(
+            [
+                os.path.join(self.iosystem.current_fast_database_path, "units.xlsx"),
+                os.path.join(self.iosystem.config_dir, "units.xlsx"),
+            ]
+        )
+
+        for p in candidates:
+            if not p or not os.path.exists(p):
+                continue
+            try:
+                self.unit_formatter = UnitFormatter.from_excel(p)
+                logging.debug(f"Loaded unit display config: {p}")
+                return
+            except UnitsConfigError as e:
+                # If file exists but doesn't match new schema, keep going.
+                logging.debug(f"units.xlsx at '{p}' is not in the new schema: {e}")
+            except Exception as e:
+                logging.debug(f"Failed to load unit display config from '{p}': {e}")
+
+        self.unit_formatter = None
+
+    def format_value_display(
+        self,
+        impact_key: str,
+        value_source: float,
+        *,
+        lang: Optional[str] = None,
+        style: str = "short",
+    ) -> Tuple[str, str, Dict[str, Union[str, float, int]]]:
+        """
+        Format a numeric value for UI display using the optional unit display config.
+
+        Returns:
+            (formatted_value, unit_label, metadata)
+
+        Raises:
+            ValueError if the unit display formatter is not available.
+        """
+        if self.unit_formatter is None:
+            raise ValueError("Unit display config not loaded (units.xlsx new schema missing).")
+        language = lang or getattr(self.iosystem, "language", "en")
+        return self.unit_formatter.format_value_tuple(impact_key, value_source, language, style=style)  # type: ignore[arg-type]
 
     def _create_raw_material_indices(self) -> None:
         """
