@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from functools import lru_cache
+
 from fastapi import APIRouter, HTTPException, Query
 
 import pandas as pd
 
 from ...paths import config_dir, fast_database_path
 from ...utils import multiindex_to_nested_dict
+
+from src.Index import UnitFormatter
 
 router = APIRouter()
 
@@ -32,6 +36,11 @@ def _available_sheets(path) -> list[str]:
             return list(xls.sheet_names)
     except Exception:
         return []
+
+
+@lru_cache(maxsize=8)
+def _unit_formatter_for_units_xlsx(path: str) -> UnitFormatter:
+    return UnitFormatter.from_excel(path)
 
 
 @router.get("/hierarchy/regions")
@@ -84,7 +93,6 @@ def impacts(
             raise HTTPException(status_code=404, detail=f"units.xlsx not found: {units_path.as_posix()}")
 
     impact_sheets = _available_sheets(impacts_path)
-    unit_sheets = _available_sheets(units_path)
 
     color_map: dict[str, str] = {}
     if "color" in impact_sheets:
@@ -104,49 +112,50 @@ def impacts(
     if len(labels) != len(keys):
         labels = list(keys)
 
-    # Units: read same-row meta; use requested language if present for nicer labels.
-    unit_sheet = language if language in unit_sheets else ("Exiobase" if "Exiobase" in unit_sheets else None)
-    units_df = pd.read_excel(str(units_path), sheet_name=unit_sheet) if unit_sheet else pd.DataFrame()
-
-    # If impacts.xlsx doesn't have a localized sheet, but units.xlsx does, use its first column as labels.
-    # For German this is typically "Umweltindikator" and matches what IOSystem matrices use.
+    # Units: new schema via UnitFormatter (units.xlsx).
+    # We return a default unit label (short) based on the configured default_factor.
     label_source = "impacts.xlsx"
-    if label_sheet == key_sheet and unit_sheet == language and not units_df.empty and units_df.shape[1] >= 1:
-        ulabels = units_df.iloc[:, 0].astype(str).tolist()
-        if len(ulabels) == len(keys):
-            labels = ulabels
-            label_source = "units.xlsx"
+    try:
+        uf = _unit_formatter_for_units_xlsx(str(units_path))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse units.xlsx: {e}") from e
 
     items = []
     for idx, key in enumerate(keys):
         label = labels[idx] if idx < len(labels) else key
-        unit = ""
-        divisor = 1.0
-        decimal_places = 0
 
-        if not units_df.empty and idx < len(units_df.index) and units_df.shape[1] >= 5:
-            row = units_df.iloc[idx]
-            try:
-                divisor = float(row.iloc[2]) if row.iloc[2] is not None else 1.0
-            except Exception:
-                divisor = 1.0
-            try:
-                decimal_places = int(row.iloc[3]) if row.iloc[3] is not None else 0
-            except Exception:
-                decimal_places = 0
-            try:
-                unit = str(row.iloc[4] or "")
-            except Exception:
-                unit = ""
+        unit_short = ""
+        unit_long = ""
+        decimal_places = 2
+        base_unit = ""
+        chosen_exponent = 0
+        chosen_factor = 1.0
+
+        try:
+            meta = uf.format_value(str(key), 0.0, language, style="short")
+            unit_short = str(meta.get("unit_short") or "").strip()
+            unit_long = str(meta.get("unit_long") or "").strip()
+            chosen_exponent = int(meta.get("chosen_exponent") or 0)
+            chosen_factor = float(meta.get("chosen_factor") or 1.0)
+
+            core = uf._cfg.core_by_key.get(str(key))  # type: ignore[attr-defined]
+            base_unit = str(getattr(core, "base_unit", "") or "").strip() if core else ""
+            decimal_places = int(getattr(core, "decimals", 2) if core else 2)
+        except Exception:
+            unit_short = ""
 
         items.append(
             {
                 "key": str(key),
                 "label": str(label),
-                "unit": unit,
+                "unit": unit_short or base_unit,
+                "unit_short": unit_short or base_unit,
+                "unit_long": unit_long or unit_short or base_unit,
                 "color": str(color_map.get(str(key), "") or ""),
                 "decimal_places": decimal_places,
-                "divisor": divisor,
+                "base_unit": base_unit,
+                "default_exponent": chosen_exponent,
+                "default_factor": chosen_factor,
             }
         )
 
@@ -154,6 +163,5 @@ def impacts(
         "impacts": items,
         "key_sheet": key_sheet,
         "label_sheet": label_sheet,
-        "unit_sheet": unit_sheet,
         "label_source": label_source,
     }
