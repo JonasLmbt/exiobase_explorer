@@ -811,17 +811,36 @@ class SupplyChain:
             .tolist()
         )
 
-        # Unit transformation
-        values = [self.transform_unit(value=value, impact=impact)[0] for value in values]
+        # Unit transformation (prefer new dynamic scaling config if available)
+        unit_scalar = self.iosystem.impact.get_unit(impact)
+        try:
+            idx = self.iosystem.index
+            uf = getattr(idx, "unit_formatter", None)
+            if uf is not None:
+                impact_key = idx.impact_key_from_label(impact)
+                # Choose exponent based on the maximum absolute value (consistent scaling across regions).
+                max_abs = max((abs(float(v)) for v in values if v is not None), default=0.0)
+                meta = uf.format_value(impact_key, max_abs, self.iosystem.language, style="short")
+                chosen_factor = float(meta.get("chosen_factor") or 1.0)
+                unit_scalar = str(meta.get("unit_short") or unit_scalar or "").strip()
+
+                # Convert source -> base and apply chosen factor (divisor in base units).
+                core = uf._cfg.core_by_key.get(impact_key)  # type: ignore[attr-defined]
+                source_to_base = float(getattr(core, "source_to_base", 1.0) or 1.0) if core else 1.0
+                divisor_source = chosen_factor / source_to_base if source_to_base else chosen_factor
+
+                if divisor_source and divisor_source != 0:
+                    values = [float(v) / float(divisor_source) for v in values]
+        except Exception:
+            # Fallback: legacy behavior (fixed divisor per impact)
+            values = [self.transform_unit(value=value, impact=impact)[0] for value in values]
+            unit_scalar = self.iosystem.impact.get_unit(impact)
 
         df = pd.DataFrame({impact: values}, index=self.iosystem.regions_exiobase)
 
         if title is None:
             general_dict = self.iosystem.index.general_dict
             title = f'{general_dict["Global"]} {impact} {self._get_title()}'
-
-        # IMPORTANT: pass unit as scalar, not a list (avoids length mismatch after drops)
-        unit_scalar = self.iosystem.impact.get_unit(impact)
 
         return self._plot_worldmap_by_data(
             df=df,

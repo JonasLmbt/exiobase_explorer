@@ -18,6 +18,7 @@ import logging
 import os
 
 import shutil
+import unicodedata
 
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -191,13 +192,31 @@ class UnitsConfig:
         except Exception as e:
             raise UnitsConfigError(f"Failed to open units.xlsx: {path}: {e}") from e
 
-        # Resolve sheet names case-insensitively.
+        # Resolve sheet names case-insensitively (and accent-insensitively for user convenience).
         by_low = {str(s).strip().casefold(): str(s) for s in sheets}
-        exiobase_sheet = by_low.get("exiobase") or by_low.get("exiobase ")
+
+        def _strip_accents(s: str) -> str:
+            return "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
+
+        by_ascii = {_strip_accents(k): v for k, v in by_low.items()}
+
+        def _get_sheet(*names: str) -> Optional[str]:
+            for n in names:
+                if not n:
+                    continue
+                key = str(n).strip().casefold()
+                if key in by_low:
+                    return by_low[key]
+                key2 = _strip_accents(key)
+                if key2 in by_ascii:
+                    return by_ascii[key2]
+            return None
+
+        exiobase_sheet = _get_sheet("exiobase")
         if not exiobase_sheet:
             raise UnitsConfigError("Missing required sheet 'exiobase'.")
 
-        sep_sheet = by_low.get("separators")
+        sep_sheet = _get_sheet("separators")
         if not sep_sheet:
             raise UnitsConfigError("Missing required sheet 'separators'.")
 
@@ -261,18 +280,27 @@ class UnitsConfig:
             raise UnitsConfigError("Sheet 'exiobase' has no impact_key rows.")
 
         sep_df = cls._read_sheet(path, sep_sheet)
-        for col in ("lang", "thousand_separator", "decimal_separator"):
+        # Accept either `lang` (spec) or `language` (older user files) as the language column.
+        lang_col = "lang" if "lang" in sep_df.columns else ("language" if "language" in sep_df.columns else "")
+        if not lang_col:
+            raise UnitsConfigError("Sheet 'separators' is missing column 'lang' (or 'language').")
+        for col in ("thousand_separator", "decimal_separator"):
             if col not in sep_df.columns:
                 raise UnitsConfigError(f"Sheet 'separators' is missing column '{col}'.")
         separators_by_lang: Dict[str, Separators] = {}
         for _, r in sep_df.iterrows():
-            lang = _norm_lang(str(r.get("lang") or ""))
-            thousand = _cell_str(r.get("thousand_separator")) or ","
+            lang = _norm_lang(str(r.get(lang_col) or ""))
+            # Allow empty thousand separator (e.g. French often uses spaces).
+            thousand = _cell_str(r.get("thousand_separator"))
             decimal = _cell_str(r.get("decimal_separator")) or "."
             separators_by_lang[lang] = Separators(thousand=thousand, decimal=decimal)
         separators_by_lang.setdefault("en", Separators(thousand=",", decimal="."))
 
         # Language impact mapping sheets.
+        #
+        # Internally we normalize languages to ISO-like codes ("de", "en", "fr", "es") via `_norm_lang()`,
+        # but the Excel sheets are named human-readable ("Deutsch", "English", ...). We resolve those sheet
+        # names case-insensitively here and store them under the normalized language codes.
         lang_sheet_by_code = {
             "de": by_low.get("deutsch"),
             "en": by_low.get("english"),
@@ -280,8 +308,16 @@ class UnitsConfig:
             "es": by_low.get("español") or by_low.get("espanol"),
         }
 
+        # Prefer accent-insensitive lookup to match both "Français" and "Francais", etc.
+        _lang_sheet_by_code = {
+            "de": _get_sheet("deutsch"),
+            "en": _get_sheet("english"),
+            "fr": _get_sheet("francais"),
+            "es": _get_sheet("espanol"),
+        }
+
         impact_lang_by_lang: Dict[str, Dict[str, ImpactLangRow]] = {}
-        for code, sheet in lang_sheet_by_code.items():
+        for code, sheet in _lang_sheet_by_code.items():
             if not sheet:
                 continue
             df = cls._read_sheet(path, sheet)
@@ -307,7 +343,7 @@ class UnitsConfig:
 
         # Family label sheets.
         families_by_lang: Dict[str, Dict[str, Dict[int, Dict[str, str]]]] = {}
-        for code, base_sheet in lang_sheet_by_code.items():
+        for code, base_sheet in _lang_sheet_by_code.items():
             if not base_sheet:
                 continue
             fam_sheet = by_low.get(f"{base_sheet.casefold()}_families")
@@ -601,6 +637,7 @@ class Index:
         self.exiobase_to_map_df = None
         self.population_df = None
         self.impacts_df = None
+        self.impacts_exiobase_df = None
         self.impact_color_df = None
         self.units_df = None
         self.general_df = None
@@ -610,6 +647,8 @@ class Index:
         self.amount_impacts = None
 
         self.general_dict = {}
+        self.impact_label_to_key: Dict[str, str] = {}
+        self.impact_key_to_label: Dict[str, str] = {}
         self.raw_material_indices = []
         self.not_raw_material_indices = []
         self.languages = []
@@ -647,8 +686,16 @@ class Index:
                 "regions_df": ("regions.xlsx", self.iosystem.language, 49),
                 "exiobase_to_map_df": ("regions.xlsx", "map", 178),
                 "impacts_df": ("impacts.xlsx", self.iosystem.language, 126),
+                # Canonical EXIOBASE impact keys, used to map translated labels -> impact_key
+                "impacts_exiobase_df": ("impacts.xlsx", "Exiobase", 126),
                 "impact_color_df": ("impacts.xlsx", "color", 126),
-                "units_df": ("units.xlsx", self.iosystem.language, 126),
+                # NOTE: `units.xlsx` was redesigned to hold display scaling + i18n labels (new schema).
+                # The legacy UI parts (SupplyChain.transform_unit, etc.) still expect the old per-language
+                # unit transformation table (impact label -> divisor/decimals/unit).
+                #
+                # Therefore we read the legacy transformation table from `units_legacy.xlsx` and load the
+                # new schema separately via `load_unit_display_config()`.
+                "units_df": ("units_legacy.xlsx", self.iosystem.language, 126),
                 "general_df": ("general.xlsx", self.iosystem.language, 12)
             }
 
@@ -657,6 +704,9 @@ class Index:
                 try:
                     # Read the Excel file and set the corresponding attribute
                     file_path = os.path.join(self.iosystem.current_fast_database_path, file_name)
+                    if not os.path.exists(file_path):
+                        # Fall back to the config dir (e.g. when fast DB was created without this file).
+                        file_path = os.path.join(self.iosystem.config_dir, file_name)
                     df = pd.read_excel(file_path, sheet_name=sheet_name)
                     amount = len(df)
 
@@ -699,6 +749,25 @@ class Index:
 
             # Create a dictionary from the 'general_df' DataFrame, mapping 'exiobase' to 'translation'
             self.general_dict = dict(zip(self.general_df['exiobase'], self.general_df['translation']))
+
+            # Build impact label <-> impact_key mapping (row-order alignment in impacts.xlsx)
+            try:
+                if (
+                    self.impacts_df is not None
+                    and self.impacts_exiobase_df is not None
+                    and len(self.impacts_df) == len(self.impacts_exiobase_df)
+                ):
+                    labels = [str(x).strip() for x in self.impacts_df.iloc[:, -1].tolist()]
+                    keys = [str(x).strip() for x in self.impacts_exiobase_df.iloc[:, -1].tolist()]
+                    self.impact_label_to_key = {
+                        lab: key for lab, key in zip(labels, keys) if lab and key and lab.lower() != "nan"
+                    }
+                    self.impact_key_to_label = {
+                        key: lab for lab, key in zip(labels, keys) if lab and key and key.lower() != "nan"
+                    }
+            except Exception:
+                self.impact_label_to_key = {}
+                self.impact_key_to_label = {}
 
             # Optional: load unit display scaling config (new units.xlsx structure)
             self.load_unit_display_config()
@@ -771,6 +840,16 @@ class Index:
             raise ValueError("Unit display config not loaded (units.xlsx new schema missing).")
         language = lang or getattr(self.iosystem, "language", "en")
         return self.unit_formatter.format_value_tuple(impact_key, value_source, language, style=style)  # type: ignore[arg-type]
+
+    def impact_key_from_label(self, impact: str) -> str:
+        """
+        Map a localized impact label (e.g. 'Wertschöpfung') to the canonical EXIOBASE impact_key
+        (e.g. 'Value Added'). If no mapping is available, returns the input unchanged.
+        """
+        s = (impact or "").strip()
+        if not s:
+            return s
+        return self.impact_label_to_key.get(s, s)
 
     def _create_raw_material_indices(self) -> None:
         """
@@ -1071,7 +1150,7 @@ class Index:
         if output:
             logging.info("Copying config files from /config to the fast load database...")
 
-        config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "general.xlsx"]
+        config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "units_legacy.xlsx", "general.xlsx"]
 
         for file_name in config_files:
             source_file = os.path.join(self.iosystem.config_dir, file_name)
