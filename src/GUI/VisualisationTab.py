@@ -2409,6 +2409,21 @@ class PieChartSettingsDialog(QDialog):
         fl_data = QFormLayout(gb_data)
         fl_data.setLabelAlignment(Qt.AlignRight)
 
+        self.value_mode = QComboBox(self)
+        self.value_mode.addItem(self._t("Absolute", "Absolute"), userData="value")
+        self.value_mode.addItem(self._t("Per capita", "Per capita"), userData="per_capita")
+        saved_vm = str(self._s.get("value_mode", "value") or "value")
+        idx_vm = self.value_mode.findData("per_capita" if saved_vm in {"per_capita", "percapita", "pc"} else "value")
+        if idx_vm != -1:
+            self.value_mode.setCurrentIndex(idx_vm)
+        self.value_mode.setToolTip(
+            self._t(
+                "Choose whether to use absolute values or values per capita (requires population data).",
+                "Choose whether to use absolute values or values per capita (requires population data).",
+            )
+        )
+        fl_data.addRow(self._t("Value mode", "Value mode"), self.value_mode)
+
         self.sort_slices = QComboBox(self)
         self.sort_slices.addItem(self._t("Sort: descending", "Descending (largest first)"), userData="desc")
         self.sort_slices.addItem(self._t("Sort: ascending", "Ascending (smallest first)"), userData="asc")
@@ -2583,6 +2598,7 @@ class PieChartSettingsDialog(QDialog):
             cmap_name = f"{cmap_name}_r"
 
         return {
+            "value_mode": str(self.value_mode.currentData() or self.value_mode.currentText()),
             "top_slices": int(self.top_slices.value()),
             "min_pct": float(self.min_pct.value()) if self.use_min_pct.isChecked() and self.min_pct.value() > 0 else None,
             "sort_slices": str(self.sort_slices.currentData() or self.sort_slices.currentText()),
@@ -2647,6 +2663,29 @@ class TopFlopSettingsDialog(QDialog):
         self.relative.setChecked(bool(self._s.get("relative", True)))
         self.relative.setToolTip(self._t("If enabled, show values as percentages instead of absolute units.", "If enabled, show values as percentages instead of absolute units."))
         fl_data.addRow("", self.relative)
+
+        self.value_mode = QComboBox(self)
+        self.value_mode.addItem(self._t("Absolute", "Absolute"), userData="value")
+        self.value_mode.addItem(self._t("Per capita", "Per capita"), userData="per_capita")
+        saved_vm = str(self._s.get("value_mode", "value") or "value")
+        idx_vm = self.value_mode.findData("per_capita" if saved_vm in {"per_capita", "percapita", "pc"} else "value")
+        if idx_vm != -1:
+            self.value_mode.setCurrentIndex(idx_vm)
+        self.value_mode.setToolTip(self._t("Choose whether to use absolute values or values per capita (requires population data).", "Choose whether to use absolute values or values per capita (requires population data)."))
+        fl_data.addRow(self._t("Value mode", "Value mode"), self.value_mode)
+
+        def _sync_vm_enabled():
+            # Per-capita is only meaningful for absolute values.
+            is_rel = bool(self.relative.isChecked())
+            self.value_mode.setEnabled(not is_rel)
+            if is_rel:
+                # Force absolute mode when plotting percentages.
+                i0 = self.value_mode.findData("value")
+                if i0 != -1:
+                    self.value_mode.setCurrentIndex(i0)
+
+        self.relative.toggled.connect(_sync_vm_enabled)
+        _sync_vm_enabled()
 
         v.addWidget(gb_data)
 
@@ -2722,6 +2761,7 @@ class TopFlopSettingsDialog(QDialog):
             "title": self.title.currentText().strip() or "",
             "orientation": str(self.orientation.currentData() or self.orientation.currentText()),
             "relative": bool(self.relative.isChecked()),
+            "value_mode": str(self.value_mode.currentData() or self.value_mode.currentText()),
             "bar_color": self._bar_color_value(),
             "bar_width": float(self.bar_width.value()),
         }

@@ -1114,6 +1114,7 @@ class SupplyChain:
         counterclockwise: bool = True,
         color_map: str = "tab20",                 # e.g., "tab20", "tab20_r", "viridis"
         relative: bool = True,                    
+        value_mode: str = "value",               # "value" | "per_capita"
         return_data: bool = False
     ) -> plt.Figure | tuple[plt.Figure, pd.DataFrame]:
         """Render a pie chart for a single impact across regions.
@@ -1145,7 +1146,17 @@ class SupplyChain:
             mode="binned", k=7, custom_bins=None, norm_mode="linear", robust=2.0, gamma=0.7
         )
 
-        s = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
+        vm = str(value_mode or "value").strip().lower()
+        if vm in {"per_capita", "percapita", "pc"} and "per_capita" in df.columns:
+            s = pd.to_numeric(df["per_capita"], errors="coerce").fillna(0.0)
+            try:
+                u_pc = str(df.get("per_capita_unit", "").dropna().iloc[0]).strip()
+                if u_pc:
+                    unit = u_pc
+            except Exception:
+                pass
+        else:
+            s = pd.to_numeric(df["value"], errors="coerce").fillna(0.0)
         base = pd.DataFrame({"region": df["region"], "value": s})
 
         # 2) Sorting
@@ -1345,6 +1356,7 @@ class SupplyChain:
         n: int = 10,
         *,
         relative: bool = True,
+        value_mode: str = "value",  # "value" | "per_capita"
         orientation: str = "vertical",
         bar_color: str = "tab10",
         bar_width: float = 0.8,
@@ -1408,16 +1420,59 @@ class SupplyChain:
             impacts = [impacts]
         impacts = [i for i in impacts if i]
 
+        vm = str(value_mode or "value").strip().lower()
+        want_pc = vm in {"per_capita", "percapita", "pc"}
+
         # Pull per-region data for all requested impacts (unlocalized, no units in col names)
-        try:
-            df_vals, units_map = self.impact_per_region_df(
-                impacts=impacts, relative=relative,
-                include_units_in_cols=False, localize_cols=False
-            )
-        except Exception:
-            # Fallback: project-specific retrieval
-            df_vals = self.return_impact_per_region_data(impacts)
+        if not want_pc:
+            try:
+                df_vals, units_map = self.impact_per_region_df(
+                    impacts=impacts,
+                    relative=relative,
+                    include_units_in_cols=False,
+                    localize_cols=False,
+                )
+            except Exception:
+                # Fallback: project-specific retrieval
+                df_vals = self.return_impact_per_region_data(impacts)
+                units_map = {}
+        else:
+            # Per-capita values: reuse the world-map provider (it handles population + unit scaling).
+            df_vals = pd.DataFrame()
             units_map = {}
+            for imp in impacts:
+                if not imp:
+                    continue
+                if self._canon_impact(str(imp)) == "Subcontractors":
+                    # Subcontractors has no per-capita meaning; fall back to absolute.
+                    wdf, _unit = self._sc__world_df(str(imp), relative=False, color="Blues", mode="binned")
+                    series = pd.to_numeric(wdf.get("value"), errors="coerce").fillna(0.0)
+                    u = str(wdf.get("unit", _unit)).strip() if "unit" in wdf.columns else str(_unit or "")
+                else:
+                    wdf, _unit = self._sc__world_df(str(imp), relative=False, color="Reds", mode="binned", value_mode="per_capita")
+                    series = pd.to_numeric(wdf.get("per_capita"), errors="coerce").fillna(0.0)
+                    u = ""
+                    try:
+                        u = str(wdf.get("per_capita_unit", "").dropna().iloc[0]).strip()
+                    except Exception:
+                        u = ""
+                    if not u:
+                        u = str(_unit or "")
+
+                col = str(imp)
+                if df_vals.empty:
+                    df_vals = pd.DataFrame({col: series.to_numpy(dtype="float64")}, index=wdf.get("region"))
+                else:
+                    df_vals[col] = series.to_numpy(dtype="float64")
+                units_map[col] = u
+
+            if relative:
+                # Convert each column to percent shares (sum=100) for comparability.
+                for c in list(df_vals.columns):
+                    vals = pd.to_numeric(df_vals[c], errors="coerce").to_numpy(dtype="float64")
+                    s = float(np.nansum(vals))
+                    df_vals[c] = (vals / s * 100.0) if s != 0.0 else np.zeros_like(vals)
+                    units_map[c] = "%"
 
         primary = impacts[0]
         col_primary = _resolve_col(df_vals, primary)
@@ -1793,6 +1848,7 @@ class SupplyChain:
         impact: str,
         *,
         relative: bool = True,
+        value_mode: str = "value",  # "value" | "per_capita"
         color: str = "Reds",
         title: Optional[str] = None,
         show_legend: bool = False,
@@ -1846,7 +1902,8 @@ class SupplyChain:
         kw = dict(
             color=color, title=title, relative=relative, show_legend=show_legend,
             return_data=True, mode=mode, k=k, custom_bins=custom_bins,
-            norm_mode=norm_mode, robust=robust, gamma=gamma
+            norm_mode=norm_mode, robust=robust, gamma=gamma,
+            value_mode=str(value_mode or "value"),
         )
 
         if impact.strip().lower() == "subcontractors":

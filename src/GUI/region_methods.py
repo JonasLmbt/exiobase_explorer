@@ -132,6 +132,7 @@ class TopNMethod(AnalysisMethod):
             "bar_color": "tab10",
             "bar_width": 0.8,
             "relative": True,
+            "value_mode": "value",      # "value" | "per_capita"
             **view.method_state.get(self.id, {}),
         }
 
@@ -147,6 +148,7 @@ class TopNMethod(AnalysisMethod):
             impacts=imps,
             n=int(st.get("n", 10)),
             relative=bool(st.get("relative", True)),
+            value_mode=str(st.get("value_mode", "value") or "value"),
             orientation=st.get("orientation", "vertical"),
             bar_color=st.get("bar_color", "tab10"),
             bar_width=float(st.get("bar_width", 0.8)),
@@ -173,6 +175,7 @@ class FlopNMethod(AnalysisMethod):
             "bar_color": "tab10",
             "bar_width": 0.8,
             "relative": True,
+            "value_mode": "value",      # "value" | "per_capita"
             **view.method_state.get(self.id, {}),
         }
 
@@ -187,6 +190,7 @@ class FlopNMethod(AnalysisMethod):
             impacts=imps,
             n=int(st.get("n", 10)),
             relative=bool(st.get("relative", True)),
+            value_mode=str(st.get("value_mode", "value") or "value"),
             orientation=st.get("orientation", "vertical"),
             bar_color=st.get("bar_color", "tab10"),
             bar_width=float(st.get("bar_width", 0.8)),
@@ -215,6 +219,7 @@ class PieChartMethod(AnalysisMethod):
             "counterclockwise": True,
             "color_map": "tab20",
             "cmap_reverse": False,
+            "value_mode": "value",  # "value" | "per_capita"
             **view.method_state.get(self.id, {})
         }
 
@@ -234,6 +239,7 @@ class PieChartMethod(AnalysisMethod):
             start_angle=state["start_angle"],
             counterclockwise=state["counterclockwise"],
             color_map=color_name,
+            value_mode=str(state.get("value_mode", "value") or "value"),
             return_data=False
         )
 
