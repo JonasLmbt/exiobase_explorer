@@ -1964,6 +1964,27 @@ class SupplyChain:
                     with np.errstate(divide="ignore", invalid="ignore"):
                         pc_disp = pc_base / pc_factor if pc_factor else pc_base
                     pc = pd.to_numeric(pc_disp, errors="coerce")
+
+                    # Also compute per-row adaptive formatting for tooltips.
+                    # This allows small values to switch units (e.g. 0.056 Tsd. € -> 56 €),
+                    # while the map legend still uses a single unit scale.
+                    try:
+                        fmt_vals: list[str] = []
+                        fmt_units: list[str] = []
+                        pc_base_arr = np.asarray(pc_base, dtype="float64")
+                        for v in pc_base_arr:
+                            if not np.isfinite(v):
+                                fmt_vals.append("")
+                                fmt_units.append("")
+                                continue
+                            v_source = float(v) / float(source_to_base or 1.0)
+                            m = uf.format_value(str(impact_key), v_source, str(lang), style="short")
+                            fmt_vals.append(str(m.get("value_display_formatted") or ""))
+                            fmt_units.append(str(m.get("unit_short") or ""))
+                        world["per_capita_formatted"] = fmt_vals
+                        world["per_capita_unit_item"] = fmt_units
+                    except Exception:
+                        pass
                 else:
                     raise RuntimeError("no unit formatter meta")
             except Exception:
