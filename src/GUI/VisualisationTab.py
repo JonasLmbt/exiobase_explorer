@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, Tuple, List, Dict, Callable
 import pandas as pd
+import numpy as np
 import math
 import os
 import geopandas as gpd
@@ -1122,8 +1123,12 @@ class RegionAnalysisViewTab(QWidget):
                 )
                 dlg.exec_()
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                try:
+                    import logging
+                    logging.exception("Failed to open RegionContributionDialog: %s", e)
+                except Exception:
+                    pass
 
         # Fallback: the old small info dialog.
         dlg = CountryInfoDialog(ui=self.ui, country=hit, choice=self._current_choice, parent=self)

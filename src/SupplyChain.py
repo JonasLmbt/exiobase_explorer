@@ -1728,6 +1728,152 @@ class SupplyChain:
             "rows": rows,
         }
 
+    def contribution_breakdown_table(
+        self,
+        *,
+        impact: str,
+        stage_id: str,
+        dimension: str,
+        top_n: int = 25,
+    ) -> dict:
+        """
+        "Beitragsanalyse" breakdown by value-chain stage and dimension.
+
+        This is the desktop/web shared backend equivalent of the web API analysis
+        `contrib_breakdown`:
+          - Build y from the current selection (diagonal of Y, masked to indices).
+          - Compute stage output vector (total/retail/direct_suppliers/resource_extraction/preliminary_products).
+          - Multiply with impact intensities s to obtain contributions per emitting sector.
+          - Group contributions by regions or sectors and return Top-N with shares.
+        """
+        impact_label = str(impact)
+        stage = str(stage_id or "").strip()
+        dim = str(dimension or "").strip().lower()
+        if stage not in {"resource_extraction", "preliminary_products", "direct_suppliers", "retail", "total"}:
+            return {"ok": False, "error": "invalid_stage_id", "stage_id": stage}
+        if dim not in {"regions", "sectors"}:
+            return {"ok": False, "error": "invalid_dimension", "dimension": dim}
+
+        # y: final demand vector for the selected indices (diagonal of Y).
+        y = self._contrib__y_vector()
+
+        # Compute stage output vectors in the same way as the web API.
+        a = self.iosystem.A.values
+        l = self.iosystem.L.values
+        ay = a @ y
+        ly = l @ y
+
+        raw = np.asarray(self.iosystem.index.raw_material_indices, dtype=np.int64)
+        not_raw = np.asarray(self.iosystem.index.not_raw_material_indices, dtype=np.int64)
+
+        def _stage_out(stage_name: str) -> np.ndarray:
+            if not getattr(self, "regional", False):
+                if stage_name == "total":
+                    return ly
+                if stage_name == "retail":
+                    return y
+                if stage_name == "direct_suppliers":
+                    out = ay.copy()
+                    out[raw] = 0.0
+                    return out
+                if stage_name == "resource_extraction":
+                    out = (ly - y).copy()
+                    out[not_raw] = 0.0
+                    return out
+                out = (ly - y - ay).copy()  # preliminary_products
+                out[raw] = 0.0
+                return out
+
+            # Regional selection: re-assign domestic upstream stages to retail.
+            region_indices = np.asarray(getattr(self.iosystem.impact, "region_indices", None) or self.indices, dtype=np.int64)
+
+            ds = ay.copy()
+            ds[raw] = 0.0
+
+            re = (ly - y).copy()
+            re[not_raw] = 0.0
+
+            pp = ((ly - y) - ds).copy()
+            pp[raw] = 0.0
+
+            retail = y.copy()
+            retail[region_indices] += ds[region_indices] + re[region_indices] + pp[region_indices]
+
+            ds[region_indices] = 0.0
+            re[region_indices] = 0.0
+            pp[region_indices] = 0.0
+
+            if stage_name == "total":
+                return ly
+            if stage_name == "retail":
+                return retail
+            if stage_name == "direct_suppliers":
+                return ds
+            if stage_name == "resource_extraction":
+                return re
+            return pp
+
+        out = _stage_out(stage)
+
+        try:
+            s_row = self.iosystem.impact.S.loc[str(impact_label)]
+        except Exception as e:
+            return {"ok": False, "error": "impact_not_found", "impact": impact_label, "detail": str(e)}
+        if isinstance(s_row, pd.DataFrame):
+            s_row = s_row.iloc[0]
+        s = np.asarray(getattr(s_row, "to_numpy", lambda: s_row)(), dtype=np.float32)
+
+        contrib = np.asarray(s, dtype=np.float64) * np.asarray(out, dtype=np.float64)
+        total_raw = float(np.nansum(contrib) or 0.0)
+        if total_raw == 0.0:
+            return {
+                "kind": "contrib_table_v1",
+                "meta": {"stage_id": stage, "dimension": dim, "impact": impact_label, "total_raw": 0.0},
+                "rows": [],
+            }
+
+        region_len = len(getattr(self.iosystem.index, "region_classification", []) or [])
+        mi = self.iosystem.index.sector_multiindex
+
+        if dim == "regions":
+            labels = mi.get_level_values(region_len - 1 if region_len else 0).astype(str)
+        else:
+            # Disambiguate identical sector names across regions (matches web API behavior).
+            sector_leaf = mi.get_level_values(-1).astype(str)
+            region_leaf = mi.get_level_values(region_len - 1 if region_len else 0).astype(str)
+            labels = sector_leaf + " (" + region_leaf + ")"
+
+        df = pd.DataFrame({"label": labels, "value": contrib})
+        grouped = df.groupby("label", as_index=False)["value"].sum().sort_values("value", ascending=False)
+
+        scaled_vals, unit, decimals = self._contrib__scale_values(impact_label=impact_label, values_source=grouped["value"].to_numpy())
+
+        rows: list[dict] = []
+        head = grouped.head(max(1, int(top_n)))
+        scaled_head = scaled_vals[: len(head)]
+        for (_i, r), abs_scaled in zip(head.iterrows(), scaled_head):
+            val = float(r["value"])
+            rows.append(
+                {
+                    "label": str(r["label"]),
+                    "share": float(val / total_raw) if total_raw else 0.0,
+                    "absolute": round(float(abs_scaled), int(decimals)),
+                }
+            )
+
+        return {
+            "kind": "contrib_table_v1",
+            "meta": {
+                "stage_id": stage,
+                "dimension": dim,
+                "impact": impact_label,
+                "unit": unit,
+                "decimal_places": int(decimals),
+                "total_raw": total_raw,
+            },
+            "rows": rows,
+        }
+
     def _add_world_metadata(
             self,
             world: pd.DataFrame,
