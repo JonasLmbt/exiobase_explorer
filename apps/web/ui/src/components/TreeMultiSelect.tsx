@@ -12,6 +12,7 @@ import {
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import { useT } from "../app/i18n";
 
 export type Leaf = { index: number; path: string[] };
 
@@ -61,6 +62,7 @@ export default function TreeMultiSelect({
   onChange: (sel: number[]) => void;
   placeholder?: string;
 }) {
+  const { t } = useT();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [q, setQ] = useState("");
 
@@ -112,7 +114,7 @@ export default function TreeMultiSelect({
             <IconButton
               size="small"
               onClick={() => setExpanded((s) => ({ ...s, [node.id]: !isExpanded }))}
-              aria-label={isExpanded ? "collapse" : "expand"}
+              aria-label={isExpanded ? t("Collapse") : t("Expand")}
             >
               {isExpanded ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
             </IconButton>
@@ -149,7 +151,7 @@ export default function TreeMultiSelect({
       <TextField
         size="small"
         fullWidth
-        placeholder={placeholder ?? "Search…"}
+        placeholder={placeholder ?? t("Search…")}
         value={q}
         onChange={(e) => setQ(e.target.value)}
         sx={{ mb: 1 }}

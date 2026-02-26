@@ -403,7 +403,7 @@ export default function RegionAnalysisTab({
                         sx={{ flex: 1 }}
                       />
                       <TextField
-                        label="Gamma"
+                        label={t("Gamma")}
                         size="small"
                         type="number"
                         value={mapGamma}
