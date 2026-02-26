@@ -813,6 +813,7 @@ class SupplyChain:
 
         # Unit transformation (prefer new dynamic scaling config if available)
         unit_scalar = self.iosystem.impact.get_unit(impact)
+        unit_display_meta = None
         try:
             idx = self.iosystem.index
             uf = getattr(idx, "unit_formatter", None)
@@ -831,12 +832,26 @@ class SupplyChain:
 
                 if divisor_source and divisor_source != 0:
                     values = [float(v) / float(divisor_source) for v in values]
+
+                # Provide metadata so per-capita scaling can be computed in base units later:
+                # value_base = value_display * chosen_factor
+                unit_display_meta = {
+                    "impact_key": impact_key,
+                    "chosen_factor": chosen_factor,
+                    "lang": self.iosystem.language,
+                    "unit_short": unit_scalar,
+                }
         except Exception:
             # Fallback: legacy behavior (fixed divisor per impact)
             values = [self.transform_unit(value=value, impact=impact)[0] for value in values]
             unit_scalar = self.iosystem.impact.get_unit(impact)
 
         df = pd.DataFrame({impact: values}, index=self.iosystem.regions_exiobase)
+        if unit_display_meta is not None:
+            try:
+                df.attrs["unit_display"] = unit_display_meta
+            except Exception:
+                pass
 
         if title is None:
             general_dict = self.iosystem.index.general_dict
@@ -930,7 +945,12 @@ class SupplyChain:
 
         # Align shapes and attach metadata
         world = world.loc[df.index]
-        world = self._add_world_metadata(world, values, percentages, units)
+        unit_display_meta = None
+        try:
+            unit_display_meta = df.attrs.get("unit_display")
+        except Exception:
+            unit_display_meta = None
+        world = self._add_world_metadata(world, values, percentages, units, unit_display_meta=unit_display_meta)
 
         # Data columns:
         # - absolute values: world["value"]
@@ -998,6 +1018,14 @@ class SupplyChain:
                 column_label = column
                 if base_col == "per_capita":
                     column_label = f"{column} ({gd.get('Per capita', 'Per capita')})"
+                    # Prefer the per-capita-specific unit if available.
+                    try:
+                        if "per_capita_unit" in world.columns:
+                            u_pc = str(world["per_capita_unit"].dropna().iloc[0]).strip()
+                            if u_pc:
+                                unit = u_pc
+                    except Exception:
+                        pass
 
                 self._add_map_legend(
                     fig=fig, ax=ax, data=data, column=column_label, color_map=color_map,
@@ -1483,7 +1511,9 @@ class SupplyChain:
             world: pd.DataFrame,
             values: pd.Series,
             percentages: pd.Series,
-            units: Optional[Union[str, List[str]]]
+            units: Optional[Union[str, List[str]]],
+            *,
+            unit_display_meta: Optional[dict] = None,
     ) -> pd.DataFrame:
         """
         Attach region labels, EXIOBASE codes, values, percentages, and units to the map dataframe.
@@ -1539,10 +1569,44 @@ class SupplyChain:
         if isinstance(pop_map, dict) and len(pop_map) > 0:
             pop = pd.to_numeric([pop_map.get(code) for code in regions_exiobase], errors="coerce")
             world["population"] = pop
-            with np.errstate(divide="ignore", invalid="ignore"):
-                pc = pd.to_numeric(world["value"], errors="coerce") / pop
+
+            # If we have unit-display metadata, compute per-capita values in BASE UNITS and then
+            # scale them with the UnitFormatter so the legend doesn't end up as "Mrd. €/Kopf".
+            per_capita_unit = None
+            try:
+                uf = getattr(self.iosystem.index, "unit_formatter", None)
+                impact_key = (unit_display_meta or {}).get("impact_key") if isinstance(unit_display_meta, dict) else None
+                chosen_factor = (unit_display_meta or {}).get("chosen_factor") if isinstance(unit_display_meta, dict) else None
+                lang = (unit_display_meta or {}).get("lang") if isinstance(unit_display_meta, dict) else getattr(self.iosystem, "language", "en")
+                chosen_factor_f = float(chosen_factor) if chosen_factor not in (None, "") else None
+                if uf is not None and impact_key and chosen_factor_f and chosen_factor_f > 0:
+                    # value_base = value_display * chosen_factor (since value_display = value_base / chosen_factor)
+                    value_base = pd.to_numeric(world["value"], errors="coerce") * chosen_factor_f
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        pc_base = value_base / pop
+                    max_abs_pc_base = float(np.nanmax(np.abs(pc_base))) if np.any(np.isfinite(pc_base)) else 0.0
+
+                    # Convert base -> source-equivalent for the formatter (it will convert back to base internally).
+                    core = uf._cfg.core_by_key.get(str(impact_key))  # type: ignore[attr-defined]
+                    source_to_base = float(getattr(core, "source_to_base", 1.0) or 1.0) if core else 1.0
+                    v_source_equiv = (max_abs_pc_base / source_to_base) if source_to_base else max_abs_pc_base
+                    meta_pc = uf.format_value(str(impact_key), v_source_equiv, str(lang), style="short")
+                    pc_factor = float(meta_pc.get("chosen_factor") or 1.0)
+                    per_capita_unit = str(meta_pc.get("unit_short") or "").strip() or None
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        pc_disp = pc_base / pc_factor if pc_factor else pc_base
+                    pc = pd.to_numeric(pc_disp, errors="coerce")
+                else:
+                    raise RuntimeError("no unit formatter meta")
+            except Exception:
+                # Fallback: compute per-capita in the SAME units as `world['value']`.
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    pc = pd.to_numeric(world["value"], errors="coerce") / pop
+
             # Ensure non-finite values become NaN (so JSON sanitizers can drop them)
             world["per_capita"] = pc.where(np.isfinite(pc), np.nan)
+            if per_capita_unit:
+                world["per_capita_unit"] = per_capita_unit
 
         return world
 
@@ -1599,9 +1663,16 @@ class SupplyChain:
             if x == 0.0:
                 return "0"
             axx = abs(x)
-            if axx < 1e-2 or axx >= 1e6:
+            # Prefer readable numbers; reserve scientific notation for extremes.
+            if axx < 1e-4 or axx >= 1e9:
                 return f"{x:.2e}"
-            return f"{x:.4g}"
+            if axx >= 1_000_000:
+                return f"{x:,.0f}"
+            if axx >= 1_000:
+                return f"{x:,.1f}"
+            if axx >= 1:
+                return f"{x:.2f}"
+            return f"{x:.4f}"
 
         cmap = plt.get_cmap(color_map)
 
