@@ -13,12 +13,6 @@ def _pick_impacts_xlsx(year: int):
         return fast
     return config_dir() / "impacts.xlsx"
 
-def _pick_units_xlsx(year: int):
-    fast = fast_database_path(year) / "units.xlsx"
-    if fast.exists():
-        return fast
-    return config_dir() / "units.xlsx"
-
 
 def _read_first_col(path, sheet_name: str) -> list[str]:
     df = pd.read_excel(str(path), sheet_name=sheet_name)
@@ -37,11 +31,14 @@ def impact_key_to_label_map(*, year: int, language: str) -> dict[str, str]:
     """
     Map canonical impact keys (sheet "Exiobase") to localized labels (sheet `language`).
 
-    Preferred source is `units.xlsx` because:
-    - SupplyChain.transform_unit() uses units_df col0 as impact identifier
-    - labels in units.xlsx tend to match IOSystem language-specific matrices
+    Source of truth is `impacts.xlsx`.
 
-    Falls back safely if sheets are missing.
+    Note:
+        `units.xlsx` used to contain localized impact names in older versions, but the
+        current unit-scaling schema (families/separators) is language-neutral for labels:
+        the per-language sheets primarily map `impact_key -> family_key`, not
+        `impact_key -> localized impact label`. So we intentionally do NOT read
+        impact labels from `units.xlsx` anymore.
     """
     def build_from(path) -> dict[str, str] | None:
         if not path.exists():
@@ -60,10 +57,6 @@ def impact_key_to_label_map(*, year: int, language: str) -> dict[str, str]:
         if len(labels) != len(keys):
             labels = list(keys)
         return {str(k): str(labels[i]) for i, k in enumerate(keys)}
-
-    m = build_from(_pick_units_xlsx(year))
-    if m:
-        return m
 
     m = build_from(_pick_impacts_xlsx(year))
     if m:

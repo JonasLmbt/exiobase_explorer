@@ -148,7 +148,9 @@ def impacts(
             {
                 "key": str(key),
                 "label": str(label),
-                "unit": unit_short or base_unit,
+                # Show BASE unit in selectors (user doesn't know the exponent yet).
+                "unit": base_unit,
+                # Still provide defaults for components that want a preview.
                 "unit_short": unit_short or base_unit,
                 "unit_long": unit_long or unit_short or base_unit,
                 "color": str(color_map.get(str(key), "") or ""),
