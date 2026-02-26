@@ -3,7 +3,7 @@ import unittest
 
 import pandas as pd
 
-from src.unit_display import UnitFormatter
+from src.Index import UnitFormatter
 
 
 def _write_units_xlsx(path: str):
