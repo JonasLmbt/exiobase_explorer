@@ -1109,6 +1109,23 @@ class RegionAnalysisViewTab(QWidget):
         hit = self._hit_country_at(event.xdata, event.ydata)
         if hit is None:
             return
+        # Prefer opening a full contribution analysis dialog (desktop equivalent of the web version).
+        impact = str(self._current_choice or "").strip()
+        if impact and not self._is_subcontractors(impact):
+            try:
+                dlg = RegionContributionDialog(
+                    ui=self.ui,
+                    impact=impact,
+                    region_exiobase=str(hit.get("exiobase") or "").strip(),
+                    region_label=str(hit.get("region") or "").strip(),
+                    parent=self,
+                )
+                dlg.exec_()
+                return
+            except Exception:
+                pass
+
+        # Fallback: the old small info dialog.
         dlg = CountryInfoDialog(ui=self.ui, country=hit, choice=self._current_choice, parent=self)
         dlg.exec_()
     
@@ -3076,3 +3093,146 @@ class CountryInfoDialog(QDialog):
             event (QMouseEvent): Mouse event instance.
         """
         self.accept()
+
+
+class RegionContributionDialog(QDialog):
+    """
+    Desktop "Beitragsanalyse" for a clicked region (mirrors the web dialog).
+
+    Shows which emitting sectors inside the clicked region contribute most to
+    the selected impact for the current selection.
+    """
+
+    def __init__(self, ui, *, impact: str, region_exiobase: str, region_label: str, parent=None):
+        super().__init__(parent)
+        self.ui = ui
+        self.impact = str(impact or "").strip()
+        self.region_exiobase = str(region_exiobase or "").strip()
+        self.region_label = str(region_label or "").strip()
+
+        # Translation helper (fallback to identity)
+        try:
+            self._tr = ui._translate  # type: ignore[attr-defined]
+        except Exception:
+            self._tr = lambda k, fb=None: fb or k  # type: ignore[assignment]
+
+        self.setWindowTitle(self._tr("Beitragsanalyse", "Beitragsanalyse"))
+        self.resize(900, 620)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        v = QVBoxLayout(self)
+
+        title = QLabel(
+            f"{self._tr('Beitragsanalyse', 'Beitragsanalyse')}\n"
+            f"{self.impact} • {self.region_label or self.region_exiobase}"
+        )
+        title.setStyleSheet("font-weight:700; font-size:14px;")
+        v.addWidget(title)
+
+        row = QHBoxLayout()
+        self.view = QComboBox(self)
+        self.view.addItem("Bars", userData="bars")
+        self.view.addItem("Pie", userData="pie")
+        self.view.currentIndexChanged.connect(self._render)
+        row.addWidget(self.view, 0)
+
+        self.refresh_btn = QPushButton(self._tr("Refresh", "Refresh"), self)
+        self.refresh_btn.clicked.connect(self._refresh)
+        row.addWidget(self.refresh_btn, 0)
+
+        row.addStretch(1)
+        v.addLayout(row)
+
+        self._status = QLabel("", self)
+        self._status.setStyleSheet("color:#666;")
+        v.addWidget(self._status)
+
+        self._canvas = None
+        self._plot_area = QVBoxLayout()
+        v.addLayout(self._plot_area, 1)
+
+        self._data = None
+        self._refresh()
+
+    def _refresh(self):
+        self._status.setText(self._tr("Loading…", "Loading…"))
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self._data = self.ui.supplychain.region_contribution_table(
+                impact=self.impact,
+                region_exiobase=self.region_exiobase,
+                top_n=30,
+            )
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._render()
+
+    def _set_canvas(self, fig):
+        if self._canvas:
+            self._plot_area.removeWidget(self._canvas)
+            self._canvas.setParent(None)
+            self._canvas.deleteLater()
+        self._canvas = FigureCanvas(fig)
+        self._canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._plot_area.addWidget(self._canvas)
+        self._canvas.draw()
+
+    def _render(self):
+        d = self._data or {}
+        if isinstance(d, dict) and d.get("ok") is False:
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, str(d.get("error") or "Error"), ha="center", va="center", transform=ax.transAxes)
+            ax.axis("off")
+            self._status.setText(str(d.get("detail") or ""))
+            self._set_canvas(fig)
+            return
+
+        rows = (d.get("rows") if isinstance(d, dict) else None) or []
+        meta = (d.get("meta") if isinstance(d, dict) else None) or {}
+        unit = str(meta.get("unit") or "").strip()
+
+        if not rows:
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, self._tr("No data", "No data"), ha="center", va="center", transform=ax.transAxes)
+            ax.axis("off")
+            self._status.setText("")
+            self._set_canvas(fig)
+            return
+
+        view = str(self.view.currentData() or "bars")
+        labels = [str(r.get("label")) for r in rows]
+        values = [float(r.get("absolute") or 0.0) for r in rows]
+        shares = [float(r.get("share") or 0.0) for r in rows]
+
+        fig = plt.figure(figsize=(10, 6))
+        ax = fig.add_subplot(111)
+
+        if view == "pie":
+            # Top slices + others
+            top_k = min(12, len(values))
+            others = float(np.sum(values[top_k:])) if len(values) > top_k else 0.0
+            pie_vals = values[:top_k] + ([others] if others > 0 else [])
+            pie_labels = labels[:top_k] + ([self._tr("Others", "Others")] if others > 0 else [])
+            ax.pie(pie_vals, labels=pie_labels, startangle=90, counterclock=False)
+        else:
+            # Bars (horizontal for readability)
+            order = np.argsort(values)
+            labels_o = [labels[i] for i in order]
+            values_o = [values[i] for i in order]
+            shares_o = [shares[i] for i in order]
+            y = np.arange(len(values_o))
+            ax.barh(y, values_o, color="#3b82f6", alpha=0.85)
+            ax.set_yticks(y)
+            ax.set_yticklabels(labels_o, fontsize=9)
+            ax.grid(axis="x", alpha=0.2)
+            xlabel = f"{self.impact} [{unit}]" if unit else self.impact
+            ax.set_xlabel(xlabel)
+            for yi, val, sh in zip(y, values_o, shares_o):
+                ax.text(val, yi, f"  {sh*100:.1f}%", va="center", fontsize=8, color="#333")
+
+        ax.set_title(self._tr("Beitragsanalyse", "Beitragsanalyse"))
+        fig.tight_layout()
+        self._status.setText("")
+        self._set_canvas(fig)

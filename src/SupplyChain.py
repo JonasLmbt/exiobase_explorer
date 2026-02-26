@@ -1538,6 +1538,7 @@ class SupplyChain:
         n: int = 10,
         *,
         relative: bool = True,
+        value_mode: str = "value",  # "value" | "per_capita"
         orientation: str = "vertical",
         bar_color: str = "tab10",
         bar_width: float = 0.8,
@@ -1553,6 +1554,7 @@ class SupplyChain:
             impacts=impacts,
             n=n,
             relative=relative,
+            value_mode=value_mode,
             orientation=orientation,
             bar_color=bar_color,
             bar_width=bar_width,
@@ -1560,6 +1562,171 @@ class SupplyChain:
             return_data=return_data,
             ascending=True, 
         )
+
+    # ---------------------------------------------------------------------
+    # Contribution analysis (Beitragsanalyse)
+    # ---------------------------------------------------------------------
+
+    def _contrib__y_vector(self) -> np.ndarray:
+        """
+        Build the final-demand vector y for the current selection.
+
+        Uses the diagonal of Y (final demand per sector) and keeps only the
+        currently selected indices (self.indices). This mirrors the web API's
+        selection_to_indices() + y-vector logic.
+        """
+        y_mat = self.iosystem.Y.values
+        diag = np.diag(y_mat).astype(np.float32, copy=False)
+        n = diag.shape[0]
+        if not getattr(self, "indices", None) or len(self.indices) >= n:
+            return diag.copy()
+        y = np.zeros(n, dtype=np.float32)
+        idx = np.asarray(self.indices, dtype=np.int64)
+        y[idx] = diag[idx]
+        return y
+
+    def _contrib__scale_values(
+        self,
+        *,
+        impact_label: str,
+        values_source: np.ndarray,
+    ) -> tuple[np.ndarray, str, int]:
+        """
+        Scale values for UI display and return (scaled_values, unit, decimals).
+
+        Prefers the new UnitFormatter (units.xlsx new schema). Falls back to the
+        legacy units table (units_legacy.xlsx) if needed.
+        """
+        vals = np.asarray(values_source, dtype=np.float64)
+        max_abs = float(np.nanmax(np.abs(vals))) if vals.size and np.any(np.isfinite(vals)) else 0.0
+
+        # Prefer new units.xlsx schema via Index.unit_formatter
+        try:
+            idx = self.iosystem.index
+            uf = getattr(idx, "unit_formatter", None)
+            if uf is not None:
+                impact_key = idx.impact_key_from_label(str(impact_label))
+                meta = uf.format_value(str(impact_key), max_abs, self.iosystem.language, style="short")
+                unit = str(meta.get("unit_short") or "").strip()
+                chosen_factor = float(meta.get("chosen_factor") or 1.0)
+
+                core = uf._cfg.core_by_key.get(str(impact_key))  # type: ignore[attr-defined]
+                source_to_base = float(getattr(core, "source_to_base", 1.0) or 1.0) if core else 1.0
+                decimals = int(getattr(core, "decimals", 2) if core else 2)
+
+                divisor_source = chosen_factor / source_to_base if source_to_base else chosen_factor
+                if divisor_source and divisor_source != 0:
+                    return (vals / float(divisor_source)), unit, max(0, decimals)
+        except Exception:
+            pass
+
+        # Fallback: legacy units sheet (impact label -> divisor/decimals/unit)
+        try:
+            udf = self.iosystem.index.units_df
+            mask = udf.iloc[:, 0].astype(str) == str(impact_label)
+            if bool(mask.any()):
+                row = udf.loc[mask].iloc[0].tolist()
+                divisor = float(row[2]) if row[2] is not None else 1.0
+                decimals = int(row[3]) if row[3] is not None else 2
+                unit = str(row[4] or "")
+                divisor = divisor or 1.0
+                return (vals / divisor), unit, max(0, decimals)
+        except Exception:
+            pass
+
+        return vals, "", 2
+
+    def region_contribution_table(
+        self,
+        *,
+        impact: str,
+        region_exiobase: str,
+        top_n: int = 30,
+    ) -> dict:
+        """
+        Compute a "Beitragsanalyse" table: which SECTORS within a clicked REGION
+        contribute how much to the selected impact.
+
+        Algorithm (mirrors the web API `region_contrib`):
+          1) Build y (final demand) for the current selection (diagonal of Y).
+          2) Compute total output x = L @ y.
+          3) Get impact intensities s (row of S for the chosen impact label).
+          4) Contribution per emitting sector: contrib = s * x.
+          5) Filter contrib to the clicked region and group by sector leaf.
+          6) Scale to display units and compute shares.
+        """
+        impact_label = str(impact)
+        region_ex = str(region_exiobase).strip()
+
+        # y: final demand vector for the selected indices (diagonal of Y).
+        y = self._contrib__y_vector()
+
+        # Total output vector across the supply chain: x = L @ y
+        x = self.iosystem.L.values @ y
+
+        try:
+            s_row = self.iosystem.impact.S.loc[str(impact_label)]
+        except Exception as e:
+            return {"ok": False, "error": "impact_not_found", "impact": impact_label, "detail": str(e)}
+        if isinstance(s_row, pd.DataFrame):
+            s_row = s_row.iloc[0]
+        s = np.asarray(getattr(s_row, "to_numpy", lambda: s_row)(), dtype=np.float32)
+
+        contrib = np.asarray(s, dtype=np.float64) * np.asarray(x, dtype=np.float64)
+
+        # Filter emitting sectors to the clicked region.
+        region_len = len(getattr(self.iosystem.index, "region_classification", []) or [])
+        mi = self.iosystem.index.sector_multiindex
+
+        code2name = dict(zip(getattr(self.iosystem, "regions_exiobase", []) or [], getattr(self.iosystem, "regions", []) or []))
+        region_name = code2name.get(region_ex, region_ex)
+
+        region_leaf = mi.get_level_values(region_len - 1 if region_len else 0).astype(str)
+        mask = region_leaf == str(region_name)
+        if not bool(getattr(mask, "any")()):
+            mask = region_leaf == str(region_ex)
+        if not bool(getattr(mask, "any")()):
+            return {"ok": False, "error": "region_not_found_in_index", "region_exiobase": region_ex, "region": region_name}
+
+        mask_arr = mask.to_numpy(dtype=bool) if hasattr(mask, "to_numpy") else np.asarray(mask, dtype=bool)
+        contrib_region = contrib[mask_arr]
+        if contrib_region.size == 0:
+            return {"kind": "contrib_table_v1", "meta": {"region_exiobase": region_ex, "region": region_name}, "rows": []}
+
+        # Group by sector leaf inside the region.
+        sector_leaf = mi.get_level_values(-1).astype(str)[mask_arr]
+        sector_vals = sector_leaf.to_numpy() if hasattr(sector_leaf, "to_numpy") else np.asarray(sector_leaf, dtype=object)
+        df = pd.DataFrame({"label": sector_vals, "value": contrib_region})
+        grouped = df.groupby("label", as_index=False)["value"].sum().sort_values("value", ascending=False)
+
+        total_raw = float(np.nansum(grouped["value"].to_numpy()) or 0.0)
+        scaled_vals, unit, decimals = self._contrib__scale_values(impact_label=impact_label, values_source=grouped["value"].to_numpy())
+
+        rows: list[dict] = []
+        head = grouped.head(max(1, int(top_n)))
+        scaled_head = scaled_vals[: len(head)]
+        for (idx_row, r), abs_scaled in zip(head.iterrows(), scaled_head):
+            val_raw = float(r["value"])
+            rows.append(
+                {
+                    "label": str(r["label"]),
+                    "share": float(val_raw / total_raw) if total_raw else 0.0,
+                    "absolute": round(float(abs_scaled), int(decimals)),
+                }
+            )
+
+        return {
+            "kind": "contrib_table_v1",
+            "meta": {
+                "impact": impact_label,
+                "region_exiobase": region_ex,
+                "region": str(region_name),
+                "unit": unit,
+                "decimal_places": int(decimals),
+                "total_raw": total_raw,
+            },
+            "rows": rows,
+        }
 
     def _add_world_metadata(
             self,
