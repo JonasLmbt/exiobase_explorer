@@ -449,6 +449,7 @@ class SupplyChain:
             try:
                 # Calculate impacts for all supply chain stages
                 total_val, unit = self.total(impact)
+                total_for_relative = float(total_val)
                 res_val, _ = self.resource_extraction(impact)
                 pre_val, _ = self.preliminary_products(impact)
                 direct_val, _ = self.direct_suppliers(impact)
@@ -478,11 +479,15 @@ class SupplyChain:
                 color = self.iosystem.impact.get_color(impact)
 
                 # Convert to relative values if requested
-                if relative and total_val != 0:
-                    res_val /= total_val
-                    pre_val /= total_val
-                    direct_val /= total_val
-                    ret_val /= total_val
+                if relative and total_for_relative != 0:
+                    # IMPORTANT:
+                    # Relative shares must be computed against the same scale used for stage values.
+                    # total_val may be replaced by a differently-scaled display value (unit formatter),
+                    # which must not affect percentages.
+                    res_val /= total_for_relative
+                    pre_val /= total_for_relative
+                    direct_val /= total_for_relative
+                    ret_val /= total_for_relative
 
                 # Append calculated values
                 data.append([
