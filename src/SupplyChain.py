@@ -421,7 +421,8 @@ class SupplyChain:
             impacts: List[str],
             relative: bool = True,
             decimal_places: int = 2,
-            row_length: int = 35
+            row_length: int = 35,
+            unit_style: str = "short",
     ) -> pd.DataFrame:
         """
         Calculate environmental impacts across the supply chain.
@@ -433,6 +434,7 @@ class SupplyChain:
             relative: If True, returns relative proportions; if False, absolute values
             decimal_places: Number of decimal places for rounding
             row_length: Maximum length for text wrapping
+            unit_style: Unit label style for display ("short" or "long")
 
         Returns:
             DataFrame containing calculated impacts for each stage
@@ -441,6 +443,7 @@ class SupplyChain:
             raise ValueError("At least one impact must be specified")
 
         data = []
+        style = "long" if str(unit_style).strip().lower() == "long" else "short"
 
         for impact in impacts:
             try:
@@ -450,6 +453,26 @@ class SupplyChain:
                 pre_val, _ = self.preliminary_products(impact)
                 direct_val, _ = self.direct_suppliers(impact)
                 ret_val, _ = self.retail(impact)
+
+                # Prefer new unit formatter (units.xlsx) for total display value + localized unit label.
+                # This enables labels like 1e[n]_long per selected language.
+                try:
+                    idx = self.iosystem.index
+                    uf = getattr(idx, "unit_formatter", None)
+                    if uf is not None:
+                        impact_key = idx.impact_key_from_label(str(impact))
+                        total_source = (
+                            self.iosystem.impact.total.loc[impact]
+                            .iloc[:, self.indices]
+                            .sum()
+                            .sum()
+                        )
+                        meta = uf.format_value(str(impact_key), float(total_source), self.iosystem.language, style=style)
+                        total_val = float(meta.get("value_display", total_val))
+                        unit_key = "unit_long" if style == "long" else "unit_short"
+                        unit = str(meta.get(unit_key) or unit or "").strip()
+                except Exception:
+                    pass
 
                 # Get color for visualization
                 color = self.iosystem.impact.get_color(impact)
@@ -550,7 +573,8 @@ class SupplyChain:
             lines: bool = True,
             line_width: float = 1,
             line_color: str = "gray",
-            text_position: str = "center"
+            text_position: str = "center",
+            transparent_background: bool = False,
     ) -> plt.Figure:
         """
         Visualize environmental impacts along the supply chain.
@@ -572,6 +596,7 @@ class SupplyChain:
         """
         if not impacts:
             fig, ax = plt.subplots(figsize=(10, 6))
+            self._apply_plot_background(fig, ax, transparent=transparent_background)
             ax.set_title("No impacts selected", fontsize=14, fontweight="bold", pad=20)
             ax.axis('off')
             return fig
@@ -582,7 +607,7 @@ class SupplyChain:
             title = f'{general_dict["Supply Chain Analysis"]} {self._get_title()}'
 
         # Get relative environmental impact data
-        df_rel = self.calculate_all(impacts=impacts, relative=True, decimal_places=5)
+        df_rel = self.calculate_all(impacts=impacts, relative=True, decimal_places=5, unit_style="long")
 
         # Extract labels and data
         col_labels = df_rel.columns[:5].tolist()
@@ -590,6 +615,7 @@ class SupplyChain:
 
         # Create figure and axis
         fig, ax = plt.subplots(figsize=(10, 6))
+        self._apply_plot_background(fig, ax, transparent=transparent_background)
         fig.set_dpi(size * 100)
 
         # Set plot title
@@ -622,6 +648,28 @@ class SupplyChain:
         fig.tight_layout()
         plt.close(fig)  # PREVENTS DISPLAY IN WINDOW DURING USE
         return fig
+
+    @staticmethod
+    def _apply_plot_background(fig: plt.Figure, ax: Optional[plt.Axes] = None, *, transparent: bool = False) -> None:
+        """
+        Apply plot background style.
+
+        If `transparent=True`, the figure/axes background becomes transparent,
+        which avoids bright white panels in dark UI themes.
+        """
+        if not transparent:
+            return
+        try:
+            fig.patch.set_alpha(0.0)
+            fig.patch.set_facecolor("none")
+        except Exception:
+            pass
+        if ax is not None:
+            try:
+                ax.patch.set_alpha(0.0)
+                ax.set_facecolor("none")
+            except Exception:
+                pass
 
     def _draw_grid_lines(
             self,
@@ -729,6 +777,7 @@ class SupplyChain:
             show_legend: bool = False,
             return_data: bool = False,
             value_mode: str = "value",            # "value" | "per_capita"
+            transparent_background: bool = False,
             # pass-through to map function for consistent behavior
             mode: str = "binned",                 # "continuous" or "binned"
             k: int = 7,                           # classes if no custom_bins
@@ -780,7 +829,8 @@ class SupplyChain:
             custom_bins=custom_bins,
             norm_mode=norm_mode,
             robust=robust,
-            gamma=gamma
+            gamma=gamma,
+            transparent_background=transparent_background,
         )
 
     def plot_worldmap_by_impact(
@@ -792,6 +842,7 @@ class SupplyChain:
             show_legend: bool = False,
             return_data: bool = False,
             value_mode: str = "value",            # "value" | "per_capita"
+            transparent_background: bool = False,
             # pass-through to map function
             mode: str = "binned",                 # "continuous" or "binned"
             k: int = 7,                           # classes if no custom_bins
@@ -871,7 +922,8 @@ class SupplyChain:
             custom_bins=custom_bins,
             norm_mode=norm_mode,
             robust=robust,
-            gamma=gamma
+            gamma=gamma,
+            transparent_background=transparent_background,
         )
 
     def _plot_worldmap_by_data(
@@ -891,7 +943,8 @@ class SupplyChain:
             # NEW: continuous contrast controls
             norm_mode: str = "linear",     # "linear" | "log" | "power"
             robust: float = 2.0,           # quantile clipping in %
-            gamma: float = 0.7             # for PowerNorm
+            gamma: float = 0.7,            # for PowerNorm
+            transparent_background: bool = False,
     ) -> Union[plt.Figure, Tuple[plt.Figure, pd.DataFrame]]:
         """
         Plot a choropleth map with a clear legend showing numeric ranges.
@@ -968,6 +1021,7 @@ class SupplyChain:
 
         data = world["data"].astype(float)
         fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+        self._apply_plot_background(fig, ax, transparent=transparent_background)
 
         if mode == "continuous":
             # Robust quantile clipping for better contrast
@@ -1115,6 +1169,7 @@ class SupplyChain:
         color_map: str = "tab20",                 # e.g., "tab20", "tab20_r", "viridis"
         relative: bool = True,                    
         value_mode: str = "value",               # "value" | "per_capita"
+        transparent_background: bool = False,
         return_data: bool = False
     ) -> plt.Figure | tuple[plt.Figure, pd.DataFrame]:
         """Render a pie chart for a single impact across regions.
@@ -1172,6 +1227,7 @@ class SupplyChain:
             # Graceful empty-state fallback
             fig = plt.figure()
             ax = fig.add_subplot(111)
+            self._apply_plot_background(fig, ax, transparent=transparent_background)
             ax.text(0.5, 0.5, self.iosystem.index.general_dict.get("No data", "No data"),
                     ha="center", va="center", transform=ax.transAxes)
             ax.axis("off")
@@ -1216,6 +1272,7 @@ class SupplyChain:
         # 5) Plot
         fig = plt.figure()
         ax = fig.add_subplot(111)
+        self._apply_plot_background(fig, ax, transparent=transparent_background)
         wedges, _texts, autotexts = ax.pie(
             pie_df["value"].to_numpy(),
             labels=None,
@@ -1361,6 +1418,7 @@ class SupplyChain:
         bar_color: str = "tab10",
         bar_width: float = 0.8,
         title: str = "",
+        transparent_background: bool = False,
         return_data: bool = False,
         ascending: bool = False,  
     ):
@@ -1496,6 +1554,7 @@ class SupplyChain:
 
         colors = _color_list(bar_color, len(impacts))
         fig, ax = plt.subplots(figsize=(12, 6))
+        self._apply_plot_background(fig, ax, transparent=transparent_background)
 
         idx = np.arange(len(take_idx))
         m = len(impacts)
@@ -1543,6 +1602,7 @@ class SupplyChain:
         bar_color: str = "tab10",
         bar_width: float = 0.8,
         title: str = "",
+        transparent_background: bool = False,
         return_data: bool = False,
     ):
         """
@@ -1559,6 +1619,7 @@ class SupplyChain:
             bar_color=bar_color,
             bar_width=bar_width,
             title=title,
+            transparent_background=transparent_background,
             return_data=return_data,
             ascending=True, 
         )

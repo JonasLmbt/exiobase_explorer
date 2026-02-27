@@ -97,6 +97,7 @@ class BubbleDiagramMethod(StageAnalysisMethod):
             line_width=1,
             line_color="gray",
             text_position="center",
+            transparent_background=True,
         )
         return fig
 

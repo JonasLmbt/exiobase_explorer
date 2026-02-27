@@ -153,6 +153,7 @@ class TopNMethod(AnalysisMethod):
             bar_color=st.get("bar_color", "tab10"),
             bar_width=float(st.get("bar_width", 0.8)),
             title=title,
+            transparent_background=True,
             return_data=False,
         )
 
@@ -195,6 +196,7 @@ class FlopNMethod(AnalysisMethod):
             bar_color=st.get("bar_color", "tab10"),
             bar_width=float(st.get("bar_width", 0.8)),
             title=title,
+            transparent_background=True,
             return_data=False,
         )
 
@@ -240,6 +242,7 @@ class PieChartMethod(AnalysisMethod):
             counterclockwise=state["counterclockwise"],
             color_map=color_name,
             value_mode=str(state.get("value_mode", "value") or "value"),
+            transparent_background=True,
             return_data=False
         )
 

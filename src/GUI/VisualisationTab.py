@@ -492,8 +492,13 @@ class StageAnalysisViewTab(QWidget):
         )
         if fname:
             try:
-                save_kwargs = dict(dpi=600, bbox_inches='tight', facecolor='white',
-                                   edgecolor='none', transparent=False, pad_inches=0.1)
+                export_bg = bool(getattr(self.ui, "export_graphics_with_background", False))
+                is_png = str(fname).lower().endswith(".png")
+                save_kwargs = dict(dpi=600, bbox_inches='tight', edgecolor='none', pad_inches=0.1)
+                if is_png and export_bg:
+                    save_kwargs.update(facecolor='white', transparent=False)
+                else:
+                    save_kwargs.update(facecolor='none', transparent=True)
                 self.canvas.figure.savefig(fname, **save_kwargs)
                 QMessageBox.information(
                     self,
@@ -956,11 +961,11 @@ class RegionAnalysisViewTab(QWidget):
         """
         if self._is_subcontractors(impact_choice):
             fig, world = self.ui.supplychain.plot_worldmap_by_subcontractors(
-                color="Blues", relative=True, return_data=True, title=None
+                color="Blues", relative=True, return_data=True, title=None, transparent_background=True
             )
         else:
             fig, world = self.ui.supplychain.plot_worldmap_by_impact(
-                impact_choice, return_data=True, color="Reds", title=None
+                impact_choice, return_data=True, color="Reds", title=None, transparent_background=True
             )
 
         unit = self._extract_unit(world)
@@ -999,6 +1004,7 @@ class RegionAnalysisViewTab(QWidget):
             title=(s.get("title") or None),
             show_legend=bool(s.get("show_legend", False)),
             return_data=True,
+            transparent_background=True,
             mode=s.get("mode", "binned"),
             relative=bool(s.get("relative", True)),
             value_mode=str(s.get("value_mode", "value") or "value"),
@@ -1177,8 +1183,13 @@ class RegionAnalysisViewTab(QWidget):
         )
         if fname:
             try:
-                save_kwargs = dict(dpi=600, bbox_inches='tight', facecolor='white',
-                                   edgecolor='none', transparent=False, pad_inches=0.1)
+                export_bg = bool(getattr(self.ui, "export_graphics_with_background", False))
+                is_png = str(fname).lower().endswith(".png")
+                save_kwargs = dict(dpi=600, bbox_inches='tight', edgecolor='none', pad_inches=0.1)
+                if is_png and export_bg:
+                    save_kwargs.update(facecolor='white', transparent=False)
+                else:
+                    save_kwargs.update(facecolor='none', transparent=True)
                 self.canvas.figure.savefig(fname, **save_kwargs)
                 QMessageBox.information(
                     self,
