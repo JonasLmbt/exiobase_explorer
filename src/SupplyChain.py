@@ -650,6 +650,20 @@ class SupplyChain:
             ax, df_rel, row_labels, text_position
         )
 
+        fig._bubble_contrib = {
+            "impacts": [str(x) for x in impacts],
+            "stage_ids": [
+                "resource_extraction",
+                "preliminary_products",
+                "direct_suppliers",
+                "retail",
+                "total",
+            ],
+            "stage_labels": [str(x) for x in col_labels],
+            "n_rows": n_rows,
+            "n_cols": n_cols,
+        }
+
         fig.tight_layout()
         plt.close(fig)  # PREVENTS DISPLAY IN WINDOW DURING USE
         return fig
@@ -2174,15 +2188,22 @@ class SupplyChain:
         Configure basic visual appearance of the map axes.
 
         - Removes ticks and frame for a clean, figure-centric look.
-        - Sets a bold title with modest padding.
+        - Sets a bold figure title so later layout optimization keeps enough headroom.
         - Leaves global layout to the caller; applies only minimal subplot padding.
         """
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_frame_on(False)
-        ax.set_title(title, fontsize=14, fontweight="bold", pad=20)
+        fig = ax.figure
+        if title:
+            # Use a figure-level title instead of an axes title so the view tab's
+            # later margin optimization can reliably reserve space for long titles.
+            try:
+                fig.suptitle(title, fontsize=14, fontweight="bold", y=0.985)
+            except Exception:
+                ax.set_title(title, fontsize=14, fontweight="bold", pad=20)
         # Leave tight layout control to the caller; minimal padding here:
-        plt.subplots_adjust(left=0, right=1, top=0.95, bottom=0.0)
+        plt.subplots_adjust(left=0, right=1, top=0.93, bottom=0.0)
 
     def _get_title(self, **kwargs) -> str:
         """

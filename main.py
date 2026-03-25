@@ -413,6 +413,16 @@ def main() -> int:
     try:
         logger.info("Starting Exiobase Explorer application")
 
+        # Qt requires these attributes before QApplication is created.
+        try:
+            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+        except Exception:
+            pass
+        try:
+            QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+        except Exception:
+            pass
+
         # Create QApplication instance
         app = QApplication(sys.argv)
 

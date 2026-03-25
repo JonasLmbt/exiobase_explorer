@@ -35,6 +35,42 @@ def multiindex_to_nested_dict(multiindex: pd.MultiIndex) -> dict:
     return root
 
 
+def build_impact_hierarchy(index) -> dict:
+    """
+    Build a UI-friendly hierarchy for impact selection.
+
+    Preferred structure:
+      category_label -> impact_label
+
+    Falls back to the raw impact MultiIndex when the newer grouped impact schema
+    is not available.
+    """
+    try:
+        df = getattr(index, "impacts_df", None)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            cols = {str(c) for c in df.columns}
+            if {"impact_label", "category_label"}.issubset(cols):
+                root: dict = {}
+                for _, row in df.iterrows():
+                    category = str(row.get("category_label") or "").strip()
+                    label = str(row.get("impact_label") or "").strip()
+                    if not label:
+                        continue
+                    if category:
+                        root.setdefault(category, {}).setdefault(label, {})
+                    else:
+                        root.setdefault(label, {})
+                if root:
+                    return root
+    except Exception:
+        pass
+
+    mi = getattr(index, "impact_multiindex", None)
+    if mi is not None:
+        return multiindex_to_nested_dict(mi)
+    return {}
+
+
 class VisualisationTab(QWidget):
     """
     Main visualization tab of the application.
@@ -243,9 +279,8 @@ class StageAnalysisViewTab(QWidget):
         self.name = self._translate("Bubble diagram", "Bubble diagram")
         self.tab_widget = parent if isinstance(parent, QTabWidget) else None
 
-        # Build impact hierarchy (MultiIndex -> nested dict) for the selector
-        mi = self.iosystem.index.impact_multiindex
-        self.impact_hierarchy: Dict = multiindex_to_nested_dict(mi)
+        # Build a UI-friendly hierarchy (prefer category -> localized impact label).
+        self.impact_hierarchy: Dict = build_impact_hierarchy(self.iosystem.index)
 
         # UI & state
         self._init_ui()
@@ -340,6 +375,7 @@ class StageAnalysisViewTab(QWidget):
         Applies margin optimization before attaching the canvas.
         """
         if self.canvas:
+            self._disconnect_stage_plot_interactions()
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
             self.canvas.deleteLater()
@@ -354,24 +390,90 @@ class StageAnalysisViewTab(QWidget):
         self._setup_canvas_context_menu()
         self.plot_area.addWidget(self.canvas)
         self.canvas.draw()
+        self._wire_stage_plot_interactions(fig)
 
         if hasattr(self, "save_btn"):
             self.save_btn.setEnabled(True)
 
     def _init_default_impacts(self):
         """
-        Set reasonable defaults (mirrors prior DiagramTab behavior).
-        Selects a handful of common impacts if available.
+        Set the default stage-analysis impact selection.
         """
-        impacts = self.iosystem.impacts
-        defaults = []
-        if len(impacts) > 3:  defaults.append(impacts[3])   # GHG
-        if len(impacts) > 32: defaults.append(impacts[32])  # Water
-        if len(impacts) > 125: defaults.append(impacts[125])# Land
-        if len(impacts) > 0:  defaults.append(impacts[0])   # Value creation
-        if len(impacts) > 2:  defaults.append(impacts[2])   # Labor time
-
+        idx = self.iosystem.index
+        impacts = list(self.iosystem.impacts or [])
+        preferred_keys = [
+            "Value Added",
+            "Water Consumption Blue - Total",
+            "Employment hour",
+            "GHG emissions (GWP100) | Problem oriented approach: baseline (CML, 2001) | GWP100 (IPCC, 2007)",
+            "Land use Crop, Forest, Pasture",
+        ]
+        defaults: list[str] = []
+        for key in preferred_keys:
+            label = str((getattr(idx, "impact_key_to_label", {}) or {}).get(key) or "").strip()
+            if label and label in impacts and label not in defaults:
+                defaults.append(label)
+        if not defaults and impacts:
+            defaults = [impacts[0]]
         self.impact_selector.set_defaults(defaults)
+
+    def _wire_stage_plot_interactions(self, fig):
+        """Enable bubble-specific click handling when the figure provides metadata."""
+        self._disconnect_stage_plot_interactions()
+        if not self.canvas or not getattr(fig, "_bubble_contrib", None):
+            return
+        self._cid_stage_click = self.canvas.mpl_connect("button_press_event", self._on_stage_plot_click)
+
+    def _disconnect_stage_plot_interactions(self):
+        """Disconnect stage-plot click handlers, if any."""
+        if not self.canvas:
+            return
+        try:
+            if hasattr(self, "_cid_stage_click"):
+                self.canvas.mpl_disconnect(self._cid_stage_click)
+                del self._cid_stage_click
+        except Exception:
+            pass
+
+    def _on_stage_plot_click(self, event):
+        """Open contribution analysis when the user clicks a bubble-diagram cell."""
+        if getattr(event, "button", None) not in (1, None):
+            return
+        if not self.canvas or event.inaxes is None or event.xdata is None or event.ydata is None:
+            return
+
+        meta = getattr(self.canvas.figure, "_bubble_contrib", None) or {}
+        impacts = list(meta.get("impacts") or [])
+        stage_ids = list(meta.get("stage_ids") or [])
+        stage_labels = list(meta.get("stage_labels") or [])
+        n_rows = int(meta.get("n_rows") or len(impacts))
+        n_cols = int(meta.get("n_cols") or len(stage_ids))
+        if not impacts or not stage_ids:
+            return
+
+        x = float(event.xdata)
+        y = float(event.ydata)
+        col = int(round(x))
+        row = int(round(y))
+        if not (0 <= col < n_cols and 0 <= row < n_rows):
+            return
+        if abs(x - col) > 0.48 or abs(y - row) > 0.48:
+            return
+
+        try:
+            impact = str(impacts[row])
+            stage_id = str(stage_ids[col])
+            stage_label = str(stage_labels[col] if col < len(stage_labels) else stage_id)
+            dlg = StageContributionDialog(
+                ui=self.ui,
+                impact=impact,
+                stage_id=stage_id,
+                stage_label=stage_label,
+                parent=self,
+            )
+            dlg.exec_()
+        except Exception:
+            pass
 
     def _on_method_changed(self, method_id: str):
         """Handle method changes: toggle settings icon, update title and plot, emit state."""
@@ -721,9 +823,6 @@ class RegionAnalysisViewTab(QWidget):
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._update_plot)
 
-        # Initial render
-        self._schedule_update()
-
         # World geometry & state used for tooltips/dialogs on the map
         self._world_gdf = None       # GeoDataFrame (EPSG:4326)
         self._world_sindex = None    # Spatial index
@@ -733,12 +832,12 @@ class RegionAnalysisViewTab(QWidget):
         # Per-method persisted state (seeded with defaults for the world map)
         self.method_state = {
             "world_map": {
-                "color": "Reds",
+                "color": "Blues",
                 "cmap_reverse": False,
-                "show_legend": False,
+                "show_legend": True,
                 "title": "",
-                "mode": "binned",           # "binned" | "continuous"
-                "relative": True,           # binned: percentage shares vs absolute values
+                "mode": "continuous",       # "binned" | "continuous"
+                "relative": False,          # binned: percentage shares vs absolute values
                 "value_mode": "value",      # "value" | "per_capita"
                 "k": 7,
                 "custom_bins": None,        # list[float] or None
@@ -747,6 +846,13 @@ class RegionAnalysisViewTab(QWidget):
                 "gamma": 0.7,               # used in "continuous"
             }
         }
+
+        # Apply the desired initial impact only after all dependent state exists.
+        if self.iosystem.impacts:
+            self.impact_selector.set_current_impact(self.iosystem.impacts[0])
+
+        # Initial render
+        self._schedule_update()
 
     def _translate(self, key: str, fallback: str) -> str:
         """
@@ -1928,9 +2034,12 @@ class ImpactMultiSelectorButton(QWidget):
         Return the current selection.
 
         Returns:
-            List[str]: List of selected impact keys (order not guaranteed).
+            List[str]: List of selected impact keys in hierarchy order.
         """
-        return list(self._selected)
+        ordered = self._ordered_leaf_keys(self._hierarchy)
+        picked = [key for key in ordered if key in self._selected]
+        extras = [key for key in self._selected if key not in picked]
+        return picked + extras
 
     def set_selected_impacts(self, impacts: List[str]) -> None:
         """
@@ -1947,6 +2056,20 @@ class ImpactMultiSelectorButton(QWidget):
         """Update the button text to show the number of selected impacts."""
         count = len(self._selected)
         self.btn.setText(f"{self._tr('Selected', 'Selected')} ({count})")
+
+    def _ordered_leaf_keys(self, hierarchy: Dict) -> List[str]:
+        """Return all leaf keys in display order."""
+        ordered: List[str] = []
+
+        def walk(d: Dict):
+            for key, child in d.items():
+                if isinstance(child, dict) and child:
+                    walk(child)
+                else:
+                    ordered.append(key)
+
+        walk(hierarchy or {})
+        return ordered
 
     def _open_dialog(self):
         """Open a dialog with a hierarchical tree view for impact selection."""
@@ -1967,8 +2090,9 @@ class ImpactMultiSelectorButton(QWidget):
         def add_items(parent_item, data_dict, level=0):
             for key, val in data_dict.items():
                 item = QTreeWidgetItem(parent_item)
-                item.setData(0, Qt.UserRole + 1, key)  # store canonical key
-                item.setText(0, self._tr(key, key))    # localized label
+                is_leaf = not (isinstance(val, dict) and val)
+                item.setData(0, Qt.UserRole + 1, key if is_leaf else None)
+                item.setText(0, self._tr(key, key))
                 item.setData(0, Qt.UserRole, level)
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
                 item.setCheckState(0, Qt.Checked if key in self._selected else Qt.Unchecked)
@@ -1976,6 +2100,36 @@ class ImpactMultiSelectorButton(QWidget):
                     add_items(item, val, level + 1)
 
         add_items(tree, self._hierarchy)
+
+        def set_children_state(item: QTreeWidgetItem, state: Qt.CheckState):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                child.setCheckState(0, state)
+                set_children_state(child, state)
+
+        def update_parent_state(item: QTreeWidgetItem):
+            parent = item.parent()
+            if parent is None:
+                return
+            states = [parent.child(i).checkState(0) for i in range(parent.childCount())]
+            if all(s == Qt.Checked for s in states):
+                parent.setCheckState(0, Qt.Checked)
+            elif all(s == Qt.Unchecked for s in states):
+                parent.setCheckState(0, Qt.Unchecked)
+            else:
+                parent.setCheckState(0, Qt.PartiallyChecked)
+            update_parent_state(parent)
+
+        def on_item_changed(item: QTreeWidgetItem, _column: int):
+            tree.blockSignals(True)
+            try:
+                if item.childCount() > 0:
+                    set_children_state(item, item.checkState(0))
+                update_parent_state(item)
+            finally:
+                tree.blockSignals(False)
+
+        tree.itemChanged.connect(on_item_changed)
 
         # Button row at the bottom
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
@@ -2010,7 +2164,7 @@ class ImpactMultiSelectorButton(QWidget):
         # Recursively collect checked items
         def collect(item: QTreeWidgetItem):
             raw = item.data(0, Qt.UserRole + 1)
-            if raw is not None and (item.flags() & Qt.ItemIsUserCheckable) and item.checkState(0) == Qt.Checked:
+            if item.childCount() == 0 and raw is not None and (item.flags() & Qt.ItemIsUserCheckable) and item.checkState(0) == Qt.Checked:
                 new_sel.add(raw)
             for i in range(item.childCount()):
                 collect(item.child(i))
@@ -2900,9 +3054,8 @@ class ExportDataDialog(QDialog):
         self._tr = tr
         self.setWindowTitle(tr("Export (Excel)", "Export (Excel)"))
 
-        # Build impact hierarchy (MultiIndex -> nested dict) for the selector
-        mi = self._ios.index.impact_multiindex
-        self.impact_hierarchy: Dict = multiindex_to_nested_dict(mi)
+        # Build a UI-friendly hierarchy (prefer category -> localized impact label).
+        self.impact_hierarchy: Dict = build_impact_hierarchy(self._ios.index)
 
         v = QVBoxLayout(self)
 
@@ -3119,13 +3272,247 @@ class CountryInfoDialog(QDialog):
         self.accept()
 
 
+class StageContributionDialog(QDialog):
+    """
+    Desktop contribution analysis for a clicked bubble-diagram cell.
+
+    Shows the Top-N contribution breakdown for one impact and one value-chain stage,
+    switchable between regions and sectors.
+    """
+
+    _BAR_COLOR      = "#2563eb"
+    _BAR_COLOR_DIM  = "#93c5fd"
+    _SPINE_COLOR    = "#d1d5db"
+    _GRID_COLOR     = "#f3f4f6"
+    _LABEL_COLOR    = "#6b7280"
+    _PCT_COLOR      = "#6b7280"
+    _MAX_LABEL_LEN  = 34
+
+    def __init__(self, ui, *, impact: str, stage_id: str, stage_label: str, parent=None):
+        super().__init__(parent)
+        self.ui = ui
+        self.impact = str(impact or "").strip()
+        self.stage_id = str(stage_id or "").strip()
+        self.stage_label = str(stage_label or "").strip()
+
+        try:
+            self._tr = ui._translate  # type: ignore[attr-defined]
+        except Exception:
+            self._tr = lambda k, fb=None: fb or k  # type: ignore[assignment]
+
+        self.setWindowTitle(self._tr("Beitragsanalyse", "Beitragsanalyse"))
+        self.resize(980, 700)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        v = QVBoxLayout(self)
+        v.setSpacing(0)
+        v.setContentsMargins(16, 14, 16, 14)
+
+        impact_lbl = QLabel(self.impact)
+        impact_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
+        stage_lbl = QLabel(self.stage_label)
+        stage_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR}; margin-bottom: 6px;")
+        v.addWidget(impact_lbl)
+        v.addWidget(stage_lbl)
+
+        div = QWidget(self)
+        div.setFixedHeight(1)
+        div.setStyleSheet(f"background: {self._SPINE_COLOR}; margin-top: 4px; margin-bottom: 8px;")
+        v.addWidget(div)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 6, 0, 6)
+        row.setSpacing(6)
+
+        self.dimension = QComboBox(self)
+        self.dimension.addItem(self._tr("Regions", "Regions"), userData="regions")
+        self.dimension.addItem(self._tr("Sectors", "Sectors"), userData="sectors")
+        self.dimension.currentIndexChanged.connect(self._refresh)
+        row.addWidget(self.dimension)
+
+        self.view = QComboBox(self)
+        self.view.addItem(self._tr("Bars", "Bars"), userData="bars")
+        self.view.addItem(self._tr("Pie", "Pie"), userData="pie")
+        self.view.currentIndexChanged.connect(self._render)
+        row.addWidget(self.view)
+
+        self.refresh_btn = QPushButton(self._tr("Aktualisieren", "Aktualisieren"), self)
+        self.refresh_btn.setFixedWidth(120)
+        self.refresh_btn.clicked.connect(self._refresh)
+        row.addWidget(self.refresh_btn)
+
+        row.addStretch(1)
+
+        self._status = QLabel("", self)
+        self._status.setStyleSheet(f"color: {self._LABEL_COLOR}; font-size: 11px;")
+        row.addWidget(self._status)
+        v.addLayout(row)
+
+        self._canvas = None
+        self._plot_area = QVBoxLayout()
+        self._plot_area.setContentsMargins(0, 0, 0, 0)
+        v.addLayout(self._plot_area, 1)
+
+        self._data = None
+        self._refresh()
+
+    def _refresh(self):
+        self._status.setText(self._tr("Loading…", "Loading…"))
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self._data = self.ui.supplychain.contribution_breakdown_table(
+                impact=self.impact,
+                stage_id=self.stage_id,
+                dimension=str(self.dimension.currentData() or "regions"),
+                top_n=25,
+            )
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._render()
+
+    def _set_canvas(self, fig):
+        if self._canvas:
+            self._plot_area.removeWidget(self._canvas)
+            self._canvas.setParent(None)
+            self._canvas.deleteLater()
+        self._canvas = FigureCanvas(fig)
+        self._canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._plot_area.addWidget(self._canvas)
+        self._canvas.draw()
+
+    def _empty_fig(self, msg: str):
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, msg, ha="center", va="center",
+                transform=ax.transAxes, fontsize=11, color=self._LABEL_COLOR)
+        ax.axis("off")
+        fig.tight_layout()
+        return fig
+
+    def _render(self):
+        d = self._data or {}
+        if isinstance(d, dict) and d.get("ok") is False:
+            self._status.setText(str(d.get("detail") or ""))
+            self._set_canvas(self._empty_fig(str(d.get("error") or "Error")))
+            return
+
+        rows = (d.get("rows") if isinstance(d, dict) else None) or []
+        meta = (d.get("meta") if isinstance(d, dict) else None) or {}
+        unit = str(meta.get("unit") or "").strip()
+
+        if not rows:
+            self._status.setText("")
+            self._set_canvas(self._empty_fig(self._tr("No data", "No data")))
+            return
+
+        self._status.setText("")
+
+        labels = [str(r.get("label")) for r in rows]
+        values = [float(r.get("absolute") or 0.0) for r in rows]
+        shares = [float(r.get("share") or 0.0) for r in rows]
+
+        if str(self.view.currentData() or "bars") == "pie":
+            self._render_pie(labels, values)
+        else:
+            self._render_bars(labels, values, shares, unit)
+
+    def _render_bars(self, labels, values, shares, unit):
+        order = np.argsort(values)
+        labels_o = [labels[i] for i in order]
+        values_o = [values[i] for i in order]
+        shares_o = [shares[i] for i in order]
+        n = len(values_o)
+
+        fig_h = max(4.5, n * 0.30 + 1.2)
+        fig_h = min(fig_h, 14.0)
+        fig, ax = plt.subplots(figsize=(9.4, fig_h))
+        y = np.arange(n)
+
+        colors = [self._BAR_COLOR if i >= n - 5 else self._BAR_COLOR_DIM for i in range(n)]
+        ax.barh(y, values_o, color=colors, height=0.62, edgecolor="none")
+
+        for spine in ("top", "right", "left"):
+            ax.spines[spine].set_visible(False)
+        ax.spines["bottom"].set_color(self._SPINE_COLOR)
+
+        ax.set_axisbelow(True)
+        ax.grid(axis="x", color=self._GRID_COLOR, linewidth=0.9)
+
+        tick_labels = [
+            l[: self._MAX_LABEL_LEN] + "…" if len(l) > self._MAX_LABEL_LEN else l
+            for l in labels_o
+        ]
+        ax.set_yticks(y)
+        ax.set_yticklabels(tick_labels, fontsize=8.5)
+        ax.tick_params(axis="y", length=0, pad=6, labelcolor="#374151")
+        ax.tick_params(axis="x", colors=self._SPINE_COLOR, labelsize=8.5, labelcolor=self._LABEL_COLOR)
+
+        max_val = max(values_o) if values_o else 1.0
+        if max_val <= 0:
+            max_val = 1.0
+        for yi, val, sh in zip(y, values_o, shares_o):
+            ax.text(
+                val + max_val * 0.008, yi,
+                f"{sh * 100:.1f} %",
+                va="center", ha="left", fontsize=8, color=self._PCT_COLOR,
+            )
+
+        xlabel = f"{self.impact}  [{unit}]" if unit else self.impact
+        ax.set_xlabel(xlabel, fontsize=9, color=self._LABEL_COLOR, labelpad=8)
+        ax.set_xlim(0, max_val * 1.18)
+
+        fig.tight_layout(pad=1.2)
+        self._set_canvas(fig)
+
+    def _render_pie(self, labels, values):
+        top_k = min(10, len(values))
+        others = float(np.sum(values[top_k:])) if len(values) > top_k else 0.0
+        pie_vals = values[:top_k] + ([others] if others > 0 else [])
+        pie_labels = labels[:top_k] + ([self._tr("Others", "Andere")] if others > 0 else [])
+
+        fig, ax = plt.subplots(figsize=(8.5, 6.5))
+        colors = plt.cm.tab10(np.linspace(0, 1, len(pie_vals)))
+
+        wedges, _, autotexts = ax.pie(
+            pie_vals,
+            labels=None,
+            startangle=90,
+            counterclock=False,
+            colors=colors,
+            autopct="%1.1f%%",
+            pctdistance=0.78,
+            wedgeprops=dict(linewidth=1.8, edgecolor="white"),
+        )
+        for at in autotexts:
+            at.set_fontsize(8.5)
+            at.set_color("#374151")
+
+        ax.legend(
+            wedges, pie_labels,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1.0),
+            fontsize=9,
+            frameon=False,
+        )
+
+        fig.tight_layout(pad=1.2)
+        self._set_canvas(fig)
+
+
 class RegionContributionDialog(QDialog):
     """
-    Desktop "Beitragsanalyse" for a clicked region (mirrors the web dialog).
+    Desktop "Beitragsanalyse" for a clicked region.
 
-    Shows which emitting sectors inside the clicked region contribute most to
+    Shows which sectors inside the clicked region contribute most to
     the selected impact for the current selection.
     """
+
+    _BAR_COLOR      = "#3b82f6"
+    _BAR_COLOR_DIM  = "#93c5fd"
+    _SPINE_COLOR    = "#d1d5db"
+    _GRID_COLOR     = "#f3f4f6"
+    _LABEL_COLOR    = "#6b7280"
+    _PCT_COLOR      = "#6b7280"
+    _MAX_LABEL_LEN  = 34
 
     def __init__(self, ui, *, impact: str, region_exiobase: str, region_label: str, parent=None):
         super().__init__(parent)
@@ -3134,45 +3521,63 @@ class RegionContributionDialog(QDialog):
         self.region_exiobase = str(region_exiobase or "").strip()
         self.region_label = str(region_label or "").strip()
 
-        # Translation helper (fallback to identity)
         try:
             self._tr = ui._translate  # type: ignore[attr-defined]
         except Exception:
             self._tr = lambda k, fb=None: fb or k  # type: ignore[assignment]
 
         self.setWindowTitle(self._tr("Beitragsanalyse", "Beitragsanalyse"))
-        self.resize(900, 620)
+        self.resize(900, 660)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         v = QVBoxLayout(self)
+        v.setSpacing(0)
+        v.setContentsMargins(16, 14, 16, 14)
 
-        title = QLabel(
-            f"{self._tr('Beitragsanalyse', 'Beitragsanalyse')}\n"
-            f"{self.impact} • {self.region_label or self.region_exiobase}"
-        )
-        title.setStyleSheet("font-weight:700; font-size:14px;")
-        v.addWidget(title)
+        # ── Header: impact name (bold) + region (muted) ──────────────────
+        region_name = self.region_label or self.region_exiobase
+        impact_lbl = QLabel(self.impact)
+        impact_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
+        region_lbl = QLabel(region_name)
+        region_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR}; margin-bottom: 6px;")
+        v.addWidget(impact_lbl)
+        v.addWidget(region_lbl)
 
+        # ── Thin divider ─────────────────────────────────────────────────
+        div = QWidget(self)
+        div.setFixedHeight(1)
+        div.setStyleSheet(f"background: {self._SPINE_COLOR}; margin-top: 4px; margin-bottom: 8px;")
+        v.addWidget(div)
+
+        # ── Toolbar row ──────────────────────────────────────────────────
         row = QHBoxLayout()
-        self.view = QComboBox(self)
-        self.view.addItem("Bars", userData="bars")
-        self.view.addItem("Pie", userData="pie")
-        self.view.currentIndexChanged.connect(self._render)
-        row.addWidget(self.view, 0)
+        row.setContentsMargins(0, 6, 0, 6)
+        row.setSpacing(6)
 
-        self.refresh_btn = QPushButton(self._tr("Refresh", "Refresh"), self)
+        self.view = QComboBox(self)
+        self.view.addItem(self._tr("Bars", "Bars"), userData="bars")
+        self.view.addItem(self._tr("Pie", "Pie"), userData="pie")
+        self.view.setFixedWidth(110)
+        self.view.currentIndexChanged.connect(self._render)
+        row.addWidget(self.view)
+
+        self.refresh_btn = QPushButton(self._tr("Aktualisieren", "Aktualisieren"), self)
+        self.refresh_btn.setFixedWidth(120)
         self.refresh_btn.clicked.connect(self._refresh)
-        row.addWidget(self.refresh_btn, 0)
+        row.addWidget(self.refresh_btn)
 
         row.addStretch(1)
-        v.addLayout(row)
 
         self._status = QLabel("", self)
-        self._status.setStyleSheet("color:#666;")
-        v.addWidget(self._status)
+        self._status.setStyleSheet(f"color: {self._LABEL_COLOR}; font-size: 11px;")
+        row.addWidget(self._status)
 
+        v.addLayout(row)
+
+        # ── Plot canvas ──────────────────────────────────────────────────
         self._canvas = None
         self._plot_area = QVBoxLayout()
+        self._plot_area.setContentsMargins(0, 0, 0, 0)
         v.addLayout(self._plot_area, 1)
 
         self._data = None
@@ -3201,15 +3606,20 @@ class RegionContributionDialog(QDialog):
         self._plot_area.addWidget(self._canvas)
         self._canvas.draw()
 
+    def _empty_fig(self, msg: str):
+        """Return a minimal figure showing a single centered message."""
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, msg, ha="center", va="center",
+                transform=ax.transAxes, fontsize=11, color=self._LABEL_COLOR)
+        ax.axis("off")
+        fig.tight_layout()
+        return fig
+
     def _render(self):
         d = self._data or {}
         if isinstance(d, dict) and d.get("ok") is False:
-            fig = plt.figure()
-            ax = fig.add_subplot(111)
-            ax.text(0.5, 0.5, str(d.get("error") or "Error"), ha="center", va="center", transform=ax.transAxes)
-            ax.axis("off")
             self._status.setText(str(d.get("detail") or ""))
-            self._set_canvas(fig)
+            self._set_canvas(self._empty_fig(str(d.get("error") or "Error")))
             return
 
         rows = (d.get("rows") if isinstance(d, dict) else None) or []
@@ -3217,46 +3627,114 @@ class RegionContributionDialog(QDialog):
         unit = str(meta.get("unit") or "").strip()
 
         if not rows:
-            fig = plt.figure()
-            ax = fig.add_subplot(111)
-            ax.text(0.5, 0.5, self._tr("No data", "No data"), ha="center", va="center", transform=ax.transAxes)
-            ax.axis("off")
             self._status.setText("")
-            self._set_canvas(fig)
+            self._set_canvas(self._empty_fig(self._tr("No data", "No data")))
             return
 
-        view = str(self.view.currentData() or "bars")
+        self._status.setText("")
+
+        view   = str(self.view.currentData() or "bars")
         labels = [str(r.get("label")) for r in rows]
         values = [float(r.get("absolute") or 0.0) for r in rows]
         shares = [float(r.get("share") or 0.0) for r in rows]
 
-        fig = plt.figure(figsize=(10, 6))
-        ax = fig.add_subplot(111)
-
         if view == "pie":
-            # Top slices + others
-            top_k = min(12, len(values))
-            others = float(np.sum(values[top_k:])) if len(values) > top_k else 0.0
-            pie_vals = values[:top_k] + ([others] if others > 0 else [])
-            pie_labels = labels[:top_k] + ([self._tr("Others", "Others")] if others > 0 else [])
-            ax.pie(pie_vals, labels=pie_labels, startangle=90, counterclock=False)
+            self._render_pie(labels, values)
         else:
-            # Bars (horizontal for readability)
-            order = np.argsort(values)
-            labels_o = [labels[i] for i in order]
-            values_o = [values[i] for i in order]
-            shares_o = [shares[i] for i in order]
-            y = np.arange(len(values_o))
-            ax.barh(y, values_o, color="#3b82f6", alpha=0.85)
-            ax.set_yticks(y)
-            ax.set_yticklabels(labels_o, fontsize=9)
-            ax.grid(axis="x", alpha=0.2)
-            xlabel = f"{self.impact} [{unit}]" if unit else self.impact
-            ax.set_xlabel(xlabel)
-            for yi, val, sh in zip(y, values_o, shares_o):
-                ax.text(val, yi, f"  {sh*100:.1f}%", va="center", fontsize=8, color="#333")
+            self._render_bars(labels, values, shares, unit)
 
-        ax.set_title(self._tr("Beitragsanalyse", "Beitragsanalyse"))
-        fig.tight_layout()
-        self._status.setText("")
+    # ── Bars ─────────────────────────────────────────────────────────────
+
+    def _render_bars(self, labels, values, shares, unit):
+        order    = np.argsort(values)          # ascending → largest bar at top
+        labels_o = [labels[i] for i in order]
+        values_o = [values[i] for i in order]
+        shares_o = [shares[i] for i in order]
+        n        = len(values_o)
+
+        # Dynamic height: give each bar ~0.30 inches, min 4.5 in
+        fig_h = max(4.5, n * 0.30 + 1.2)
+        fig_h = min(fig_h, 14.0)
+        fig, ax = plt.subplots(figsize=(9.2, fig_h))
+
+        y = np.arange(n)
+
+        # Color: top 5 bars (highest share) slightly darker/stronger
+        colors = [self._BAR_COLOR if i >= n - 5 else self._BAR_COLOR_DIM for i in range(n)]
+        ax.barh(y, values_o, color=colors, height=0.62, edgecolor="none")
+
+        # Spines: only bottom axis line
+        for spine in ("top", "right", "left"):
+            ax.spines[spine].set_visible(False)
+        ax.spines["bottom"].set_color(self._SPINE_COLOR)
+
+        # Grid: subtle vertical lines behind bars
+        ax.set_axisbelow(True)
+        ax.grid(axis="x", color=self._GRID_COLOR, linewidth=0.9)
+
+        # Y-tick labels: truncate long sector names
+        tick_labels = [
+            l[: self._MAX_LABEL_LEN] + "…" if len(l) > self._MAX_LABEL_LEN else l
+            for l in labels_o
+        ]
+        ax.set_yticks(y)
+        ax.set_yticklabels(tick_labels, fontsize=8.5)
+        ax.tick_params(axis="y", length=0, pad=6, labelcolor="#374151")
+        ax.tick_params(axis="x", colors=self._SPINE_COLOR, labelsize=8.5,
+                       labelcolor=self._LABEL_COLOR)
+
+        # Percentage annotations right of each bar
+        max_val = max(values_o) if values_o else 1.0
+        for yi, val, sh in zip(y, values_o, shares_o):
+            ax.text(
+                val + max_val * 0.008, yi,
+                f"{sh * 100:.1f} %",
+                va="center", ha="left", fontsize=8, color=self._PCT_COLOR,
+            )
+
+        # X label
+        xlabel = f"{self.impact}  [{unit}]" if unit else self.impact
+        ax.set_xlabel(xlabel, fontsize=9, color=self._LABEL_COLOR, labelpad=8)
+
+        # Extra right margin so % labels don't get clipped
+        ax.set_xlim(0, max_val * 1.18)
+
+        fig.tight_layout(pad=1.2)
+        self._set_canvas(fig)
+
+    # ── Pie ──────────────────────────────────────────────────────────────
+
+    def _render_pie(self, labels, values):
+        top_k  = min(10, len(values))
+        others = float(np.sum(values[top_k:])) if len(values) > top_k else 0.0
+        pie_vals   = values[:top_k] + ([others] if others > 0 else [])
+        pie_labels = labels[:top_k] + ([self._tr("Others", "Andere")] if others > 0 else [])
+
+        fig, ax = plt.subplots(figsize=(8.5, 6.5))
+        colors  = plt.cm.tab10(np.linspace(0, 1, len(pie_vals)))
+
+        wedges, _, autotexts = ax.pie(
+            pie_vals,
+            labels=None,
+            startangle=90,
+            counterclock=False,
+            colors=colors,
+            autopct="%1.1f%%",
+            pctdistance=0.78,
+            wedgeprops=dict(linewidth=1.8, edgecolor="white"),
+        )
+        for at in autotexts:
+            at.set_fontsize(8.5)
+            at.set_color("#374151")
+
+        # Legend outside the pie on the right
+        ax.legend(
+            wedges, pie_labels,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1.0),
+            fontsize=9,
+            frameon=False,
+        )
+
+        fig.tight_layout(pad=1.2)
         self._set_canvas(fig)
