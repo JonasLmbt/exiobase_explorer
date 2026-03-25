@@ -53,6 +53,7 @@ class UserInterface(QMainWindow):
     # Class constants for better maintainability
     DEFAULT_YEAR = 2022
     DEFAULT_LANGUAGE = "Deutsch"
+    DEFAULT_AGGREGATION = "wz03"
     WINDOW_TITLE = "Exiobase Explorer"
     ICON_PATH = os.path.join("data", "exiobase_logo_2.png")  # Change to path of newest icon
 
@@ -85,11 +86,12 @@ class UserInterface(QMainWindow):
     def _initialize_database(self) -> None:
         """Initialize the database connection and load configurations."""
         try:
-            logger.info(f"Loading database with year={self.DEFAULT_YEAR}, language={self.DEFAULT_LANGUAGE}")
-            self.iosystem = IOSystem(year=self.DEFAULT_YEAR, language=self.DEFAULT_LANGUAGE).load()
+            logger.info(f"Loading database with year={self.DEFAULT_YEAR}, language={self.DEFAULT_LANGUAGE}, aggregation={self.DEFAULT_AGGREGATION}")
+            self.iosystem = IOSystem(year=self.DEFAULT_YEAR, language=self.DEFAULT_LANGUAGE, aggregation=self.DEFAULT_AGGREGATION).load()
 
-            # Update configurations
+            # Copy aggregation config files, then fully rebuild indices
             self.iosystem.index.copy_configs(output=False)
+            self.iosystem.index.update_multiindices()
             self.general_dict = self.iosystem.index.general_dict
 
             logger.info("Database loaded and configured successfully")

@@ -75,6 +75,7 @@ class SettingsTab(QWidget):
 
         self._get_languages()
         self._get_years()
+        self._get_aggregations()
 
         self._init_ui(show_indices_state, export_with_background_state)
 
@@ -86,6 +87,22 @@ class SettingsTab(QWidget):
         """Fetch available languages from the database."""
         self.current_language = self.iosystem.language
         self.languages = self.iosystem.index.languages
+
+    def _get_aggregations(self):
+        """Fetch available aggregations from config/aggregations/ subfolders."""
+        self.current_aggregation = getattr(self.iosystem, 'aggregation', 'exiobase')
+        self.aggregations = []
+        try:
+            agg_dir = os.path.join(self.iosystem.config_dir, 'aggregations')
+            if os.path.exists(agg_dir):
+                self.aggregations = sorted([
+                    d for d in os.listdir(agg_dir)
+                    if os.path.isdir(os.path.join(agg_dir, d))
+                ])
+        except Exception as e:
+            logging.warning(f"Could not read aggregations directory: {e}")
+        if not self.aggregations:
+            self.aggregations = [self.current_aggregation]
 
     def _get_years(self):
         """Fetch available years from fast_databases_dir directory."""
@@ -140,6 +157,14 @@ class SettingsTab(QWidget):
         self.language_combo.currentTextChanged.connect(self._on_language_changed)
         layout.addWidget(language_label)
         layout.addWidget(self.language_combo)
+
+        aggregation_label = QLabel(f"{self._translate('Aggregation', 'Aggregation')}:")
+        self.aggregation_combo = QComboBox()
+        self.aggregation_combo.addItems(self.aggregations)
+        self.aggregation_combo.setCurrentText(self.current_aggregation)
+        self.aggregation_combo.currentTextChanged.connect(self._on_aggregation_changed)
+        layout.addWidget(aggregation_label)
+        layout.addWidget(self.aggregation_combo)
 
         year_label = QLabel(f"{self._translate('Year', 'Year')}:")
         self.year_combo = QComboBox()
@@ -213,6 +238,17 @@ class SettingsTab(QWidget):
             self.ui.reload_tabs()
         except Exception as e:
             logging.error(f"Error changing language: {e}")
+
+    def _on_aggregation_changed(self, text):
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.current_aggregation = text
+            self.iosystem.switch_aggregation(self.current_aggregation)
+            self.ui.reload_tabs()
+        except Exception as e:
+            logging.error(f"Error changing aggregation: {e}")
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _on_year_changed(self, text):
         QApplication.setOverrideCursor(Qt.WaitCursor)

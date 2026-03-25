@@ -680,40 +680,77 @@ class Index:
         
         try:
             # Mapping of df_id to file names, sheet names, and expected lengths
+            # Expected lengths are aggregation-specific; use None to skip validation.
             file_mapping = {
-                "sectors_df": ("sectors.xlsx", self.iosystem.language, 200),
-                "raw_materials_df": ("sectors.xlsx", "raw_material", 200),
-                "regions_df": ("regions.xlsx", self.iosystem.language, 49),
-                "exiobase_to_map_df": ("regions.xlsx", "map", 178),
-                "impacts_df": ("impacts.xlsx", self.iosystem.language, 126),
+                "sectors_df": ("sectors.xlsx", self.iosystem.language, None),
+                "raw_materials_df": ("sectors.xlsx", "raw_material", None),
+                "regions_df": ("regions.xlsx", self.iosystem.language, None),
+                "exiobase_to_map_df": ("regions.xlsx", "map", None),
+                "impacts_df": ("impacts.xlsx", self.iosystem.language, None),
                 # Canonical EXIOBASE impact keys, used to map translated labels -> impact_key
-                "impacts_exiobase_df": ("impacts.xlsx", "Exiobase", 126),
-                "impact_color_df": ("impacts.xlsx", "color", 126),
+                "impacts_exiobase_df": ("impacts.xlsx", "Exiobase", None),
+                "impact_color_df": ("impacts.xlsx", "color", None),
                 # NOTE: `units.xlsx` was redesigned to hold display scaling + i18n labels (new schema).
                 # The legacy UI parts (SupplyChain.transform_unit, etc.) still expect the old per-language
                 # unit transformation table (impact label -> divisor/decimals/unit).
                 #
                 # Therefore we read the legacy transformation table from `units_legacy.xlsx` and load the
                 # new schema separately via `load_unit_display_config()`.
-                "units_df": ("units_legacy.xlsx", self.iosystem.language, 126),
-                "general_df": ("general.xlsx", self.iosystem.language, 12)
+                # units_legacy.xlsx is optional: falls back to legacy_config_dir (config2/) if not in
+                # the aggregation folder.
+                "units_df": ("units_legacy.xlsx", self.iosystem.language, None),
             }
 
             # Attempt to load each Excel file and assign it to the corresponding attribute
             for df_id, (file_name, sheet_name, expected_length) in file_mapping.items():
                 try:
-                    # Read the Excel file and set the corresponding attribute
-                    file_path = os.path.join(self.iosystem.current_fast_database_path, file_name)
-                    if not os.path.exists(file_path):
-                        # Fall back to the config dir (e.g. when fast DB was created without this file).
-                        file_path = os.path.join(self.iosystem.config_dir, file_name)
-                    df = pd.read_excel(file_path, sheet_name=sheet_name)
+                    # Search order: fast DB → new aggregation dir → legacy config dir (config2).
+                    # We iterate through ALL candidates until one successfully provides the
+                    # requested sheet — so a file that exists but lacks the sheet still falls
+                    # through to the next candidate.
+                    legacy_dir = getattr(self.iosystem, 'legacy_config_dir', None)
+                    candidates = [
+                        os.path.join(self.iosystem.current_fast_database_path, file_name),
+                        os.path.join(self.iosystem.excel_config_dir, file_name),
+                    ]
+                    if legacy_dir:
+                        candidates.append(os.path.join(legacy_dir, file_name))
+
+                    df = None
+                    last_error = None
+                    for candidate in candidates:
+                        if not os.path.exists(candidate):
+                            continue
+                        try:
+                            df = pd.read_excel(candidate, sheet_name=sheet_name)
+                            break
+                        except Exception as e:
+                            last_error = e
+                            continue
+
+                    if df is None:
+                        if last_error is not None:
+                            raise last_error
+                        raise FileNotFoundError(f"Could not find '{file_name}' in any config directory")
                     amount = len(df)
 
-                    # For sectors_df, regions_df, and impacts_df: reverse column order and check for duplicates
+                    # For sectors/regions: reverse for hierarchical UI processing.
+                    # For impacts: keep the display label in column 0 so the selected impact
+                    # still matches `.loc[impact]` on the impact matrices after aggregation changes.
                     if df_id in ['sectors_df', 'regions_df', 'impacts_df']:
-                        # Reverse column order for consistent hierarchical processing
-                        df = df.iloc[:, ::-1]
+                        if df_id == 'impacts_df':
+                            ordered_cols = [
+                                col for col in ("impact_label", "category_label", "impact_key")
+                                if col in df.columns
+                            ]
+                            remaining_cols = [col for col in df.columns if col not in ordered_cols]
+                            if ordered_cols:
+                                df = df.loc[:, ordered_cols + remaining_cols]
+                            else:
+                                df = df.iloc[:, ::-1]
+                        else:
+                            # Reverse column order for consistent hierarchical processing
+                            df = df.iloc[:, ::-1]
 
                         # Store the number of rows as reference
                         setattr(self, f"amount_{df_id[:-3]}", amount)
@@ -726,8 +763,8 @@ class Index:
                                 f"{', '.join(duplicate_columns)}"
                             )
 
-                    # Verify length
-                    if amount != expected_length and file_name != "general.xlsx":
+                    # Verify length (only when an explicit expected length is given)
+                    if expected_length is not None and amount != expected_length:
                         raise ValueError(
                             f"Expected {expected_length} rows in sheet '{sheet_name}' of '{file_name}', "
                             f"but found {amount}"
@@ -737,18 +774,16 @@ class Index:
                     setattr(self, df_id, df)
                     logging.debug(f"Successfully loaded: {file_name}/{sheet_name} ({amount} rows)")
 
-                except FileNotFoundError:
-                    logging.error(f"Missing Excel file: {file_name}")
-                    raise
                 except Exception as e:
                     logging.error(f"Error loading {file_name}/{sheet_name}: {e}")
                     raise
 
             # Store unit transformations for later use in unit calculations
-            self.iosystem.index.unit_transform = self.units_df.values.tolist()
+            if self.units_df is not None:
+                self.iosystem.index.unit_transform = self.units_df.values.tolist()
 
-            # Create a dictionary from the 'general_df' DataFrame, mapping 'exiobase' to 'translation'
-            self.general_dict = dict(zip(self.general_df['exiobase'], self.general_df['translation']))
+            # Load general_dict from JSON translation file (replaces general.xlsx)
+            self._load_general_dict_from_json()
 
             # Build impact label <-> impact_key mapping (row-order alignment in impacts.xlsx)
             try:
@@ -757,8 +792,13 @@ class Index:
                     and self.impacts_exiobase_df is not None
                     and len(self.impacts_df) == len(self.impacts_exiobase_df)
                 ):
-                    labels = [str(x).strip() for x in self.impacts_df.iloc[:, -1].tolist()]
-                    keys = [str(x).strip() for x in self.impacts_exiobase_df.iloc[:, -1].tolist()]
+                    labels = [str(x).strip() for x in self.impacts_df.iloc[:, 0].tolist()]
+                    key_series = (
+                        self.impacts_exiobase_df["impact_key"]
+                        if "impact_key" in self.impacts_exiobase_df.columns
+                        else self.impacts_exiobase_df.iloc[:, 0]
+                    )
+                    keys = [str(x).strip() for x in key_series.tolist()]
                     self.impact_label_to_key = {
                         lab: key for lab, key in zip(labels, keys) if lab and key and lab.lower() != "nan"
                     }
@@ -800,7 +840,8 @@ class Index:
         candidates.extend(
             [
                 os.path.join(self.iosystem.current_fast_database_path, "units.xlsx"),
-                os.path.join(self.iosystem.config_dir, "units.xlsx"),
+                os.path.join(self.iosystem.excel_config_dir, "units.xlsx"),
+                os.path.join(getattr(self.iosystem, "legacy_config_dir", ""), "units.xlsx"),
             ]
         )
 
@@ -868,14 +909,70 @@ class Index:
         self.raw_material_indices = []
         self.not_raw_material_indices = []
 
-        for region in range(1, 49):  # for each region
-            self.raw_material_indices.extend([region * 200 + idx for idx in raw_material_base])
-            self.not_raw_material_indices.extend([region * 200 + idx for idx in not_raw_material_base])
+        num_regions = int(getattr(self, "amount_regions", len(self.regions_df)))
+        num_sectors = int(getattr(self, "amount_sectors", len(self.sectors_df)))
+
+        for region in range(num_regions):
+            offset = region * num_sectors
+            self.raw_material_indices.extend([offset + idx for idx in raw_material_base])
+            self.not_raw_material_indices.extend([offset + idx for idx in not_raw_material_base])
+
+    def _load_general_dict_from_json(self) -> None:
+        """
+        Loads general_dict (UI label translations) from config/translations/<language>.json.
+        Falls back to general.xlsx if the JSON file is not found.
+        """
+        import json as _json
+
+        translations_dir = getattr(self.iosystem, 'translations_dir', None)
+        lang = self.iosystem.language
+        json_path = os.path.join(translations_dir, f"{lang}.json") if translations_dir else None
+
+        if json_path and os.path.exists(json_path):
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    self.general_dict = _json.load(f)
+                logging.debug(f"Loaded general_dict from {json_path}")
+                return
+            except Exception as e:
+                logging.warning(f"Could not load translation JSON '{json_path}': {e}")
+
+        # Fallback: try general.xlsx (legacy config2 format)
+        for base in [self.iosystem.current_fast_database_path,
+                     getattr(self.iosystem, 'legacy_config_dir', None)]:
+            if not base:
+                continue
+            xlsx_path = os.path.join(base, "general.xlsx")
+            if os.path.exists(xlsx_path):
+                try:
+                    df = pd.read_excel(xlsx_path, sheet_name=lang)
+                    self.general_dict = dict(zip(df['exiobase'], df['translation']))
+                    logging.debug(f"Loaded general_dict from {xlsx_path}")
+                    return
+                except Exception as e:
+                    logging.warning(f"Could not load general.xlsx from '{xlsx_path}': {e}")
+
+        logging.warning(f"No translation source found for language '{lang}', general_dict will be empty")
+        self.general_dict = {}
 
     def _determine_available_languages(self) -> None:
         """
-        Determines available languages from Excel files.
+        Determines available languages from config/translations/*.json files.
+        Falls back to general.xlsx sheet names if the translations directory is not available.
         """
+        translations_dir = getattr(self.iosystem, 'translations_dir', None)
+        if translations_dir and os.path.exists(translations_dir):
+            try:
+                self.languages = sorted([
+                    os.path.splitext(f)[0]
+                    for f in os.listdir(translations_dir)
+                    if f.endswith('.json')
+                ])
+                return
+            except Exception as e:
+                logging.warning(f"Could not read translations directory: {e}")
+
+        # Fallback: read sheet names from general.xlsx
         try:
             file_path = os.path.join(self.iosystem.current_fast_database_path, "general.xlsx")
             with pd.ExcelFile(file_path) as xls:
@@ -897,7 +994,8 @@ class Index:
         self.population_df = None
         candidates = [
             os.path.join(self.iosystem.current_fast_database_path, "regions.xlsx"),
-            os.path.join(self.iosystem.config_dir, "regions.xlsx"),
+            os.path.join(self.iosystem.excel_config_dir, "regions.xlsx"),
+            os.path.join(getattr(self.iosystem, "legacy_config_dir", ""), "regions.xlsx"),
         ]
         for path in candidates:
             if not os.path.exists(path):
@@ -1049,15 +1147,22 @@ class Index:
         self.create_multiindices()
 
         # Extract unique names for system-wide reference
+        # Use the finest level (last col after reversal) for sectors/regions — needed for
+        # matrix index calculation (row = region*num_sectors + sector).
         self.iosystem.sectors = self.sectors_df.iloc[:, -1].unique().tolist()
         self.iosystem.regions = self.regions_df.iloc[:, -1].unique().tolist()
-        self.iosystem.impacts = self.impacts_df.iloc[:, -1].unique().tolist()
-        self.iosystem.units = self.units_df.iloc[:, -1].tolist()
+        # For impacts: use level 0 (first col after reversal = outermost MultiIndex level).
+        # This ensures .loc[impact] on the impact matrices matches what iosystem.impacts lists.
+        # For single-column sheets (config2) iloc[:,0] == iloc[:,-1] → backward-compatible.
+        self.iosystem.impacts = self.impacts_df.iloc[:, 0].tolist()
+        if self.units_df is not None:
+            self.iosystem.units = self.units_df.iloc[:, -1].tolist()
 
         # Load 'regions_exiobase' data (fast db first, fallback to config)
         regions_xlsx_candidates = [
             os.path.join(self.iosystem.current_fast_database_path, "regions.xlsx"),
-            os.path.join(self.iosystem.config_dir, "regions.xlsx"),
+            os.path.join(self.iosystem.excel_config_dir, "regions.xlsx"),
+            os.path.join(getattr(self.iosystem, "legacy_config_dir", ""), "regions.xlsx"),
         ]
         regions_exiobase = None
         for p in regions_xlsx_candidates:
@@ -1078,10 +1183,10 @@ class Index:
             self.iosystem.population_by_exiobase = {}
 
         # Update impact units DataFrame
-        self.iosystem.impact.unit = pd.DataFrame(
-            {"unit": self.iosystem.units},
-            index=self.iosystem.impacts
-        )
+        impact_units = list(self.iosystem.units or [])
+        if len(impact_units) != len(self.iosystem.impacts):
+            impact_units = (impact_units + [""] * len(self.iosystem.impacts))[:len(self.iosystem.impacts)]
+        self.iosystem.impact.unit = pd.DataFrame({"unit": impact_units}, index=self.iosystem.impacts)
 
         # Define matrix mappings
         matrix_mappings = {
@@ -1150,22 +1255,35 @@ class Index:
         if output:
             logging.info("Copying config files from /config to the fast load database...")
 
-        config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "units_legacy.xlsx", "general.xlsx"]
+        # Files from the aggregation dir. units_legacy.xlsx and general.xlsx are optional
+        # (legacy config2 only) — skip silently if absent in the new config structure.
+        config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "units_legacy.xlsx"]
+        optional_files = {"units_legacy.xlsx", "general.xlsx"}
+
+        # Build a search list: new aggregation dir first, then legacy config2 as fallback
+        search_dirs = [self.iosystem.excel_config_dir]
+        legacy_dir = getattr(self.iosystem, 'legacy_config_dir', None)
+        if legacy_dir:
+            search_dirs.append(legacy_dir)
 
         for file_name in config_files:
-            source_file = os.path.join(self.iosystem.config_dir, file_name)
             target_file = os.path.join(self.iosystem.current_fast_database_path, file_name)
+            source_file = None
+            for d in search_dirs:
+                candidate = os.path.join(d, file_name)
+                if os.path.exists(candidate):
+                    source_file = candidate
+                    break
 
-            if os.path.exists(source_file):
+            if source_file:
                 try:
                     shutil.copy(source_file, target_file)
                     if output:
-                        logging.info(f"File {file_name} has been successfully copied" +
-                                   ("\n" if file_name == config_files[-1] else ""))
+                        logging.info(f"File {file_name} has been successfully copied")
                 except Exception as e:
                     logging.error(f"Error copying {file_name}: {e}")
-            else:
-                logging.error(f"File {file_name} not found in folder {self.iosystem.config_dir}")
+            elif file_name not in optional_files:
+                logging.error(f"File {file_name} not found in {search_dirs}")
 
         self.read_configs()
 

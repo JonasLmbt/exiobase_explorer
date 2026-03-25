@@ -35,16 +35,18 @@ class IOSystem:
     language, year, and coordinating data loading and calculations.
     """
 
-    def __init__(self, year: int = 2022, language: str = "Exiobase"):
+    def __init__(self, year: int = 2022, language: str = "Exiobase", aggregation: str = "exiobase"):
         """
         Initializes the IOSystem with paths and parameters for the database.
 
         Args:
             year: Year of the database to use
             language: Language for the labels
+            aggregation: Aggregation set to use (subfolder of config/aggregations/)
         """
         self.year = str(year)
         self.language = language
+        self.aggregation = aggregation
 
         # Initialize paths
         self._initialize_paths()
@@ -67,6 +69,9 @@ class IOSystem:
         """
         self.project_directory = os.path.dirname(os.path.dirname(__file__))
         self.config_dir = os.path.join(self.project_directory, 'config')
+        self.translations_dir = os.path.join(self.config_dir, 'translations')
+        self.excel_config_dir = os.path.join(self.config_dir, 'aggregations', self.aggregation)
+        self.legacy_config_dir = os.path.join(self.project_directory, 'config2')
         self.data_dir = os.path.join(self.project_directory, 'data')
 
         databases_dir_env = os.environ.get("EXIOBASE_EXPLORER_DB_DIR")
@@ -95,6 +100,23 @@ class IOSystem:
             logging.info(f"Language successfully switched to '{language}'")
         else:
             logging.info(f"Language is already set to '{language}'. No action required")
+
+    def switch_aggregation(self, aggregation: str) -> None:
+        """
+        Switches the aggregation set and reloads labels.
+
+        Args:
+            aggregation: New aggregation folder name (e.g. "exiobase" or "wz03")
+        """
+        if aggregation != self.aggregation:
+            logging.info(f"Switching aggregation from '{self.aggregation}' to '{aggregation}'")
+            self.aggregation = aggregation
+            self.excel_config_dir = os.path.join(self.config_dir, 'aggregations', aggregation)
+            self.index.copy_configs(output=False)
+            self.index.update_multiindices()
+            logging.info(f"Aggregation successfully switched to '{aggregation}'")
+        else:
+            logging.info(f"Aggregation is already set to '{aggregation}'. No action required")
 
     def switch_year(self, year: int) -> None:
         """

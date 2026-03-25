@@ -109,8 +109,8 @@ class Impact:
             Hex color code or #ffffff as default
         """
         try:
-            # Extract the relevant impact column
-            impact_list = self.iosystem.index.impacts_df.iloc[:, -1].tolist()
+            # Use level-0 column (first after reversal) — same level .loc[impact] searches.
+            impact_list = self.iosystem.index.impacts_df.iloc[:, 0].tolist()
 
             # Find index of the impact
             idx = impact_list.index(impact)
@@ -134,8 +134,8 @@ class Impact:
             Unit of the impact
         """
         try:
-            # Extract the relevant impact column
-            impact_list = self.iosystem.index.impacts_df.iloc[:, -1].tolist()
+            # Use level-0 column — same level .loc[impact] searches.
+            impact_list = self.iosystem.index.impacts_df.iloc[:, 0].tolist()
 
             # Find index of the impact
             idx = impact_list.index(impact)
