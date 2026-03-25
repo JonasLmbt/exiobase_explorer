@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple, List, Dict, Callable
+import logging
 import pandas as pd
 import numpy as np
 import math
@@ -13,13 +14,14 @@ from .stage_methods import StageAnalysisRegistry, StageAnalysisMethod
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backend_bases import MouseButton
 from shapely.geometry import Point
 
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog, QFormLayout, QGroupBox,
-    QGraphicsOpacityEffect, QLabel, QSizePolicy, QLineEdit, QStackedLayout,
+    QGraphicsOpacityEffect, QLabel, QSizePolicy, QLineEdit, QStackedLayout, QFrame,
     QDialog, QApplication, QToolButton, QComboBox, QStyle, QToolTip,
     QTabBar, QMessageBox, QCheckBox, QDialogButtonBox, QSpinBox, QDoubleSpinBox, QPushButton, QTreeWidget, QTreeWidgetItem
 )
@@ -437,7 +439,8 @@ class StageAnalysisViewTab(QWidget):
 
     def _on_stage_plot_click(self, event):
         """Open contribution analysis when the user clicks a bubble-diagram cell."""
-        if getattr(event, "button", None) not in (1, None):
+        btn = getattr(event, "button", None)
+        if btn not in (None, 1, MouseButton.LEFT):
             return
         if not self.canvas or event.inaxes is None or event.xdata is None or event.ydata is None:
             return
@@ -472,8 +475,8 @@ class StageAnalysisViewTab(QWidget):
                 parent=self,
             )
             dlg.exec_()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.exception("Failed to open StageContributionDialog: %s", e)
 
     def _on_method_changed(self, method_id: str):
         """Handle method changes: toggle settings icon, update title and plot, emit state."""
@@ -3272,6 +3275,22 @@ class CountryInfoDialog(QDialog):
         self.accept()
 
 
+def _compact_unit_label(unit: str) -> str:
+    """
+    Use a slightly more compact unit label in dialog headers.
+    """
+    s = str(unit or "").strip()
+    if not s:
+        return ""
+    replacements = {
+        "Mrd. Euro": "Mrd. €",
+        "Mio. Euro": "Mio. €",
+        "Tsd. Euro": "Tsd. €",
+        "Euro": "€",
+    }
+    return replacements.get(s, s)
+
+
 class StageContributionDialog(QDialog):
     """
     Desktop contribution analysis for a clicked bubble-diagram cell.
@@ -3286,6 +3305,7 @@ class StageContributionDialog(QDialog):
     _GRID_COLOR     = "#f3f4f6"
     _LABEL_COLOR    = "#6b7280"
     _PCT_COLOR      = "#6b7280"
+    _VALUE_COLOR    = "#111827"
     _MAX_LABEL_LEN  = 34
 
     def __init__(self, ui, *, impact: str, stage_id: str, stage_label: str, parent=None):
@@ -3308,12 +3328,23 @@ class StageContributionDialog(QDialog):
         v.setSpacing(0)
         v.setContentsMargins(16, 14, 16, 14)
 
-        impact_lbl = QLabel(self.impact)
-        impact_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
+        self._impact_lbl = QLabel(self.impact)
+        self._impact_lbl.setStyleSheet("font-weight: 700; font-size: 15px; color: #111827;")
         stage_lbl = QLabel(self.stage_label)
-        stage_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR}; margin-bottom: 6px;")
-        v.addWidget(impact_lbl)
+        stage_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR}; margin-bottom: 4px;")
+        v.addWidget(self._impact_lbl)
         v.addWidget(stage_lbl)
+
+        summary = QHBoxLayout()
+        summary.setContentsMargins(0, 0, 0, 8)
+        summary.setSpacing(10)
+
+        self._summary_dimension = self._make_stat_card(self._tr("Ansicht", "Ansicht"))
+        self._summary_total = self._make_stat_card(self._tr("Gesamtwert", "Gesamtwert"))
+        summary.addWidget(self._summary_dimension)
+        summary.addWidget(self._summary_total, 1)
+        summary.addStretch(1)
+        v.addLayout(summary)
 
         div = QWidget(self)
         div.setFixedHeight(1)
@@ -3355,6 +3386,48 @@ class StageContributionDialog(QDialog):
 
         self._data = None
         self._refresh()
+
+    def _make_stat_card(self, title: str) -> QFrame:
+        card = QFrame(self)
+        card.setStyleSheet(
+            f"QFrame {{ background: #f8fafc; border: 1px solid {self._SPINE_COLOR}; border-radius: 8px; }}"
+        )
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(2)
+
+        title_lbl = QLabel(title, card)
+        title_lbl.setStyleSheet(f"font-size: 10px; color: {self._LABEL_COLOR};")
+        value_lbl = QLabel("", card)
+        value_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {self._VALUE_COLOR};")
+        value_lbl.setWordWrap(True)
+
+        lay.addWidget(title_lbl)
+        lay.addWidget(value_lbl)
+        card._value_label = value_lbl  # type: ignore[attr-defined]
+        return card
+
+    def _set_stat_card_value(self, card: QFrame, value: str) -> None:
+        lbl = getattr(card, "_value_label", None)
+        if isinstance(lbl, QLabel):
+            lbl.setText(str(value or ""))
+
+    def _format_total_value(self, meta: dict) -> str:
+        total_raw = float(meta.get("total_raw") or 0.0)
+        if total_raw == 0.0:
+            unit = str(meta.get("unit") or "").strip()
+            return f"0 {unit}".strip()
+
+        try:
+            scaled_vals, unit, decimals = self.ui.supplychain._contrib__scale_values(  # type: ignore[attr-defined]
+                impact_label=self.impact,
+                values_source=np.asarray([total_raw], dtype=np.float64),
+            )
+            val = float(np.asarray(scaled_vals, dtype=np.float64)[0])
+            return f"{val:.{int(decimals)}f} {str(unit).strip()}".strip()
+        except Exception:
+            unit = str(meta.get("unit") or "").strip()
+            return f"{total_raw:.2f} {unit}".strip()
 
     def _refresh(self):
         self._status.setText(self._tr("Loading…", "Loading…"))
@@ -3398,12 +3471,18 @@ class StageContributionDialog(QDialog):
         rows = (d.get("rows") if isinstance(d, dict) else None) or []
         meta = (d.get("meta") if isinstance(d, dict) else None) or {}
         unit = str(meta.get("unit") or "").strip()
+        header_unit = _compact_unit_label(unit)
+        self._impact_lbl.setText(f"{self.impact} [ {header_unit} ]" if header_unit else self.impact)
+        dim_label = self.dimension.currentText()
+        self._set_stat_card_value(self._summary_dimension, dim_label)
 
         if not rows:
+            self._set_stat_card_value(self._summary_total, self._format_total_value(meta))
             self._status.setText("")
             self._set_canvas(self._empty_fig(self._tr("No data", "No data")))
             return
 
+        self._set_stat_card_value(self._summary_total, self._format_total_value(meta))
         self._status.setText("")
 
         labels = [str(r.get("label")) for r in rows]
@@ -3425,6 +3504,7 @@ class StageContributionDialog(QDialog):
         fig_h = max(4.5, n * 0.30 + 1.2)
         fig_h = min(fig_h, 14.0)
         fig, ax = plt.subplots(figsize=(9.4, fig_h))
+        fig.patch.set_facecolor("white")
         y = np.arange(n)
 
         colors = [self._BAR_COLOR if i >= n - 5 else self._BAR_COLOR_DIM for i in range(n)]
@@ -3436,6 +3516,7 @@ class StageContributionDialog(QDialog):
 
         ax.set_axisbelow(True)
         ax.grid(axis="x", color=self._GRID_COLOR, linewidth=0.9)
+        ax.axvline(0, color=self._SPINE_COLOR, linewidth=1.0)
 
         tick_labels = [
             l[: self._MAX_LABEL_LEN] + "…" if len(l) > self._MAX_LABEL_LEN else l
@@ -3445,6 +3526,7 @@ class StageContributionDialog(QDialog):
         ax.set_yticklabels(tick_labels, fontsize=8.5)
         ax.tick_params(axis="y", length=0, pad=6, labelcolor="#374151")
         ax.tick_params(axis="x", colors=self._SPINE_COLOR, labelsize=8.5, labelcolor=self._LABEL_COLOR)
+        ax.set_facecolor("white")
 
         max_val = max(values_o) if values_o else 1.0
         if max_val <= 0:
@@ -3512,6 +3594,7 @@ class RegionContributionDialog(QDialog):
     _GRID_COLOR     = "#f3f4f6"
     _LABEL_COLOR    = "#6b7280"
     _PCT_COLOR      = "#6b7280"
+    _VALUE_COLOR    = "#111827"
     _MAX_LABEL_LEN  = 34
 
     def __init__(self, ui, *, impact: str, region_exiobase: str, region_label: str, parent=None):
@@ -3536,11 +3619,11 @@ class RegionContributionDialog(QDialog):
 
         # ── Header: impact name (bold) + region (muted) ──────────────────
         region_name = self.region_label or self.region_exiobase
-        impact_lbl = QLabel(self.impact)
-        impact_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
+        self._impact_lbl = QLabel(self.impact)
+        self._impact_lbl.setStyleSheet("font-weight: 700; font-size: 15px; color: #111827;")
         region_lbl = QLabel(region_name)
-        region_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR}; margin-bottom: 6px;")
-        v.addWidget(impact_lbl)
+        region_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR}; margin-bottom: 4px;")
+        v.addWidget(self._impact_lbl)
         v.addWidget(region_lbl)
 
         # ── Thin divider ─────────────────────────────────────────────────
@@ -3560,11 +3643,6 @@ class RegionContributionDialog(QDialog):
         self.view.setFixedWidth(110)
         self.view.currentIndexChanged.connect(self._render)
         row.addWidget(self.view)
-
-        self.refresh_btn = QPushButton(self._tr("Aktualisieren", "Aktualisieren"), self)
-        self.refresh_btn.setFixedWidth(120)
-        self.refresh_btn.clicked.connect(self._refresh)
-        row.addWidget(self.refresh_btn)
 
         row.addStretch(1)
 
@@ -3625,6 +3703,8 @@ class RegionContributionDialog(QDialog):
         rows = (d.get("rows") if isinstance(d, dict) else None) or []
         meta = (d.get("meta") if isinstance(d, dict) else None) or {}
         unit = str(meta.get("unit") or "").strip()
+        header_unit = _compact_unit_label(unit)
+        self._impact_lbl.setText(f"{self.impact} [ {header_unit} ]" if header_unit else self.impact)
 
         if not rows:
             self._status.setText("")

@@ -1651,18 +1651,18 @@ class SupplyChain:
         """
         Build the final-demand vector y for the current selection.
 
-        Uses the diagonal of Y (final demand per sector) and keeps only the
-        currently selected indices (self.indices). This mirrors the web API's
-        selection_to_indices() + y-vector logic.
+        Aggregates Y across final-demand categories to obtain one demand value
+        per sector-row (length = number of sectors across all regions), then
+        keeps only the currently selected indices.
         """
         y_mat = self.iosystem.Y.values
-        diag = np.diag(y_mat).astype(np.float32, copy=False)
-        n = diag.shape[0]
+        y_vec = np.asarray(y_mat, dtype=np.float32).sum(axis=1)
+        n = y_vec.shape[0]
         if not getattr(self, "indices", None) or len(self.indices) >= n:
-            return diag.copy()
+            return y_vec.copy()
         y = np.zeros(n, dtype=np.float32)
         idx = np.asarray(self.indices, dtype=np.int64)
-        y[idx] = diag[idx]
+        y[idx] = y_vec[idx]
         return y
 
     def _contrib__scale_values(
@@ -1716,6 +1716,48 @@ class SupplyChain:
 
         return vals, "", 2
 
+    def _contrib__impact_row(self, impact_label: str):
+        """
+        Resolve a localized impact label or EXIOBASE impact key to the matching S row.
+        """
+        impact_name = str(impact_label or "").strip()
+        s_df = self.iosystem.impact.S
+        s_index = s_df.index
+        idx = self.iosystem.index
+
+        candidates = [impact_name]
+        mapped_key = str(getattr(idx, "impact_key_from_label", lambda x: x)(impact_name) or "").strip()
+        if mapped_key and mapped_key not in candidates:
+            candidates.append(mapped_key)
+
+        mapped_label = str((getattr(idx, "impact_key_to_label", {}) or {}).get(impact_name) or "").strip()
+        if mapped_label and mapped_label not in candidates:
+            candidates.append(mapped_label)
+
+        if isinstance(s_index, pd.MultiIndex):
+            level_names = [str(n or "") for n in s_index.names]
+            for candidate in candidates:
+                if not candidate:
+                    continue
+                for level_name in ("impact_label", "impact_key"):
+                    if level_name not in level_names:
+                        continue
+                    level = level_names.index(level_name)
+                    mask = s_index.get_level_values(level).astype(str) == candidate
+                    if bool(mask.any()):
+                        return s_df.loc[mask].iloc[0]
+
+        for candidate in candidates:
+            try:
+                row = s_df.loc[candidate]
+                if isinstance(row, pd.DataFrame):
+                    row = row.iloc[0]
+                return row
+            except Exception:
+                continue
+
+        raise KeyError(impact_name)
+
     def region_contribution_table(
         self,
         *,
@@ -1745,11 +1787,9 @@ class SupplyChain:
         x = self.iosystem.L.values @ y
 
         try:
-            s_row = self.iosystem.impact.S.loc[str(impact_label)]
+            s_row = self._contrib__impact_row(impact_label)
         except Exception as e:
             return {"ok": False, "error": "impact_not_found", "impact": impact_label, "detail": str(e)}
-        if isinstance(s_row, pd.DataFrame):
-            s_row = s_row.iloc[0]
         s = np.asarray(getattr(s_row, "to_numpy", lambda: s_row)(), dtype=np.float32)
 
         contrib = np.asarray(s, dtype=np.float64) * np.asarray(x, dtype=np.float64)
@@ -1896,11 +1936,9 @@ class SupplyChain:
         out = _stage_out(stage)
 
         try:
-            s_row = self.iosystem.impact.S.loc[str(impact_label)]
+            s_row = self._contrib__impact_row(impact_label)
         except Exception as e:
             return {"ok": False, "error": "impact_not_found", "impact": impact_label, "detail": str(e)}
-        if isinstance(s_row, pd.DataFrame):
-            s_row = s_row.iloc[0]
         s = np.asarray(getattr(s_row, "to_numpy", lambda: s_row)(), dtype=np.float32)
 
         contrib = np.asarray(s, dtype=np.float64) * np.asarray(out, dtype=np.float64)
