@@ -71,6 +71,8 @@ class IOSystem:
         self.config_dir = os.path.join(self.project_directory, 'config')
         self.translations_dir = os.path.join(self.config_dir, 'translations')
         self.excel_config_dir = os.path.join(self.config_dir, 'aggregations', self.aggregation)
+        self.standards_config_path = os.path.join(self.config_dir, 'aggregations', 'exiobase', 'standards.xlsx')
+        self.exiobase_regions_path = os.path.join(self.config_dir, 'aggregations', 'exiobase', 'regions.xlsx')
         self.legacy_config_dir = os.path.join(self.project_directory, 'config2')
         self.data_dir = os.path.join(self.project_directory, 'data')
 
@@ -687,11 +689,37 @@ class IOSystem:
 
             except Exception as e:
                 logging.error(f"There was a problem trying to load the database: {e}")
-                logging.info("Attempting to recreate fast database from scratch due to loading error...")
-                return self._create_and_calculate_database(start_time)
+                logging.info("Trying to refresh configuration files before considering a fast-database rebuild...")
+                try:
+                    self.index.copy_configs(output=False)
+                    self._load_existing_database()
+                    elapsed_time = time.time() - start_time
+                    logging.info(f"Database has been loaded successfully after config refresh in {elapsed_time:.3f} seconds")
+                    return self
+                except Exception as e2:
+                    logging.error(f"Loading still failed after config refresh: {e2}")
+                    if self._should_recreate_fast_database(e2):
+                        logging.info("Attempting to recreate fast database from scratch due to matrix/data loading error...")
+                        return self._create_and_calculate_database(start_time)
+                    raise
         else:
             logging.info("Creating fast database from scratch...\n")
             return self._create_and_calculate_database(start_time)
+
+    @staticmethod
+    def _should_recreate_fast_database(exc: Exception) -> bool:
+        """
+        Return True only for errors that strongly suggest broken/missing matrix files.
+
+        Pure configuration problems should surface to the caller instead of triggering
+        an expensive fast-database rebuild.
+        """
+        msg = str(exc or "").lower()
+        if any(token in msg for token in ("worksheet named", ".xlsx", "sheet_name", "sheet '", "config")):
+            return False
+        if any(token in msg for token in (".npy", "matrix file", "no such file", "cannot find", "failed to interpret file")):
+            return True
+        return isinstance(exc, FileNotFoundError)
 
     def _load_existing_database(self) -> None:
         """
