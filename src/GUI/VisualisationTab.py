@@ -3337,38 +3337,41 @@ class StageContributionDialog(QDialog):
         v.setSpacing(0)
         v.setContentsMargins(16, 14, 16, 14)
 
-        header = QFrame(self)
-        header.setStyleSheet(
-            f"QFrame {{ background: #f8fafc; border: 1px solid {self._SPINE_COLOR}; border-radius: 10px; }}"
-        )
+        header = QWidget(self)
         header_lay = QHBoxLayout(header)
-        header_lay.setContentsMargins(14, 12, 14, 12)
-        header_lay.setSpacing(12)
+        header_lay.setContentsMargins(2, 2, 2, 4)
+        header_lay.setSpacing(16)
 
         title_col = QVBoxLayout()
         title_col.setContentsMargins(0, 0, 0, 0)
-        title_col.setSpacing(2)
+        title_col.setSpacing(4)
         self._impact_lbl = QLabel(self.impact)
-        self._impact_lbl.setStyleSheet("font-weight: 700; font-size: 15px; color: #111827;")
+        self._impact_lbl.setStyleSheet("font-weight: 700; font-size: 17px; color: #111827;")
         stage_lbl = QLabel(self.stage_label)
-        stage_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR};")
+        stage_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR}; letter-spacing: 0.2px;")
+        stage_lbl.setWordWrap(True)
         title_col.addWidget(self._impact_lbl)
         title_col.addWidget(stage_lbl)
         title_col.addStretch(1)
         header_lay.addLayout(title_col, 1)
 
+        meta_col = QVBoxLayout()
+        meta_col.setContentsMargins(0, 0, 0, 0)
+        meta_col.setSpacing(8)
+
         self._summary_dimension = self._make_stat_card(self._tr("Ansicht", "Ansicht"))
         self._summary_total = self._make_stat_card(self._tr("Gesamtwert", "Gesamtwert"))
         self._summary_dimension.setFixedWidth(150)
-        self._summary_total.setFixedWidth(220)
-        header_lay.addWidget(self._summary_dimension)
-        header_lay.addWidget(self._summary_total)
+        self._summary_total.setFixedWidth(190)
+        meta_col.addWidget(self._summary_dimension, 0, Qt.AlignRight)
+        meta_col.addWidget(self._summary_total, 0, Qt.AlignRight)
+        header_lay.addLayout(meta_col)
 
         v.addWidget(header)
 
         div = QWidget(self)
         div.setFixedHeight(1)
-        div.setStyleSheet(f"background: {self._SPINE_COLOR}; margin-top: 10px; margin-bottom: 8px;")
+        div.setStyleSheet(f"background: #eef2f7; margin-top: 6px; margin-bottom: 8px;")
         v.addWidget(div)
 
         row = QHBoxLayout()
@@ -3412,18 +3415,17 @@ class StageContributionDialog(QDialog):
 
     def _make_stat_card(self, title: str) -> QFrame:
         card = QFrame(self)
-        card.setStyleSheet(
-            f"QFrame {{ background: #f8fafc; border: 1px solid {self._SPINE_COLOR}; border-radius: 8px; }}"
-        )
+        card.setStyleSheet("QFrame { background: transparent; border: none; }")
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(10, 7, 10, 7)
-        lay.setSpacing(2)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(1)
 
         title_lbl = QLabel(title, card)
         title_lbl.setStyleSheet(f"font-size: 10px; color: {self._LABEL_COLOR};")
         value_lbl = QLabel("", card)
-        value_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {self._VALUE_COLOR};")
+        value_lbl.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {self._VALUE_COLOR};")
         value_lbl.setWordWrap(True)
+        value_lbl.setAlignment(Qt.AlignRight)
 
         lay.addWidget(title_lbl)
         lay.addWidget(value_lbl)
@@ -3573,7 +3575,7 @@ class StageContributionDialog(QDialog):
         ax.set_xlabel(xlabel, fontsize=9, color=self._LABEL_COLOR, labelpad=10)
         ax.set_xlim(0, max_val * 1.18)
 
-        fig.tight_layout(pad=1.0)
+        fig.subplots_adjust(left=0.23, right=0.985, top=0.98, bottom=0.15)
         self._set_canvas(fig)
 
     def _render_pie(self, labels, values):

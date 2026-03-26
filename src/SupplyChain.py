@@ -10,6 +10,7 @@ from typing import List, Dict, Optional, Tuple, Union, Any
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 import matplotlib as mpl
 import matplotlib.colors as mcolors
 from matplotlib.cm import get_cmap
@@ -781,6 +782,32 @@ class SupplyChain:
         ax.axhline(n_rows - 0.5, color=line_color, linewidth=line_width * 1.5)
         ax.axvline(n_cols - 0.5, color=line_color, linewidth=line_width * 1.5)
 
+    @staticmethod
+    def _balanced_percent_labels(values: List[float], decimals: int = 1) -> List[str]:
+        """
+        Format percentages so the displayed labels sum exactly to 100.0 (or 100 with
+        the requested decimals) without changing the underlying values.
+        """
+        vals = [max(0.0, float(v)) for v in values]
+        total = sum(vals)
+        if total <= 0:
+            return [f"{0:.{int(decimals)}f}%" for _ in vals]
+
+        scale = 10 ** int(decimals)
+        raw_units = [(v / total) * 100.0 * scale for v in vals]
+        floored = [int(math.floor(x)) for x in raw_units]
+        remainder = int(round(100.0 * scale - sum(floored)))
+
+        order = sorted(
+            range(len(vals)),
+            key=lambda i: (raw_units[i] - floored[i], vals[i]),
+            reverse=True,
+        )
+        for idx in order[:max(0, remainder)]:
+            floored[idx] += 1
+
+        return [f"{u / scale:.{int(decimals)}f}%" for u in floored]
+
     def _plot_bubble_data(
             self,
             ax: plt.Axes,
@@ -797,10 +824,12 @@ class SupplyChain:
         for i, impact_name in enumerate(row_labels):
             row_values = df_rel.loc[impact_name]
             color = row_values[general_dict["Color"]]
+            rel_vals = [float(row_values.iloc[col]) for col in range(4)]
+            pct_labels = self._balanced_percent_labels(rel_vals, decimals=1)
 
             # Plot supply chain stages (columns 0 to 3)
             for col in range(4):
-                val_rel = row_values.iloc[col]
+                val_rel = rel_vals[col]
                 bubble_size = val_rel * bubble_scale
 
                 ax.scatter(
@@ -814,7 +843,7 @@ class SupplyChain:
 
                 ax.text(
                     col, i,
-                    f"{val_rel * 100:.1f}%",
+                    pct_labels[col],
                     va=text_position,
                     ha="center",
                     fontsize=9,
