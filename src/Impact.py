@@ -134,18 +134,36 @@ class Impact:
             Unit of the impact
         """
         try:
-            # Use level-0 column — same level .loc[impact] searches.
-            impact_list = self.iosystem.index.impacts_df.iloc[:, 0].tolist()
+            unit_formatter = getattr(self.iosystem.index, "unit_formatter", None)
+            if unit_formatter is not None:
+                impact_key = self.iosystem.index.impact_key_from_label(str(impact))
+                meta = unit_formatter.format_value(str(impact_key), 0.0, self.iosystem.language, style="short")
+                unit = str(meta.get("unit_short") or "").strip()
+                if unit:
+                    return unit
+        except Exception:
+            pass
 
-            # Find index of the impact
+        try:
+            impact_list = list(getattr(self.iosystem, "impacts", []) or [])
             idx = impact_list.index(impact)
+            units = list(getattr(self.iosystem, "units", []) or [])
+            if idx < len(units):
+                unit = str(units[idx]).strip()
+                if unit:
+                    return unit
+        except Exception:
+            pass
 
-            # Retrieve corresponding unit
-            return self.iosystem.index.units_df.iloc[idx].iloc[4]
-
+        try:
+            impact_list = self.iosystem.index.impacts_df.iloc[:, 0].tolist()
+            idx = impact_list.index(impact)
+            units_df = getattr(self.iosystem.index, "units_df", None)
+            if units_df is not None:
+                return str(units_df.iloc[idx].iloc[4]).strip()
         except (ValueError, AttributeError, IndexError) as e:
             logging.warning(f"Unit for impact '{impact}' not found: {e}")
-            return "Unknown"
+        return "Unknown"
 
     def get_regional_impacts(self, region_indices: List[int]) -> None:
         """

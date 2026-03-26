@@ -309,10 +309,64 @@ class UnitsConfig:
         }
 
         impact_lang_by_lang: Dict[str, Dict[str, ImpactLangRow]] = {}
+        families_by_lang: Dict[str, Dict[str, Dict[int, Dict[str, str]]]] = {}
         for code, sheet in _lang_sheet_by_code.items():
             if not sheet:
                 continue
             df = cls._read_sheet(path, sheet)
+            compact_schema = "type" in df.columns and "key" in df.columns
+            if compact_schema:
+                m: Dict[str, ImpactLangRow] = {}
+                fam_map: Dict[str, Dict[int, Dict[str, str]]] = {}
+
+                sep_rows = df[df["type"].astype(str).str.strip().str.lower() == "sep"]
+                if not sep_rows.empty:
+                    sep_row = sep_rows.iloc[0]
+                    separators_by_lang[code] = Separators(
+                        thousand=_cell_str(sep_row.get("thousand_sep")),
+                        decimal=_cell_str(sep_row.get("decimal_sep")) or ".",
+                    )
+
+                impact_rows = df[df["type"].astype(str).str.strip().str.lower() == "impact"]
+                for _, r in impact_rows.iterrows():
+                    key = _cell_str(r.get("key"))
+                    if not key:
+                        continue
+                    if key not in core_by_key:
+                        raise UnitsConfigError(f"impact_key '{key}' present in '{sheet}' but missing in 'exiobase'.")
+                    m[key] = ImpactLangRow(
+                        impact_key=key,
+                        family_key=_cell_str(r.get("family_key")),
+                        base_short=_cell_str(r.get("base_short")),
+                        base_long=_cell_str(r.get("base_long")),
+                        suffix_short=_cell_str(r.get("suffix_short")),
+                        suffix_long=_cell_str(r.get("suffix_long")),
+                    )
+
+                family_rows = df[df["type"].astype(str).str.strip().str.lower() == "family"]
+                exp_cols: Dict[Tuple[int, str], str] = {}
+                for col in df.columns:
+                    mcol = _EXP_COL_RE.match(str(col).strip())
+                    if not mcol:
+                        continue
+                    exp_cols[(int(mcol.group(1)), mcol.group(2))] = str(col)
+                for _, r in family_rows.iterrows():
+                    fam = _cell_str(r.get("key"))
+                    if not fam:
+                        continue
+                    exps: Dict[int, Dict[str, str]] = {}
+                    for (exp, style), col in exp_cols.items():
+                        val = r.get(col)
+                        if _is_missing(val):
+                            continue
+                        exps.setdefault(exp, {})[style] = _cell_str(val)
+                    if exps:
+                        fam_map[fam] = exps
+
+                impact_lang_by_lang[code] = m
+                families_by_lang[code] = fam_map
+                continue
+
             for col in ("impact_key", "family_key", "base_short", "base_long", "suffix_short", "suffix_long"):
                 if col not in df.columns:
                     raise UnitsConfigError(f"Sheet '{sheet}' is missing column '{col}'.")
@@ -333,29 +387,22 @@ class UnitsConfig:
                 )
             impact_lang_by_lang[code] = m
 
-        # Family label sheets.
-        families_by_lang: Dict[str, Dict[str, Dict[int, Dict[str, str]]]] = {}
-        for code, base_sheet in _lang_sheet_by_code.items():
-            if not base_sheet:
-                continue
-            fam_sheet = by_low.get(f"{base_sheet.casefold()}_families")
+            fam_sheet = by_low.get(f"{sheet.casefold()}_families")
             if not fam_sheet:
                 continue
-            df = cls._read_sheet(path, fam_sheet)
-            if "family_key" not in df.columns:
+            fam_df = cls._read_sheet(path, fam_sheet)
+            if "family_key" not in fam_df.columns:
                 raise UnitsConfigError(f"Sheet '{fam_sheet}' is missing column 'family_key'.")
 
             exp_cols: Dict[Tuple[int, str], str] = {}
-            for col in df.columns:
-                m = _EXP_COL_RE.match(str(col).strip())
-                if not m:
+            for col in fam_df.columns:
+                mcol = _EXP_COL_RE.match(str(col).strip())
+                if not mcol:
                     continue
-                exp = int(m.group(1))
-                style = m.group(2)
-                exp_cols[(exp, style)] = str(col)
+                exp_cols[(int(mcol.group(1)), mcol.group(2))] = str(col)
 
             fam_map: Dict[str, Dict[int, Dict[str, str]]] = {}
-            for _, r in df.iterrows():
+            for _, r in fam_df.iterrows():
                 fam = _cell_str(r.get("family_key"))
                 if not fam:
                     continue

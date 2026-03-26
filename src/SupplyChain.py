@@ -275,24 +275,51 @@ class SupplyChain:
         Returns:
             Tuple containing the transformed value and its unit
         """
-        units_df = self.iosystem.index.units_df
-        impact_mask = units_df.iloc[:, 0] == impact
+        idx = self.iosystem.index
 
-        if not impact_mask.any():
-            raise ValueError(f"Impact '{impact}' not found in units iosystem")
+        # Preferred path: new unit formatter config.
+        try:
+            uf = getattr(idx, "unit_formatter", None)
+            if uf is not None:
+                impact_key = idx.impact_key_from_label(str(impact))
+                meta = uf.format_value(str(impact_key), float(value), self.iosystem.language, style="short")
+                rounded_value = float(meta.get("value_display", value))
+                unit = str(meta.get("unit_short") or "").strip()
+                if unit:
+                    if rounded_value == 0 and float(value) != 0:
+                        rounded_value = float(meta.get("value_base", value))
+                    return rounded_value, unit
+        except Exception:
+            pass
 
-        impact_row_idx = units_df[impact_mask].index[0]
-        impact_row = units_df.iloc[impact_row_idx].tolist()
+        # Fallback: aligned impact/unit lists from unit.txt or update_multiindices().
+        try:
+            impacts = list(getattr(self.iosystem, "impacts", []) or [])
+            units = list(getattr(self.iosystem, "units", []) or [])
+            impact_idx = impacts.index(impact)
+            unit = str(units[impact_idx] if impact_idx < len(units) else "").strip()
+            if unit:
+                return float(value), unit
+        except Exception:
+            pass
 
-        unit = impact_row[4]
-        transformed_value = value / impact_row[2]
-        rounded_value = round(transformed_value, int(impact_row[3]))
+        # Legacy fallback: units_legacy.xlsx if available.
+        units_df = getattr(idx, "units_df", None)
+        if units_df is not None:
+            impact_mask = units_df.iloc[:, 0] == impact
+            if bool(impact_mask.any()):
+                impact_row_idx = units_df[impact_mask].index[0]
+                impact_row = units_df.iloc[impact_row_idx].tolist()
+                unit = impact_row[4]
+                transformed_value = value / impact_row[2]
+                rounded_value = round(transformed_value, int(impact_row[3]))
 
-        # Ensure non-zero values are not rounded to zero
-        if rounded_value == 0 and transformed_value != 0:
-            rounded_value = transformed_value
+                if rounded_value == 0 and transformed_value != 0:
+                    rounded_value = transformed_value
 
-        return rounded_value, unit
+                return rounded_value, unit
+
+        raise ValueError(f"Impact '{impact}' not found in unit configuration")
 
     def total(self, impact: str) -> Tuple[float, str]:
         """
