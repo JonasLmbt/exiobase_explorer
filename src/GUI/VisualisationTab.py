@@ -1391,13 +1391,22 @@ class RegionAnalysisViewTab(QWidget):
             val = float(value)
         except (TypeError, ValueError):
             return str(value)
+        idx = getattr(self.iosystem, "index", None)
         if abs(val) >= 1_000_000:
+            if idx is not None:
+                return idx.format_number_localized(val, decimals=1)
             return f"{val:,.1f}"
         if abs(val) >= 1_000:
+            if idx is not None:
+                return idx.format_number_localized(val, decimals=2)
             return f"{val:,.2f}"
         if abs(val) >= 1:
+            if idx is not None:
+                return idx.format_number_localized(val, decimals=3)
             return f"{val:.3f}"
         if abs(val) >= 0.001:
+            if idx is not None:
+                return idx.format_number_localized(val, decimals=6)
             return f"{val:.6f}"
         return f"{val:.2e}"
 
@@ -3328,32 +3337,47 @@ class StageContributionDialog(QDialog):
         v.setSpacing(0)
         v.setContentsMargins(16, 14, 16, 14)
 
+        header = QFrame(self)
+        header.setStyleSheet(
+            f"QFrame {{ background: #f8fafc; border: 1px solid {self._SPINE_COLOR}; border-radius: 10px; }}"
+        )
+        header_lay = QHBoxLayout(header)
+        header_lay.setContentsMargins(14, 12, 14, 12)
+        header_lay.setSpacing(12)
+
+        title_col = QVBoxLayout()
+        title_col.setContentsMargins(0, 0, 0, 0)
+        title_col.setSpacing(2)
         self._impact_lbl = QLabel(self.impact)
         self._impact_lbl.setStyleSheet("font-weight: 700; font-size: 15px; color: #111827;")
         stage_lbl = QLabel(self.stage_label)
-        stage_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR}; margin-bottom: 4px;")
-        v.addWidget(self._impact_lbl)
-        v.addWidget(stage_lbl)
-
-        summary = QHBoxLayout()
-        summary.setContentsMargins(0, 0, 0, 8)
-        summary.setSpacing(10)
+        stage_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR};")
+        title_col.addWidget(self._impact_lbl)
+        title_col.addWidget(stage_lbl)
+        title_col.addStretch(1)
+        header_lay.addLayout(title_col, 1)
 
         self._summary_dimension = self._make_stat_card(self._tr("Ansicht", "Ansicht"))
         self._summary_total = self._make_stat_card(self._tr("Gesamtwert", "Gesamtwert"))
-        summary.addWidget(self._summary_dimension)
-        summary.addWidget(self._summary_total, 1)
-        summary.addStretch(1)
-        v.addLayout(summary)
+        self._summary_dimension.setFixedWidth(150)
+        self._summary_total.setFixedWidth(220)
+        header_lay.addWidget(self._summary_dimension)
+        header_lay.addWidget(self._summary_total)
+
+        v.addWidget(header)
 
         div = QWidget(self)
         div.setFixedHeight(1)
-        div.setStyleSheet(f"background: {self._SPINE_COLOR}; margin-top: 4px; margin-bottom: 8px;")
+        div.setStyleSheet(f"background: {self._SPINE_COLOR}; margin-top: 10px; margin-bottom: 8px;")
         v.addWidget(div)
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 6, 0, 6)
-        row.setSpacing(6)
+        row.setSpacing(8)
+
+        dim_lbl = QLabel(self._tr("Ansicht", "Ansicht"), self)
+        dim_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR};")
+        row.addWidget(dim_lbl)
 
         self.dimension = QComboBox(self)
         self.dimension.addItem(self._tr("Regions", "Regions"), userData="regions")
@@ -3361,16 +3385,15 @@ class StageContributionDialog(QDialog):
         self.dimension.currentIndexChanged.connect(self._refresh)
         row.addWidget(self.dimension)
 
+        view_lbl = QLabel(self._tr("Darstellung", "Darstellung"), self)
+        view_lbl.setStyleSheet(f"font-size: 11px; color: {self._LABEL_COLOR};")
+        row.addWidget(view_lbl)
+
         self.view = QComboBox(self)
         self.view.addItem(self._tr("Bars", "Bars"), userData="bars")
         self.view.addItem(self._tr("Pie", "Pie"), userData="pie")
         self.view.currentIndexChanged.connect(self._render)
         row.addWidget(self.view)
-
-        self.refresh_btn = QPushButton(self._tr("Aktualisieren", "Aktualisieren"), self)
-        self.refresh_btn.setFixedWidth(120)
-        self.refresh_btn.clicked.connect(self._refresh)
-        row.addWidget(self.refresh_btn)
 
         row.addStretch(1)
 
@@ -3393,7 +3416,7 @@ class StageContributionDialog(QDialog):
             f"QFrame {{ background: #f8fafc; border: 1px solid {self._SPINE_COLOR}; border-radius: 8px; }}"
         )
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setContentsMargins(10, 7, 10, 7)
         lay.setSpacing(2)
 
         title_lbl = QLabel(title, card)
@@ -3424,10 +3447,18 @@ class StageContributionDialog(QDialog):
                 values_source=np.asarray([total_raw], dtype=np.float64),
             )
             val = float(np.asarray(scaled_vals, dtype=np.float64)[0])
-            return f"{val:.{int(decimals)}f} {str(unit).strip()}".strip()
+            try:
+                val_s = self.ui.iosystem.index.format_number_localized(val, decimals=int(decimals))  # type: ignore[attr-defined]
+            except Exception:
+                val_s = f"{val:.{int(decimals)}f}"
+            return f"{val_s} {str(unit).strip()}".strip()
         except Exception:
             unit = str(meta.get("unit") or "").strip()
-            return f"{total_raw:.2f} {unit}".strip()
+            try:
+                val_s = self.ui.iosystem.index.format_number_localized(total_raw, decimals=2)  # type: ignore[attr-defined]
+            except Exception:
+                val_s = f"{total_raw:.2f}"
+            return f"{val_s} {unit}".strip()
 
     def _refresh(self):
         self._status.setText(self._tr("Loading…", "Loading…"))
@@ -3501,14 +3532,14 @@ class StageContributionDialog(QDialog):
         shares_o = [shares[i] for i in order]
         n = len(values_o)
 
-        fig_h = max(4.5, n * 0.30 + 1.2)
+        fig_h = max(4.5, n * 0.29 + 1.1)
         fig_h = min(fig_h, 14.0)
         fig, ax = plt.subplots(figsize=(9.4, fig_h))
         fig.patch.set_facecolor("white")
         y = np.arange(n)
 
         colors = [self._BAR_COLOR if i >= n - 5 else self._BAR_COLOR_DIM for i in range(n)]
-        ax.barh(y, values_o, color=colors, height=0.62, edgecolor="none")
+        ax.barh(y, values_o, color=colors, height=0.56, edgecolor="none")
 
         for spine in ("top", "right", "left"):
             ax.spines[spine].set_visible(False)
@@ -3539,10 +3570,10 @@ class StageContributionDialog(QDialog):
             )
 
         xlabel = f"{self.impact}  [{unit}]" if unit else self.impact
-        ax.set_xlabel(xlabel, fontsize=9, color=self._LABEL_COLOR, labelpad=8)
+        ax.set_xlabel(xlabel, fontsize=9, color=self._LABEL_COLOR, labelpad=10)
         ax.set_xlim(0, max_val * 1.18)
 
-        fig.tight_layout(pad=1.2)
+        fig.tight_layout(pad=1.0)
         self._set_canvas(fig)
 
     def _render_pie(self, labels, values):

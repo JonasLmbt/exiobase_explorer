@@ -1,4 +1,6 @@
 {
+  "number_thousand_separator": ".",
+  "number_decimal_separator": ",",
   "Supply Chain Analysis": "Análisis de la cadena de suministro",
   "Total": "Total",
   "Unit": "Unidad",

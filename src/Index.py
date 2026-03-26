@@ -35,7 +35,7 @@ import pandas as pd
 from dataclasses import dataclass
 import math
 import re
-from typing import Any, Dict, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, Literal, Optional, Tuple
 
 import pandas as pd
 
@@ -216,10 +216,6 @@ class UnitsConfig:
         if not exiobase_sheet:
             raise UnitsConfigError("Missing required sheet 'exiobase'.")
 
-        sep_sheet = _get_sheet("separators")
-        if not sep_sheet:
-            raise UnitsConfigError("Missing required sheet 'separators'.")
-
         core_df = cls._read_sheet(path, exiobase_sheet)
         req = [
             "impact_key",
@@ -279,21 +275,18 @@ class UnitsConfig:
         if not core_by_key:
             raise UnitsConfigError("Sheet 'exiobase' has no impact_key rows.")
 
-        sep_df = cls._read_sheet(path, sep_sheet)
-        # Accept either `lang` (spec) or `language` (older user files) as the language column.
-        lang_col = "lang" if "lang" in sep_df.columns else ("language" if "language" in sep_df.columns else "")
-        if not lang_col:
-            raise UnitsConfigError("Sheet 'separators' is missing column 'lang' (or 'language').")
-        for col in ("thousand_separator", "decimal_separator"):
-            if col not in sep_df.columns:
-                raise UnitsConfigError(f"Sheet 'separators' is missing column '{col}'.")
         separators_by_lang: Dict[str, Separators] = {}
-        for _, r in sep_df.iterrows():
-            lang = _norm_lang(str(r.get(lang_col) or ""))
-            # Allow empty thousand separator (e.g. French often uses spaces).
-            thousand = _cell_str(r.get("thousand_separator"))
-            decimal = _cell_str(r.get("decimal_separator")) or "."
-            separators_by_lang[lang] = Separators(thousand=thousand, decimal=decimal)
+        sep_sheet = _get_sheet("separators")
+        if sep_sheet:
+            sep_df = cls._read_sheet(path, sep_sheet)
+            # Accept either `lang` (spec) or `language` (older user files) as the language column.
+            lang_col = "lang" if "lang" in sep_df.columns else ("language" if "language" in sep_df.columns else "")
+            if lang_col and "thousand_separator" in sep_df.columns and "decimal_separator" in sep_df.columns:
+                for _, r in sep_df.iterrows():
+                    lang = _norm_lang(str(r.get(lang_col) or ""))
+                    thousand = _cell_str(r.get("thousand_separator"))
+                    decimal = _cell_str(r.get("decimal_separator")) or "."
+                    separators_by_lang[lang] = Separators(thousand=thousand, decimal=decimal)
         separators_by_lang.setdefault("en", Separators(thousand=",", decimal="."))
 
         # Language impact mapping sheets.
@@ -394,12 +387,28 @@ class UnitFormatter:
 
     def __init__(self, config: UnitsConfig):
         self._cfg = config
+        self._separator_provider: Optional[Callable[[str], Optional[Separators]]] = None
 
     @classmethod
     def from_excel(cls, path: str) -> "UnitFormatter":
         return cls(UnitsConfig.from_excel(path))
 
+    def set_separator_provider(self, provider: Optional[Callable[[str], Optional[Separators]]]) -> None:
+        self._separator_provider = provider
+
     def _seps(self, lang: str) -> Separators:
+        if self._separator_provider is not None:
+            try:
+                provided = self._separator_provider(lang)
+                if isinstance(provided, Separators):
+                    return provided
+                if isinstance(provided, dict):
+                    return Separators(
+                        thousand=str(provided.get("thousand") or ""),
+                        decimal=str(provided.get("decimal") or "."),
+                    )
+            except Exception:
+                pass
         code = _norm_lang(lang)
         return self._cfg.separators_by_lang.get(code) or self._cfg.separators_by_lang["en"]
 
@@ -874,6 +883,7 @@ class Index:
                 continue
             try:
                 self.unit_formatter = UnitFormatter.from_excel(p)
+                self.unit_formatter.set_separator_provider(self._translation_number_separators)
                 logging.debug(f"Loaded unit display config: {p}")
                 return
             except UnitsConfigError as e:
@@ -883,6 +893,47 @@ class Index:
                 logging.debug(f"Failed to load unit display config from '{p}': {e}")
 
         self.unit_formatter = None
+
+    def _translation_number_separators(self, lang: Optional[str] = None) -> Separators:
+        """
+        Read number separators from the active translation JSON/general_dict.
+        """
+        code = _norm_lang(lang or getattr(self.iosystem, "language", "en"))
+        thousand = str(
+            self.general_dict.get("number_thousand_separator")
+            or self.general_dict.get("thousand_separator")
+            or ""
+        )
+        decimal = str(
+            self.general_dict.get("number_decimal_separator")
+            or self.general_dict.get("decimal_separator")
+            or "."
+        )
+        if code == "de":
+            return Separators(thousand=thousand or ".", decimal=decimal or ",")
+        if code == "fr":
+            return Separators(thousand=thousand or " ", decimal=decimal or ",")
+        if code == "es":
+            return Separators(thousand=thousand or ".", decimal=decimal or ",")
+        return Separators(thousand=thousand or ",", decimal=decimal or ".")
+
+    def format_number_localized(
+        self,
+        value: float,
+        *,
+        decimals: int = 2,
+        lang: Optional[str] = None,
+    ) -> str:
+        """
+        Format a plain numeric value using the active translation-defined separators.
+        """
+        seps = self._translation_number_separators(lang)
+        return _format_number(
+            float(value),
+            decimals=max(0, int(decimals)),
+            thousand_sep=seps.thousand,
+            decimal_sep=seps.decimal,
+        )
 
     def format_value_display(
         self,

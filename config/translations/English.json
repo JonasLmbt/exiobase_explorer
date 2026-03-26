@@ -1,4 +1,6 @@
 {
+  "number_thousand_separator": ",",
+  "number_decimal_separator": ".",
   "Supply Chain Analysis": "Supply Chain Analysis",
   "Total": "Total",
   "Unit": "Unit",

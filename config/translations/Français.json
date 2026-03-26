@@ -1,5 +1,7 @@
 {
-  "Supply Chain Analysis": "Analyse de la chaîne d’approvisionnement",
+  "number_thousand_separator": " ",
+  "number_decimal_separator": ",",
+  "Supply Chain Analysis": "Analyse de la chaîne d'approvisionnement",
   "Total": "Total",
   "Unit": "Unité",
   "Color": "Couleur",
