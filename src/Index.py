@@ -788,15 +788,21 @@ class Index:
 
                     df = None
                     last_error = None
+                    candidate_sheets = [sheet_name]
+                    if df_id == "impacts_exiobase_df" and sheet_name != "English":
+                        candidate_sheets.append("English")
                     for candidate in candidates:
                         if not os.path.exists(candidate):
                             continue
-                        try:
-                            df = pd.read_excel(candidate, sheet_name=sheet_name)
+                        for candidate_sheet in candidate_sheets:
+                            try:
+                                df = pd.read_excel(candidate, sheet_name=candidate_sheet)
+                                break
+                            except Exception as e:
+                                last_error = e
+                                continue
+                        if df is not None:
                             break
-                        except Exception as e:
-                            last_error = e
-                            continue
 
                     if df is None:
                         if df_id in optional_df_ids:
@@ -813,15 +819,9 @@ class Index:
                     # still matches `.loc[impact]` on the impact matrices after aggregation changes.
                     if df_id in ['sectors_df', 'regions_df', 'impacts_df']:
                         if df_id == 'impacts_df':
-                            ordered_cols = [
-                                col for col in ("impact_label", "category_label", "impact_key")
-                                if col in df.columns
-                            ]
-                            remaining_cols = [col for col in df.columns if col not in ordered_cols]
-                            if ordered_cols:
-                                df = df.loc[:, ordered_cols + remaining_cols]
-                            else:
-                                df = df.iloc[:, ::-1]
+                            if "impact_key" in df.columns:
+                                visible_cols = [col for col in df.columns if col != "impact_key"]
+                                df = df.loc[:, visible_cols + ["impact_key"]]
                         else:
                             # Reverse column order for consistent hierarchical processing
                             df = df.iloc[:, ::-1]

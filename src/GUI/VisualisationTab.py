@@ -41,27 +41,28 @@ def build_impact_hierarchy(index) -> dict:
     """
     Build a UI-friendly hierarchy for impact selection.
 
-    Preferred structure:
-      category_label -> impact_label
+    The Excel/config columns are interpreted as fine -> coarse.
+    For the UI tree we therefore reverse the non-key columns so the hierarchy is
+    shown as coarse -> fine, e.g. `Wirtschaft -> Wertschöpfung`.
 
-    Falls back to the raw impact MultiIndex when the newer grouped impact schema
-    is not available.
+    Supports any number of hierarchy columns as long as the finest level is the
+    first visible impact column and optional `impact_key` stays as the canonical key.
     """
     try:
         df = getattr(index, "impacts_df", None)
         if isinstance(df, pd.DataFrame) and not df.empty:
-            cols = {str(c) for c in df.columns}
-            if {"impact_label", "category_label"}.issubset(cols):
+            visible_cols = [c for c in df.columns if str(c) != "impact_key"]
+            if visible_cols:
                 root: dict = {}
                 for _, row in df.iterrows():
-                    category = str(row.get("category_label") or "").strip()
-                    label = str(row.get("impact_label") or "").strip()
-                    if not label:
+                    values = [str(row.get(col) or "").strip() for col in visible_cols]
+                    values = [v for v in values if v and v.lower() != "nan"]
+                    if not values:
                         continue
-                    if category:
-                        root.setdefault(category, {}).setdefault(label, {})
-                    else:
-                        root.setdefault(label, {})
+                    path = list(reversed(values))
+                    cur = root
+                    for part in path:
+                        cur = cur.setdefault(part, {})
                 if root:
                     return root
     except Exception:
@@ -884,7 +885,7 @@ class RegionAnalysisViewTab(QWidget):
 
         # Primary impact selector (includes "Subcontractors")
         self.impact_selector = ImpactSelectorWidget(
-            self.iosystem.impacts, tr=self._translate, include_subcontractors=True, parent=self
+            build_impact_hierarchy(self.iosystem.index), tr=self._translate, include_subcontractors=True, parent=self
         )
         self.impact_selector.impactChanged.connect(self._on_impact_changed)
         toolbar.addWidget(self.impact_selector)
@@ -1671,19 +1672,8 @@ class RegionAnalysisViewTab(QWidget):
 
         The primary impact is displayed but disabled (cannot be selected).
         """
-        # Build nested hierarchy from impact_multiindex
-        try:
-            hierarchy = {}
-            mi = getattr(self.iosystem.index, "impact_multiindex", None)
-            if mi is not None:
-                for keys in mi:
-                    cur = hierarchy
-                    for key in keys:
-                        cur = cur.setdefault(str(key), {})
-            else:
-                # Fallback: flat list
-                hierarchy = {"Impacts": {str(k): {} for k in self.iosystem.impacts}}
-        except Exception:
+        hierarchy = build_impact_hierarchy(self.iosystem.index)
+        if not hierarchy:
             hierarchy = {"Impacts": {str(k): {} for k in self.iosystem.impacts}}
 
         # Create dialog
@@ -1902,7 +1892,7 @@ class MethodSelectorWidget(QWidget):
 
 class ImpactSelectorWidget(QWidget):
     """
-    A compact widget with a drop-down menu to select an environmental or economic impact.
+    A compact widget that opens a hierarchical single-select dialog for impacts.
 
     - Displays localized labels.
     - Optionally includes a "Subcontractors" entry.
@@ -1922,41 +1912,51 @@ class ImpactSelectorWidget(QWidget):
         """
         super().__init__(parent)
         self._tr = tr
+        self._include_subcontractors = bool(include_subcontractors)
+        self._current = ""
+        self._hierarchy = impacts if isinstance(impacts, dict) else {str(k): {} for k in list(impacts or [])}
 
-        # Create combo box inside a flat horizontal layout
-        self._combo = QComboBox(self)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(self._combo)
+        self._btn = QPushButton(self)
+        self._btn.clicked.connect(self._open_dialog)
+        lay.addWidget(self._btn)
+        self._ordered_leaves = self._ordered_leaf_keys(self._hierarchy)
+        if self._include_subcontractors:
+            self._current = "Subcontractors"
+        elif self._ordered_leaves:
+            self._current = self._ordered_leaves[0]
+        self._update_button_text()
 
-        # Optionally add "Subcontractors" entry
-        if include_subcontractors:
-            lbl = self._tr("Subcontractors", "Subcontractors")
-            self._combo.addItem(lbl, userData="Subcontractors")
+    def _ordered_leaf_keys(self, hierarchy: Dict) -> List[str]:
+        ordered: List[str] = []
 
-        # Populate combo box with available impacts
-        for key in list(impacts):
-            lbl = self._tr(key, key)
-            self._combo.addItem(lbl, userData=key)
+        def walk(d: Dict):
+            for key, child in d.items():
+                if isinstance(child, dict) and child:
+                    walk(child)
+                else:
+                    ordered.append(key)
 
-        # Connect signal for user selection changes
-        self._combo.currentIndexChanged.connect(self._emit_change)
+        walk(hierarchy or {})
+        return ordered
 
-    def _emit_change(self, *_):
-        """
-        Emit the `impactChanged` signal when the selection changes.
-        """
-        self.impactChanged.emit(self.current_impact())
+    def _display_text(self, key: str) -> str:
+        if str(key) == "Subcontractors":
+            return self._tr("Subcontractors", "Subcontractors")
+        return self._tr(str(key), str(key))
+
+    def _update_button_text(self) -> None:
+        self._btn.setText(self._display_text(self._current))
 
     def current_impact(self) -> str:
         """
-        Get the canonical impact key from the combo box.
+        Get the currently selected impact key.
 
         Returns:
-            str: The selected impact key, or the visible text if no key is stored.
+            str: The selected impact key.
         """
-        data = self._combo.currentData()
-        return data if isinstance(data, str) and data else self._combo.currentText()
+        return str(self._current or "")
 
     def set_current_impact(self, key_or_label: str) -> None:
         """
@@ -1965,13 +1965,17 @@ class ImpactSelectorWidget(QWidget):
         Args:
             key_or_label (str): Impact key (preferred) or display label.
         """
-        for i in range(self._combo.count()):
-            if self._combo.itemData(i) == key_or_label:
-                self._combo.setCurrentIndex(i)
-                return
-        idx = self._combo.findText(key_or_label)
-        if idx >= 0:
-            self._combo.setCurrentIndex(idx)
+        candidate = str(key_or_label or "")
+        if self._include_subcontractors and candidate == "Subcontractors":
+            self._current = candidate
+        elif candidate in self._ordered_leaves:
+            self._current = candidate
+        else:
+            for leaf in self._ordered_leaves:
+                if self._display_text(leaf) == candidate:
+                    self._current = leaf
+                    break
+        self._update_button_text()
 
     def current_text(self) -> str:
         """
@@ -1980,7 +1984,7 @@ class ImpactSelectorWidget(QWidget):
         Returns:
             str: Translated visible text of the current selection.
         """
-        return self._combo.currentText()
+        return self._display_text(self._current)
 
     def set_current_display(self, label: str) -> None:
         """
@@ -1989,9 +1993,66 @@ class ImpactSelectorWidget(QWidget):
         Args:
             label (str): Display label to select.
         """
-        idx = self._combo.findText(label)
-        if idx >= 0:
-            self._combo.setCurrentIndex(idx)
+        self.set_current_impact(label)
+
+    def _open_dialog(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle(self._tr("Select Impacts", "Select Impacts"))
+        dlg.setMinimumSize(350, 380)
+        v = QVBoxLayout(dlg)
+        tree = QTreeWidget(dlg)
+        tree.setHeaderHidden(True)
+        tree.setSelectionMode(QTreeWidget.SingleSelection)
+        v.addWidget(tree)
+
+        selected_item = None
+
+        if self._include_subcontractors:
+            top = QTreeWidgetItem(tree)
+            top.setText(0, self._tr("Subcontractors", "Subcontractors"))
+            top.setData(0, Qt.UserRole + 1, "Subcontractors")
+            if self._current == "Subcontractors":
+                selected_item = top
+
+        def add_items(parent_item, data_dict):
+            nonlocal selected_item
+            for key, val in data_dict.items():
+                item = QTreeWidgetItem(parent_item)
+                is_leaf = not (isinstance(val, dict) and val)
+                item.setText(0, self._tr(key, key))
+                item.setData(0, Qt.UserRole + 1, key if is_leaf else None)
+                if is_leaf and key == self._current:
+                    selected_item = item
+                if isinstance(val, dict) and val:
+                    add_items(item, val)
+
+        add_items(tree, self._hierarchy)
+        tree.expandToDepth(1)
+        if selected_item is not None:
+            tree.setCurrentItem(selected_item)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
+        v.addWidget(buttons)
+
+        def accept():
+            item = tree.currentItem()
+            raw = item.data(0, Qt.UserRole + 1) if item is not None else None
+            if raw is None:
+                QMessageBox.warning(
+                    dlg,
+                    self._tr("Select Impacts", "Select Impacts"),
+                    self._tr("Please select a concrete impact.", "Please select a concrete impact."),
+                )
+                return
+            self._current = str(raw)
+            self._update_button_text()
+            self.impactChanged.emit(self.current_impact())
+            dlg.accept()
+
+        tree.itemDoubleClicked.connect(lambda item, _col: accept() if item.data(0, Qt.UserRole + 1) is not None else None)
+        buttons.accepted.connect(accept)
+        buttons.rejected.connect(dlg.reject)
+        dlg.exec_()
 
 class ImpactMultiSelectorButton(QWidget):
     """
