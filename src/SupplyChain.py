@@ -474,47 +474,88 @@ class SupplyChain:
 
         for impact in impacts:
             try:
-                # Calculate impacts for all supply chain stages
-                total_val, unit = self.total(impact)
-                total_for_relative = float(total_val)
-                res_val, _ = self.resource_extraction(impact)
-                pre_val, _ = self.preliminary_products(impact)
-                direct_val, _ = self.direct_suppliers(impact)
-                ret_val, _ = self.retail(impact)
+                display_decimals = int(decimal_places)
+                # Calculate raw impacts for all supply chain stages first.
+                if self.regional:
+                    resource_data = self.iosystem.impact.resource_extraction_regional
+                    preliminary_data = self.iosystem.impact.preliminary_products_regional
+                    direct_data = self.iosystem.impact.direct_suppliers_regional
+                    retail_data = self.iosystem.impact.retail_regional
+                else:
+                    resource_data = self.iosystem.impact.resource_extraction
+                    preliminary_data = self.iosystem.impact.preliminary_products
+                    direct_data = self.iosystem.impact.direct_suppliers
+                    retail_data = self.iosystem.impact.retail
+
+                res_raw = float(resource_data.loc[impact].iloc[:, self.indices].sum().sum())
+                pre_raw = float(preliminary_data.loc[impact].iloc[:, self.indices].sum().sum())
+                direct_raw = float(direct_data.loc[impact].iloc[:, self.indices].sum().sum())
+                ret_raw = float(retail_data.loc[impact].iloc[:, self.indices].sum().sum())
+                total_raw = float(self.iosystem.impact.total.loc[impact].iloc[:, self.indices].sum().sum())
+
+                # The four stage matrices should decompose the total. In practice there can be
+                # small numerical mismatches, so let retail absorb the residual to guarantee
+                # an additive 100% breakdown in the bubble chart.
+                ret_raw = max(0.0, total_raw - res_raw - pre_raw - direct_raw)
+
+                total_for_relative = total_raw
 
                 # Prefer new unit formatter (units.xlsx) for total display value + localized unit label.
-                # This enables labels like 1e[n]_long per selected language.
+                # Important: choose the display scale from the TOTAL and apply it consistently
+                # to all stage values so the row stays comparable and sums to 100%.
+                unit = ""
+                scaled_vals = [res_raw, pre_raw, direct_raw, ret_raw, total_raw]
                 try:
                     idx = self.iosystem.index
                     uf = getattr(idx, "unit_formatter", None)
                     if uf is not None:
                         impact_key = idx.impact_key_from_label(str(impact))
-                        total_source = (
-                            self.iosystem.impact.total.loc[impact]
-                            .iloc[:, self.indices]
-                            .sum()
-                            .sum()
-                        )
-                        meta = uf.format_value(str(impact_key), float(total_source), self.iosystem.language, style=style)
-                        total_val = float(meta.get("value_display", total_val))
+                        meta = uf.format_value(str(impact_key), total_raw, self.iosystem.language, style=style)
                         unit_key = "unit_long" if style == "long" else "unit_short"
-                        unit = str(meta.get(unit_key) or unit or "").strip()
+                        unit = str(meta.get(unit_key) or "").strip()
+
+                        chosen_factor = float(meta.get("chosen_factor") or 1.0)
+                        core = uf._cfg.core_by_key.get(str(impact_key))  # type: ignore[attr-defined]
+                        source_to_base = float(getattr(core, "source_to_base", 1.0) or 1.0) if core else 1.0
+                        display_decimals = int(getattr(core, "decimals", display_decimals) if core else display_decimals)
+                        divisor_source = chosen_factor / source_to_base if source_to_base else chosen_factor
+                        divisor_source = divisor_source or 1.0
+                        scaled_vals = [v / float(divisor_source) for v in scaled_vals]
+                    else:
+                        res_val, unit = self.transform_unit(res_raw, impact)
+                        pre_val, _ = self.transform_unit(pre_raw, impact)
+                        direct_val, _ = self.transform_unit(direct_raw, impact)
+                        ret_val, _ = self.transform_unit(ret_raw, impact)
+                        total_val, _ = self.transform_unit(total_raw, impact)
+                        scaled_vals = [res_val, pre_val, direct_val, ret_val, total_val]
                 except Exception:
-                    pass
+                    res_val, unit = self.transform_unit(res_raw, impact)
+                    pre_val, _ = self.transform_unit(pre_raw, impact)
+                    direct_val, _ = self.transform_unit(direct_raw, impact)
+                    ret_val, _ = self.transform_unit(ret_raw, impact)
+                    total_val, _ = self.transform_unit(total_raw, impact)
+                    scaled_vals = [res_val, pre_val, direct_val, ret_val, total_val]
+
+                if getattr(self.iosystem.index, "units_df", None) is not None:
+                    try:
+                        units_df = self.iosystem.index.units_df
+                        impact_mask = units_df.iloc[:, 0] == impact
+                        if bool(impact_mask.any()):
+                            display_decimals = int(units_df.loc[impact_mask].iloc[0].iloc[3])
+                    except Exception:
+                        pass
+
+                res_val, pre_val, direct_val, ret_val, total_val = [float(v) for v in scaled_vals]
 
                 # Get color for visualization
                 color = self.iosystem.impact.get_color(impact)
 
                 # Convert to relative values if requested
                 if relative and total_for_relative != 0:
-                    # IMPORTANT:
-                    # Relative shares must be computed against the same scale used for stage values.
-                    # total_val may be replaced by a differently-scaled display value (unit formatter),
-                    # which must not affect percentages.
-                    res_val /= total_for_relative
-                    pre_val /= total_for_relative
-                    direct_val /= total_for_relative
-                    ret_val /= total_for_relative
+                    res_val = res_raw / total_for_relative
+                    pre_val = pre_raw / total_for_relative
+                    direct_val = direct_raw / total_for_relative
+                    ret_val = ret_raw / total_for_relative
 
                 # Append calculated values
                 data.append([
@@ -522,7 +563,7 @@ class SupplyChain:
                     round(pre_val, decimal_places),
                     round(direct_val, decimal_places),
                     round(ret_val, decimal_places),
-                    round(total_val, decimal_places),
+                    round(total_val, display_decimals),
                     unit,
                     color
                 ])

@@ -201,42 +201,9 @@ class Impact:
             raw_material_indices = self.iosystem.index.raw_material_indices
             not_raw_material_indices = self.iosystem.index.not_raw_material_indices
 
-            # Step 1: Define the supply chain matrices
-
-            # Direct suppliers: Exclude raw material sectors
-            direct_suppliers = A.copy()
-            direct_suppliers[raw_material_indices, :] = 0
-
-            # Resource extraction: Only consider raw material sectors
-            resource_extraction = L_minus_I.copy()
-            resource_extraction[not_raw_material_indices, :] = 0
-
-            # Preliminary products: Exclude raw material sectors and direct suppliers
-            preliminary_products = L_minus_I - direct_suppliers
-            preliminary_products[raw_material_indices, :] = 0
-
-            # Step 2: Calculate the impacts
-
-            # Create the `retail` matrix for the regional reassignment
-            retail = I.copy()
-            retail[self.region_indices, :] += (
-                direct_suppliers[self.region_indices, :]
-                + resource_extraction[self.region_indices, :]
-                + preliminary_products[self.region_indices, :]
-            )
-
-            # Calculate impacts by applying S and Y
-            self.retail_regional = pd.DataFrame(S @ (retail @ Y))
-
-            # Zero out the selected region's contributions for the other categories
-            direct_suppliers[self.region_indices, :] = 0
-            resource_extraction[self.region_indices, :] = 0
-            preliminary_products[self.region_indices, :] = 0
-
-            # Calculate the remaining impacts
-            self.direct_suppliers_regional = pd.DataFrame(S @ (direct_suppliers @ Y))
-            self.resource_extraction_regional = pd.DataFrame(S @ (resource_extraction @ Y))
-            self.preliminary_products_regional = pd.DataFrame(S @ (preliminary_products @ Y))
+            # Use the same decomposition as the non-regional pipeline so the four
+            # stage shares remain additive and sum to the total.
+            self._calculate_supply_chain_matrices(A, L_minus_I, I, S, Y)
 
             # Step 3: Update labels for DataFrames
             self.iosystem.index.update_multiindices()
