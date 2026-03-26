@@ -89,8 +89,6 @@ class UserInterface(QMainWindow):
             logger.info(f"Loading database with year={self.DEFAULT_YEAR}, language={self.DEFAULT_LANGUAGE}, aggregation={self.DEFAULT_AGGREGATION}")
             self.iosystem = IOSystem(year=self.DEFAULT_YEAR, language=self.DEFAULT_LANGUAGE, aggregation=self.DEFAULT_AGGREGATION).load()
 
-            # Copy aggregation config files, then fully rebuild indices
-            self.iosystem.index.copy_configs(output=False)
             self.iosystem.index.update_multiindices()
             self.general_dict = self.iosystem.index.general_dict
 

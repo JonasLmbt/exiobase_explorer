@@ -10,7 +10,6 @@ import itertools
 import json
 import logging
 import os
-import shutil
 import sys
 import time
 import zipfile
@@ -114,7 +113,6 @@ class IOSystem:
             logging.info(f"Switching aggregation from '{self.aggregation}' to '{aggregation}'")
             self.aggregation = aggregation
             self.excel_config_dir = os.path.join(self.config_dir, 'aggregations', aggregation)
-            self.index.copy_configs(output=False)
             self.index.update_multiindices()
             logging.info(f"Aggregation successfully switched to '{aggregation}'")
         else:
@@ -662,10 +660,7 @@ class IOSystem:
         logging.info(f"Fast-load database creation completed for year {self.year} "
                     f"({success_count}/{len(necessary_files)} files successful)\n")
 
-        # Copy config files
-        logging.info("Copying configuration files to the fast-load database path...")
-        self.index.copy_configs(output=False)
-        logging.info("Configuration files copied and Index attributes populated\n")
+        logging.info("Configuration stays in the central config directory; no per-database copy needed\n")
 
     def load(self) -> 'IOSystem':
         """
@@ -689,9 +684,9 @@ class IOSystem:
 
             except Exception as e:
                 logging.error(f"There was a problem trying to load the database: {e}")
-                logging.info("Trying to refresh configuration files before considering a fast-database rebuild...")
+                logging.info("Trying to refresh central configuration before considering a fast-database rebuild...")
                 try:
-                    self.index.copy_configs(output=False)
+                    self.index.read_configs()
                     self._load_existing_database()
                     elapsed_time = time.time() - start_time
                     logging.info(f"Database has been loaded successfully after config refresh in {elapsed_time:.3f} seconds")
@@ -752,7 +747,6 @@ class IOSystem:
             Self-reference
         """
         self.create_fast_database()
-        self.index.copy_configs()
         self.index.read_configs()
         self.calc_all()
 

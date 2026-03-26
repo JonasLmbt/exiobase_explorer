@@ -17,7 +17,6 @@ import logging
 
 import os
 
-import shutil
 import unicodedata
 
 from typing import Dict, List, Optional, Tuple, Union
@@ -714,31 +713,27 @@ class Index:
             # Attempt to load each Excel file and assign it to the corresponding attribute
             for df_id, (file_name, sheet_name, expected_length) in file_mapping.items():
                 try:
-                    # Search order: fast DB → new aggregation dir → legacy config dir (config2).
+                    # Search order: central config dir → EXIOBASE shared config → legacy config dir (config2).
                     # We iterate through ALL candidates until one successfully provides the
                     # requested sheet — so a file that exists but lacks the sheet still falls
                     # through to the next candidate.
                     legacy_dir = getattr(self.iosystem, 'legacy_config_dir', None)
                     if file_name == "standards.xlsx":
                         candidates = [
-                            os.path.join(self.iosystem.current_fast_database_path, file_name),
                             getattr(self.iosystem, "standards_config_path", ""),
                         ]
                     elif df_id == "impacts_exiobase_df":
                         candidates = [
-                            os.path.join(self.iosystem.current_fast_database_path, file_name),
                             os.path.join(self.iosystem.excel_config_dir, file_name),
                             os.path.join(os.path.dirname(getattr(self.iosystem, "exiobase_regions_path", "")), "impacts.xlsx"),
                         ]
                     elif df_id == "units_df":
                         candidates = [
-                            os.path.join(self.iosystem.current_fast_database_path, file_name),
                             os.path.join(self.iosystem.excel_config_dir, file_name),
                             os.path.join(os.path.dirname(getattr(self.iosystem, "exiobase_regions_path", "")), file_name),
                         ]
                     else:
                         candidates = [
-                            os.path.join(self.iosystem.current_fast_database_path, file_name),
                             os.path.join(self.iosystem.excel_config_dir, file_name),
                         ]
                     if legacy_dir:
@@ -871,7 +866,6 @@ class Index:
             candidates.append(units_xlsx_path)
         candidates.extend(
             [
-                os.path.join(self.iosystem.current_fast_database_path, "units.xlsx"),
                 os.path.join(self.iosystem.excel_config_dir, "units.xlsx"),
                 os.path.join(os.path.dirname(getattr(self.iosystem, "exiobase_regions_path", "")), "units.xlsx"),
                 os.path.join(getattr(self.iosystem, "legacy_config_dir", ""), "units.xlsx"),
@@ -1013,8 +1007,7 @@ class Index:
                 logging.warning(f"Could not load translation JSON '{json_path}': {e}")
 
         # Fallback: try general.xlsx (legacy config2 format)
-        for base in [self.iosystem.current_fast_database_path,
-                     getattr(self.iosystem, 'legacy_config_dir', None)]:
+        for base in [getattr(self.iosystem, 'legacy_config_dir', None)]:
             if not base:
                 continue
             xlsx_path = os.path.join(base, "general.xlsx")
@@ -1049,7 +1042,7 @@ class Index:
 
         # Fallback: read sheet names from general.xlsx
         try:
-            file_path = os.path.join(self.iosystem.current_fast_database_path, "general.xlsx")
+            file_path = os.path.join(getattr(self.iosystem, 'legacy_config_dir', ""), "general.xlsx")
             with pd.ExcelFile(file_path) as xls:
                 self.languages = xls.sheet_names
         except FileNotFoundError:
@@ -1064,13 +1057,11 @@ class Index:
           - a region code column (preferably EXIOBASE codes like 'AT', 'DE', ...)
           - a numeric population column
 
-        The loader tries the year-specific fast database first, then falls back to config/regions.xlsx.
+        The loader tries the central config files first, then falls back to legacy config2 files.
         """
         self.population_df = None
         candidates = [
-            os.path.join(self.iosystem.current_fast_database_path, "standards.xlsx"),
             getattr(self.iosystem, "standards_config_path", ""),
-            os.path.join(self.iosystem.current_fast_database_path, "regions.xlsx"),
             os.path.join(self.iosystem.excel_config_dir, "regions.xlsx"),
             os.path.join(getattr(self.iosystem, "legacy_config_dir", ""), "regions.xlsx"),
         ]
@@ -1235,10 +1226,8 @@ class Index:
         if self.units_df is not None:
             self.iosystem.units = self.units_df.iloc[:, -1].tolist()
 
-        # Load 'regions_exiobase' data (fast db first, fallback to config)
+        # Load 'regions_exiobase' data from the central config folders.
         regions_xlsx_candidates = [
-            os.path.join(self.iosystem.current_fast_database_path, "standards.xlsx"),
-            os.path.join(self.iosystem.current_fast_database_path, "regions.xlsx"),
             getattr(self.iosystem, "exiobase_regions_path", ""),
             os.path.join(self.iosystem.excel_config_dir, "regions.xlsx"),
             os.path.join(getattr(self.iosystem, "legacy_config_dir", ""), "regions.xlsx"),
@@ -1333,68 +1322,14 @@ class Index:
 
     def copy_configs(self, new: bool = False, output: bool = True) -> None:
         """
-        Copies configuration files from the /config folder to the fast load database.
+        Backward-compatible no-op now that configs are loaded centrally from /config.
 
         Args:
             new: Indicates whether new configuration (not used)
             output: Whether to display logging output
         """
         if output:
-            logging.info("Copying config files from /config to the fast load database...")
-
-        # Files from the aggregation dir. units_legacy.xlsx and general.xlsx are optional
-        # (legacy config2 only) — skip silently if absent in the new config structure.
-        config_files = ["sectors.xlsx", "regions.xlsx", "impacts.xlsx", "units.xlsx", "units_legacy.xlsx", "standards.xlsx"]
-        optional_files = {"units_legacy.xlsx", "general.xlsx"}
-
-        # Build a search list: new aggregation dir first, then legacy config2 as fallback
-        search_dirs = [self.iosystem.excel_config_dir]
-        legacy_dir = getattr(self.iosystem, 'legacy_config_dir', None)
-        if legacy_dir:
-            search_dirs.append(legacy_dir)
-
-        for file_name in config_files:
-            target_file = os.path.join(self.iosystem.current_fast_database_path, file_name)
-            source_file = None
-            if file_name == "standards.xlsx":
-                candidate = getattr(self.iosystem, "standards_config_path", "")
-                if candidate and os.path.exists(candidate):
-                    source_file = candidate
-            elif file_name == "units.xlsx":
-                candidates = [
-                    os.path.join(self.iosystem.excel_config_dir, file_name),
-                    os.path.join(os.path.dirname(getattr(self.iosystem, "exiobase_regions_path", "")), file_name),
-                ]
-                for candidate in candidates:
-                    if candidate and os.path.exists(candidate):
-                        source_file = candidate
-                        break
-            elif file_name == "units_legacy.xlsx":
-                candidates = [
-                    os.path.join(self.iosystem.excel_config_dir, file_name),
-                    os.path.join(os.path.dirname(getattr(self.iosystem, "exiobase_regions_path", "")), file_name),
-                ]
-                for candidate in candidates:
-                    if candidate and os.path.exists(candidate):
-                        source_file = candidate
-                        break
-            else:
-                for d in search_dirs:
-                    candidate = os.path.join(d, file_name)
-                    if os.path.exists(candidate):
-                        source_file = candidate
-                        break
-
-            if source_file:
-                try:
-                    shutil.copy(source_file, target_file)
-                    if output:
-                        logging.info(f"File {file_name} has been successfully copied")
-                except Exception as e:
-                    logging.error(f"Error copying {file_name}: {e}")
-            elif file_name not in optional_files:
-                logging.error(f"File {file_name} not found in {search_dirs}")
-
+            logging.info("Configs are loaded centrally from /config; skipping per-database config copy")
         self.read_configs()
 
     def write_configs(self, sheet_name: str) -> None:
@@ -1435,10 +1370,22 @@ class Index:
             "general.xlsx": [(self.general_df, sheet_name)]
         }
 
+        central_config_path = self.iosystem.excel_config_dir
+        exiobase_shared_path = os.path.dirname(getattr(self.iosystem, "exiobase_regions_path", "")) or central_config_path
+
+        file_targets = {
+            "sectors.xlsx": os.path.join(central_config_path, "sectors.xlsx"),
+            "regions.xlsx": os.path.join(central_config_path, "regions.xlsx"),
+            "impacts.xlsx": os.path.join(central_config_path, "impacts.xlsx"),
+            "units.xlsx": os.path.join(exiobase_shared_path, "units.xlsx"),
+            "general.xlsx": os.path.join(getattr(self.iosystem, "legacy_config_dir", "") or central_config_path, "general.xlsx"),
+        }
+
         # Write to Excel files
         try:
             for file_name, sheets in file_data.items():
-                file_path = os.path.join(self.iosystem.current_fast_database_path, file_name)
+                file_path = file_targets[file_name]
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
                 mode = "a" if os.path.exists(file_path) else "w"
 
                 with pd.ExcelWriter(file_path, engine="openpyxl", mode=mode) as writer:

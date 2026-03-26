@@ -255,7 +255,6 @@ class SettingsTab(QWidget):
         try:
             self.current_year = text
             self.iosystem.switch_year(int(self.current_year))
-            self.iosystem.index.copy_configs(output=False)
             self.ui.update_supplychain()
         except Exception as e:
             logging.error(f"Error changing year: {e}")
