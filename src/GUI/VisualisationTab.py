@@ -974,6 +974,7 @@ class RegionAnalysisViewTab(QWidget):
         Save action once a figure is present.
         """
         if self.canvas:
+            self._disconnect_region_plot_interactions()
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
             self.canvas.deleteLater()
@@ -987,10 +988,60 @@ class RegionAnalysisViewTab(QWidget):
         self._setup_canvas_context_menu()
         self.plot_area.addWidget(self.canvas)
         self.canvas.draw()
+        self._wire_region_plot_interactions(fig)
 
         # Enable Save now that a figure exists
         if hasattr(self, "save_btn"):
             self.save_btn.setEnabled(True)
+
+    def _wire_region_plot_interactions(self, fig):
+        if not self.canvas or not getattr(fig, "_topn_bar_click", None):
+            self._disconnect_region_plot_interactions()
+            return
+        self._disconnect_region_plot_interactions()
+        self._cid_region_plot_click = self.canvas.mpl_connect("button_press_event", self._on_region_plot_click)
+
+    def _disconnect_region_plot_interactions(self):
+        if not self.canvas:
+            return
+        try:
+            if hasattr(self, "_cid_region_plot_click"):
+                self.canvas.mpl_disconnect(self._cid_region_plot_click)
+                del self._cid_region_plot_click
+        except Exception:
+            pass
+
+    def _on_region_plot_click(self, event):
+        if getattr(event, "button", None) not in (None, 1, MouseButton.LEFT):
+            return
+        if not self.canvas or event.inaxes is None:
+            return
+        items = getattr(self.canvas.figure, "_topn_bar_click", None) or []
+        for item in items:
+            patch = item.get("patch")
+            if patch is None:
+                continue
+            try:
+                contains, _ = patch.contains(event)
+            except Exception:
+                contains = False
+            if not contains:
+                continue
+            impact = str(item.get("impact") or "").strip()
+            if not impact or self._is_subcontractors(impact):
+                return
+            try:
+                dlg = RegionContributionDialog(
+                    ui=self.ui,
+                    impact=impact,
+                    region_exiobase=str(item.get("region_exiobase") or "").strip(),
+                    region_label=str(item.get("region_label") or "").strip(),
+                    parent=self,
+                )
+                dlg.exec_()
+            except Exception as e:
+                logging.exception("Failed to open RegionContributionDialog from bar click: %s", e)
+            return
 
     def _refresh_settings_button_visibility(self):
         """

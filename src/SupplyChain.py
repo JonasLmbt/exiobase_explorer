@@ -1668,6 +1668,21 @@ class SupplyChain:
             except Exception:
                 return [name] * k
 
+        def _format_summary_value(val: float, impact: str, unit: str) -> str:
+            try:
+                idx = self.iosystem.index
+                impact_key = idx.impact_key_from_label(str(impact))
+                uf = getattr(idx, "unit_formatter", None)
+                if uf is not None and not relative:
+                    meta = uf.format_value(str(impact_key), float(val), self.iosystem.language, style="short")
+                    return f"{meta.get('value_display_formatted')} {meta.get('unit_short')}".strip()
+                dec = 1 if relative else 2
+                num = idx.format_number_localized(float(val), decimals=dec)
+                return f"{num} {unit}".strip() if unit else num
+            except Exception:
+                dec = 1 if relative else 2
+                return f"{float(val):.{dec}f} {unit}".strip()
+
         colors = _color_list(bar_color, len(impacts))
         fig, ax = plt.subplots(figsize=(12, 6))
         self._apply_plot_background(fig, ax, transparent=transparent_background)
@@ -1678,10 +1693,18 @@ class SupplyChain:
         code2name = dict(zip(self.iosystem.regions_exiobase, self.iosystem.regions))
 
         # Draw bars
+        click_items = []
         if orientation == "horizontal":
             for j in range(m):
                 offs = (-bar_width/2) + (j + 0.5) * width
-                ax.barh(idx + offs, mat.iloc[:, j].values, height=width, label=legend_labels[j], color=colors[j])
+                bars = ax.barh(idx + offs, mat.iloc[:, j].values, height=width, label=legend_labels[j], color=colors[j])
+                for rect, code in zip(bars.patches, take_idx):
+                    click_items.append({
+                        "patch": rect,
+                        "region_exiobase": str(code),
+                        "region_label": str(code2name.get(code, code)),
+                        "impact": str(impacts[j]),
+                    })
             ax.set_yticks(idx)
             ax.set_yticklabels([code2name.get(code, code) for code in take_idx])
             ax.set_xlabel("%" if relative else units_map.get(cols[0], gd.get("Value", "Value")))
@@ -1689,7 +1712,14 @@ class SupplyChain:
         else:
             for j in range(m):
                 offs = (-bar_width/2) + (j + 0.5) * width
-                ax.bar(idx + offs, mat.iloc[:, j].values, width=width, label=legend_labels[j], color=colors[j])
+                bars = ax.bar(idx + offs, mat.iloc[:, j].values, width=width, label=legend_labels[j], color=colors[j])
+                for rect, code in zip(bars.patches, take_idx):
+                    click_items.append({
+                        "patch": rect,
+                        "region_exiobase": str(code),
+                        "region_label": str(code2name.get(code, code)),
+                        "impact": str(impacts[j]),
+                    })
             ax.set_xticks(idx)
             ax.set_xticklabels([code2name.get(code, code) for code in take_idx], rotation=45, ha="right")
             ax.set_ylabel("%" if relative else units_map.get(cols[0], gd.get("Value", "Value")))
@@ -1703,7 +1733,38 @@ class SupplyChain:
             ax.set_title(title)
 
         ax.legend(title=gd.get("Impacts", "Impacts"), loc="best")
-        fig.tight_layout()
+
+        summary_lines = []
+        summary_items = []
+        for j, imp in enumerate(impacts):
+            total_val = float(pd.to_numeric(df_vals[cols[j]], errors="coerce").fillna(0.0).sum())
+            topn_val = float(pd.to_numeric(mat.iloc[:, j], errors="coerce").fillna(0.0).sum())
+            share = (topn_val / total_val * 100.0) if total_val else 0.0
+            unit = "%" if relative else str(units_map.get(cols[j], "") or "")
+            summary_lines.append(
+                f"{legend_labels[j]}: { _format_summary_value(topn_val, str(imp), unit) } ({share:.1f}% {gd.get('of', 'of')} {gd.get('Total', 'Total').lower()})"
+            )
+            summary_items.append({
+                "impact": str(imp),
+                "impact_label": legend_labels[j],
+                "topn_sum": topn_val,
+                "total_sum": total_val,
+                "share_pct": share,
+                "unit": unit,
+            })
+
+        fig._topn_bar_click = click_items
+        fig._topn_summary = summary_items
+        if summary_lines:
+            fig.text(
+                0.985, 0.965,
+                "\n".join(summary_lines),
+                ha="right", va="top",
+                fontsize=9, color="#4b5563",
+                bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="#dbe4ef", alpha=0.95),
+            )
+
+        fig.tight_layout(rect=[0.02, 0.05, 0.98, 0.90])
 
         return (fig, mat) if return_data else fig
 
