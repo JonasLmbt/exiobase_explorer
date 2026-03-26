@@ -3768,7 +3768,8 @@ class RegionContributionDialog(QDialog):
         # Dynamic height: give each bar ~0.30 inches, min 4.5 in
         fig_h = max(4.5, n * 0.30 + 1.2)
         fig_h = min(fig_h, 14.0)
-        fig, ax = plt.subplots(figsize=(9.2, fig_h))
+        fig, ax = plt.subplots(figsize=(9.4, fig_h))
+        fig.patch.set_facecolor("white")
 
         y = np.arange(n)
 
@@ -3784,6 +3785,7 @@ class RegionContributionDialog(QDialog):
         # Grid: subtle vertical lines behind bars
         ax.set_axisbelow(True)
         ax.grid(axis="x", color=self._GRID_COLOR, linewidth=0.9)
+        ax.axvline(0, color=self._SPINE_COLOR, linewidth=1.0)
 
         # Y-tick labels: truncate long sector names
         tick_labels = [
@@ -3795,6 +3797,7 @@ class RegionContributionDialog(QDialog):
         ax.tick_params(axis="y", length=0, pad=6, labelcolor="#374151")
         ax.tick_params(axis="x", colors=self._SPINE_COLOR, labelsize=8.5,
                        labelcolor=self._LABEL_COLOR)
+        ax.set_facecolor("white")
 
         # Percentage annotations right of each bar
         max_val = max(values_o) if values_o else 1.0
@@ -3807,12 +3810,12 @@ class RegionContributionDialog(QDialog):
 
         # X label
         xlabel = f"{self.impact}  [{unit}]" if unit else self.impact
-        ax.set_xlabel(xlabel, fontsize=9, color=self._LABEL_COLOR, labelpad=8)
+        ax.set_xlabel(xlabel, fontsize=9, color=self._LABEL_COLOR, labelpad=10)
 
         # Extra right margin so % labels don't get clipped
         ax.set_xlim(0, max_val * 1.18)
 
-        fig.tight_layout(pad=1.2)
+        fig.subplots_adjust(left=0.28, right=0.985, top=0.98, bottom=0.17)
         self._set_canvas(fig)
 
     # ── Pie ──────────────────────────────────────────────────────────────

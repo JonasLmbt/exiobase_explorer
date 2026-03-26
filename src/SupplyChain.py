@@ -1971,6 +1971,74 @@ class SupplyChain:
         if dim not in {"regions", "sectors"}:
             return {"ok": False, "error": "invalid_dimension", "dimension": dim}
 
+        # For region breakdowns, prefer the already computed stage impact matrices so the
+        # dialog matches the bubble chart exactly.
+        if dim == "regions":
+            try:
+                if stage == "total":
+                    stage_matrix = self.iosystem.impact.total
+                elif self.regional:
+                    stage_matrix = getattr(self.iosystem.impact, f"{stage}_regional")
+                else:
+                    stage_matrix = getattr(self.iosystem.impact, stage)
+
+                stage_rows = stage_matrix.loc[impact]
+                selected = stage_rows.iloc[:, self.indices]
+                region_values = selected.sum(axis=1)
+                total_raw = float(np.nansum(region_values.to_numpy(dtype=np.float64)) or 0.0)
+
+                if total_raw == 0.0:
+                    return {
+                        "kind": "contrib_table_v1",
+                        "meta": {"stage_id": stage, "dimension": dim, "impact": impact_label, "total_raw": 0.0},
+                        "rows": [],
+                    }
+
+                if isinstance(region_values.index, pd.MultiIndex):
+                    labels = region_values.index.get_level_values(-1).astype(str)
+                else:
+                    labels = region_values.index.astype(str)
+
+                grouped = (
+                    pd.DataFrame({"label": labels, "value": region_values.to_numpy(dtype=np.float64)})
+                    .groupby("label", as_index=False)["value"]
+                    .sum()
+                    .sort_values("value", ascending=False)
+                )
+
+                scaled_vals, unit, decimals = self._contrib__scale_values(
+                    impact_label=impact_label,
+                    values_source=grouped["value"].to_numpy(),
+                )
+
+                rows: list[dict] = []
+                head = grouped.head(max(1, int(top_n)))
+                scaled_head = scaled_vals[: len(head)]
+                for (_i, r), abs_scaled in zip(head.iterrows(), scaled_head):
+                    val = float(r["value"])
+                    rows.append(
+                        {
+                            "label": str(r["label"]),
+                            "share": float(val / total_raw) if total_raw else 0.0,
+                            "absolute": round(float(abs_scaled), int(decimals)),
+                        }
+                    )
+
+                return {
+                    "kind": "contrib_table_v1",
+                    "meta": {
+                        "stage_id": stage,
+                        "dimension": dim,
+                        "impact": impact_label,
+                        "unit": unit,
+                        "decimal_places": int(decimals),
+                        "total_raw": total_raw,
+                    },
+                    "rows": rows,
+                }
+            except Exception:
+                pass
+
         # y: final demand vector for the selected indices (diagonal of Y).
         y = self._contrib__y_vector()
 
