@@ -61,6 +61,9 @@ class IOSystem:
         # Initialize components
         self.index = Index(self)
         self.impact = Impact(self)
+        self._peer_cache: Dict[Tuple[str, str, str, str, bool], "IOSystem"] = {}
+        self._loaded_profile: str = ""
+        self._loaded_need_leontief: bool = False
 
     def _initialize_paths(self) -> None:
         """
@@ -141,6 +144,90 @@ class IOSystem:
             logging.info(f"Year successfully switched to {year}")
         else:
             logging.info(f"Year is already set to {year}. No action required")
+
+    def available_fast_db_years(self) -> List[int]:
+        """
+        Return all years for which a usable fast database is available.
+
+        A year counts as available when a matching ``FAST_IOT_<year>_pxp`` folder exists
+        and already contains an ``L.npy`` matrix, so time-series analysis can load it
+        without triggering an expensive rebuild.
+        """
+        years: List[int] = []
+        pattern = "FAST_IOT_"
+
+        try:
+            if not os.path.isdir(self.fast_databases_dir):
+                return years
+
+            for entry in os.listdir(self.fast_databases_dir):
+                full = os.path.join(self.fast_databases_dir, entry)
+                if not os.path.isdir(full):
+                    continue
+                if not (entry.startswith(pattern) and entry.endswith("_pxp")):
+                    continue
+
+                year_part = entry[len(pattern):len(pattern) + 4]
+                if not year_part.isdigit():
+                    continue
+
+                l_path = os.path.join(full, "L.npy")
+                if os.path.exists(l_path):
+                    years.append(int(year_part))
+        except Exception as e:
+            logging.warning(f"Could not determine available fast database years: {e}")
+
+        return sorted(set(years))
+
+    def load_peer_year(
+        self,
+        year: int,
+        *,
+        language: Optional[str] = None,
+        aggregation: Optional[str] = None,
+        load_profile: str = "full",
+        need_leontief: bool = False,
+        use_cache: bool = True,
+    ) -> "IOSystem":
+        """
+        Lazily load and cache another year as a separate IOSystem instance.
+
+        This keeps the active UI year untouched while allowing analyses to access
+        multiple years within one session.
+        """
+        peer_year = str(year)
+        peer_language = str(language or self.language)
+        peer_aggregation = str(aggregation or self.aggregation)
+        profile = str(load_profile or "full").strip().lower()
+        cache_key = (peer_year, peer_language, peer_aggregation, profile, bool(need_leontief))
+
+        if peer_year == self.year and peer_language == self.language and peer_aggregation == self.aggregation:
+            return self
+
+        if use_cache:
+            cached = self._peer_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        peer = IOSystem(year=int(peer_year), language=peer_language, aggregation=peer_aggregation)
+        peer.load(load_profile=profile, need_leontief=need_leontief)
+
+        if use_cache:
+            self._peer_cache[cache_key] = peer
+
+        return peer
+
+    def _required_fast_database_files(self, load_profile: str = "full", need_leontief: bool = False) -> List[str]:
+        """
+        Return the minimum file set needed for the requested load profile.
+        """
+        profile = str(load_profile or "full").strip().lower()
+        if profile == "timeseries":
+            files = [os.path.join(self.current_fast_database_path, "impacts", "total.npy")]
+            if need_leontief:
+                files.append(os.path.join(self.current_fast_database_path, "L.npy"))
+            return files
+        return [os.path.join(self.current_fast_database_path, "L.npy")]
 
     def calc_all(self) -> None:
         """
@@ -662,7 +749,7 @@ class IOSystem:
 
         logging.info("Configuration stays in the central config directory; no per-database copy needed\n")
 
-    def load(self) -> 'IOSystem':
+    def load(self, load_profile: str = "full", need_leontief: bool = False) -> 'IOSystem':
         """
         Loads the fast database. If the database does not exist, it triggers
         its creation and all necessary calculations.
@@ -671,13 +758,13 @@ class IOSystem:
             Self-reference for method chaining
         """
         start_time = time.time()
-        l_matrix_path = os.path.join(self.current_fast_database_path, 'L.npy')
+        required_files = self._required_fast_database_files(load_profile=load_profile, need_leontief=need_leontief)
 
-        if os.path.exists(l_matrix_path):
-            logging.info(f"Fast database for year {self.year} likely exists due to the presence of an L matrix - loading...")
+        if all(os.path.exists(p) for p in required_files):
+            logging.info(f"Fast database for year {self.year} likely exists due to the presence of the required matrices - loading...")
 
             try:
-                self._load_existing_database()
+                self._load_existing_database(load_profile=load_profile, need_leontief=need_leontief)
                 elapsed_time = time.time() - start_time
                 logging.info(f"Database has been loaded successfully in {elapsed_time:.3f} seconds")
                 return self
@@ -687,7 +774,7 @@ class IOSystem:
                 logging.info("Trying to refresh central configuration before considering a fast-database rebuild...")
                 try:
                     self.index.read_configs()
-                    self._load_existing_database()
+                    self._load_existing_database(load_profile=load_profile, need_leontief=need_leontief)
                     elapsed_time = time.time() - start_time
                     logging.info(f"Database has been loaded successfully after config refresh in {elapsed_time:.3f} seconds")
                     return self
@@ -695,11 +782,11 @@ class IOSystem:
                     logging.error(f"Loading still failed after config refresh: {e2}")
                     if self._should_recreate_fast_database(e2):
                         logging.info("Attempting to recreate fast database from scratch due to matrix/data loading error...")
-                        return self._create_and_calculate_database(start_time)
+                        return self._create_and_calculate_database(start_time, load_profile=load_profile, need_leontief=need_leontief)
                     raise
         else:
             logging.info("Creating fast database from scratch...\n")
-            return self._create_and_calculate_database(start_time)
+            return self._create_and_calculate_database(start_time, load_profile=load_profile, need_leontief=need_leontief)
 
     @staticmethod
     def _should_recreate_fast_database(exc: Exception) -> bool:
@@ -716,14 +803,21 @@ class IOSystem:
             return True
         return isinstance(exc, FileNotFoundError)
 
-    def _load_existing_database(self) -> None:
+    def _load_existing_database(self, load_profile: str = "full", need_leontief: bool = False) -> None:
         """
         Loads an existing fast database.
         """
-        # Load main matrices
-        matrix_files = ['A.npy', 'L.npy', 'Y.npy']
+        profile = str(load_profile or "full").strip().lower()
+
+        # Load only the matrices required for the requested analysis profile.
+        matrix_files: List[str] = []
+        if profile == "full":
+            matrix_files = ['A.npy', 'L.npy', 'Y.npy']
+        elif need_leontief:
+            matrix_files = ['L.npy']
+
         for matrix_file in matrix_files:
-            matrix_name = matrix_file[:-4]  # Remove .npy extension
+            matrix_name = matrix_file[:-4]
             file_path = os.path.join(self.current_fast_database_path, matrix_file)
             setattr(self, matrix_name, pd.DataFrame(np.load(file_path).astype(np.float32)))
 
@@ -731,12 +825,15 @@ class IOSystem:
         self.I = pd.DataFrame(np.identity(9800, dtype=np.float32))
 
         # Load impact matrices via the Impact class
-        self.impact.load()
+        impact_ids = None if profile == "full" else ["total"]
+        self.impact.load(file_ids=impact_ids)
 
         # Add multi-indices
         self.index.update_multiindices()
+        self._loaded_profile = profile
+        self._loaded_need_leontief = bool(need_leontief)
 
-    def _create_and_calculate_database(self, start_time: float) -> 'IOSystem':
+    def _create_and_calculate_database(self, start_time: float, load_profile: str = "full", need_leontief: bool = False) -> 'IOSystem':
         """
         Creates and calculates a new fast database.
 
@@ -749,6 +846,9 @@ class IOSystem:
         self.create_fast_database()
         self.index.read_configs()
         self.calc_all()
+
+        # After full creation, only load what the caller actually requested.
+        self._load_existing_database(load_profile=load_profile, need_leontief=need_leontief)
 
         elapsed_time = time.time() - start_time
         logging.info(f"Database created and calculated in {elapsed_time:.3f} seconds")

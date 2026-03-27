@@ -61,7 +61,7 @@ class Impact:
         self.unit_transform = None
         self.region_indices = None
 
-    def load(self) -> None:
+    def load(self, file_ids: List[str] | None = None) -> None:
         """
         This method loads various impact matrices from `.npy` files and stores them as DataFrames in instance variables.
         It first defines the file paths for the impact matrices and then attempts to load each file in a loop.
@@ -87,7 +87,11 @@ class Impact:
             "preliminary_products": ("preliminary_products.npy", (6174, 9800)),
         }
 
+        selected_ids = set(file_ids or file_mapping.keys())
+
         for file_id, (filename, expected_shape) in file_mapping.items():
+            if file_id not in selected_ids:
+                continue
             file_path = os.path.join(self.iosystem.current_fast_database_path, "impacts", filename)
             try:
                 array = np.load(file_path).astype(np.float32)

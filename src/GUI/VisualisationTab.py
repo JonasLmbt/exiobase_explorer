@@ -134,8 +134,22 @@ class VisualisationTab(QWidget):
             self._translate("Region Analysis", "Region Analysis")
         )
 
+        # Add sub-tab for time-series analysis
+        self._time_series_host = LazyTimeSeriesAnalysisHost(ui=self.ui, tr=self._translate)
+        self.inner_tab_widget.addTab(
+            self._time_series_host,
+            self._translate("Time Series Analysis", "Time Series Analysis")
+        )
+
+        self.inner_tab_widget.currentChanged.connect(self._on_inner_tab_changed)
+
         # Attach the tab widget to the main layout
         layout.addWidget(self.inner_tab_widget)
+
+    def _on_inner_tab_changed(self, index: int) -> None:
+        widget = self.inner_tab_widget.widget(index)
+        if widget is self._time_series_host:
+            self._time_series_host.ensure_loaded()
 
 
 class StageAnalysisTabContainer(QWidget):
@@ -1865,6 +1879,218 @@ class RegionAnalysisViewTab(QWidget):
             dlg.exec_()
         except Exception as e:
             QMessageBox.warning(self, self._translate("Error", "Error"), str(e))
+
+
+class TimeSeriesAnalysisTab(QWidget):
+    """
+    Time-series analysis tab with hierarchical multi-impact selection and a line chart.
+    """
+
+    def __init__(self, ui, parent=None):
+        super().__init__(parent)
+        self.ui = ui
+        self.iosystem = self.ui.iosystem
+        self.general_dict = self.iosystem.index.general_dict
+        self.impact_hierarchy: Dict = build_impact_hierarchy(self.iosystem.index)
+        self.canvas = None
+
+        self._debounce = QTimer(self)
+        self._debounce.setInterval(180)
+        self._debounce.setSingleShot(True)
+        self._debounce.timeout.connect(self._update_plot)
+
+        self._did_initial_load = False
+        self._init_ui()
+        self._init_default_impacts()
+
+    def _translate(self, key: str, fallback: str) -> str:
+        val = self.general_dict.get(key, fallback)
+        if val is None:
+            return str(fallback)
+        return str(val)
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+
+        self.impact_selector = ImpactMultiSelectorButton(self.impact_hierarchy, self._translate, parent=self)
+        self.impact_selector.impactsChanged.connect(self._on_impacts_changed)
+        toolbar.addWidget(self.impact_selector)
+
+        self.refresh_btn = QToolButton(self)
+        self.refresh_btn.setToolTip(self._translate("Refresh", "Refresh"))
+        try:
+            self.refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        except Exception:
+            self.refresh_btn.setText("R")
+        self.refresh_btn.clicked.connect(self._update_plot)
+        toolbar.addWidget(self.refresh_btn)
+
+        self.save_btn = QToolButton(self)
+        self.save_btn.setToolTip(self._translate("Save plot", "Save plot"))
+        self.save_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        self.save_btn.clicked.connect(self._save_plot)
+        self.save_btn.setEnabled(False)
+        toolbar.addWidget(self.save_btn)
+
+        toolbar.addStretch(1)
+        layout.addLayout(toolbar)
+
+        self.status_label = QLabel("", self)
+        self.status_label.setStyleSheet("color: #6b7280; font-size: 11px; padding: 2px 0 4px 2px;")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        self.plot_area = QVBoxLayout()
+        self.plot_area.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(self.plot_area, 1)
+
+        self._set_canvas(self._make_placeholder(self._translate("Loading time series…", "Loading time series…")))
+
+    def _init_default_impacts(self):
+        idx = self.iosystem.index
+        impacts = list(self.iosystem.impacts or [])
+        preferred_keys = [
+            "Value Added",
+            "Water Consumption Blue - Total",
+            "Employment hour",
+        ]
+        defaults: list[str] = []
+        for key in preferred_keys:
+            label = str((getattr(idx, "impact_key_to_label", {}) or {}).get(key) or "").strip()
+            if label and label in impacts and label not in defaults:
+                defaults.append(label)
+        if not defaults and impacts:
+            defaults = impacts[: min(3, len(impacts))]
+        self.impact_selector.set_defaults(defaults)
+
+    def _make_placeholder(self, text: str):
+        fig = plt.figure(figsize=(9.5, 4.8))
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, text, ha="center", va="center", transform=ax.transAxes, color="#6b7280")
+        ax.axis("off")
+        fig.tight_layout()
+        return fig
+
+    def _set_canvas(self, fig):
+        if self.canvas:
+            self.plot_area.removeWidget(self.canvas)
+            self.canvas.setParent(None)
+            self.canvas.deleteLater()
+
+        self.canvas = FigureCanvas(fig)
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas.updateGeometry()
+        self.plot_area.addWidget(self.canvas)
+        self.canvas.draw()
+        self.save_btn.setEnabled(True)
+
+    def _on_impacts_changed(self, _impacts: List[str]):
+        self._schedule_update()
+
+    def _schedule_update(self):
+        self._debounce.start()
+
+    def activate(self):
+        if self._did_initial_load:
+            return
+        self._did_initial_load = True
+        self._schedule_update()
+
+    def _update_plot(self):
+        impacts = self.impact_selector.selected_impacts()
+        if not impacts:
+            msg = self._translate("Please select impacts.", "Please select impacts.")
+            self.status_label.setText(msg)
+            self._set_canvas(self._make_placeholder(msg))
+            return
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            fig = self.ui.supplychain.plot_time_series(impacts=impacts)
+            meta = getattr(fig, "_time_series_meta", {}) or {}
+            years_ok = list(meta.get("years") or [])
+            errors = dict(meta.get("errors") or {})
+
+            if errors:
+                self.status_label.setText(
+                    f"{self._translate('Loaded years', 'Loaded years')}: {', '.join(map(str, years_ok))}  |  "
+                    f"{self._translate('Skipped years', 'Skipped years')}: {', '.join(map(str, sorted(errors.keys())))}"
+                )
+            else:
+                self.status_label.setText(
+                    f"{self._translate('Loaded years', 'Loaded years')}: {', '.join(map(str, years_ok))}"
+                )
+
+            self._set_canvas(fig)
+        except Exception as e:
+            self.status_label.setText(str(e))
+            self._set_canvas(self._make_placeholder(f"{self._translate('Error', 'Error')}: {e}"))
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _default_export_filename(self) -> str:
+        home = os.path.expanduser("~")
+        downloads = os.path.join(home, "Downloads")
+        target_dir = downloads if os.path.isdir(downloads) else home
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return os.path.join(target_dir, f"time_series_{ts}.png")
+
+    def _save_plot(self):
+        if not self.canvas or not getattr(self.canvas, "figure", None):
+            return
+
+        fname, _ = QFileDialog.getSaveFileName(
+            self,
+            self._translate("Save plot", "Save plot"),
+            self._default_export_filename(),
+            "PNG (*.png);;SVG (*.svg);;PDF (*.pdf)",
+        )
+        if not fname:
+            return
+
+        try:
+            save_kwargs = dict(dpi=600, bbox_inches="tight", edgecolor="none", pad_inches=0.08)
+            if getattr(self.ui, "export_graphics_with_background", False):
+                save_kwargs.update(facecolor="white", transparent=False)
+            else:
+                save_kwargs.update(facecolor="none", transparent=True)
+            self.canvas.figure.savefig(fname, **save_kwargs)
+        except Exception as e:
+            QMessageBox.warning(self, self._translate("Error", "Error"), str(e))
+
+
+class LazyTimeSeriesAnalysisHost(QWidget):
+    """
+    Lazily instantiates the time-series tab only when the user opens it.
+    """
+
+    def __init__(self, ui, tr, parent=None):
+        super().__init__(parent)
+        self.ui = ui
+        self._tr = tr
+        self._view = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self._layout = layout
+
+        self._placeholder = QLabel(self._tr("Open the tab to load the time series analysis.", "Open the tab to load the time series analysis."), self)
+        self._placeholder.setAlignment(Qt.AlignCenter)
+        self._placeholder.setWordWrap(True)
+        self._placeholder.setStyleSheet("color: #6b7280; font-size: 12px; padding: 18px;")
+        layout.addWidget(self._placeholder)
+
+    def ensure_loaded(self):
+        if self._view is None:
+            self._layout.removeWidget(self._placeholder)
+            self._placeholder.deleteLater()
+            self._placeholder = None
+            self._view = TimeSeriesAnalysisTab(ui=self.ui, parent=self)
+            self._layout.addWidget(self._view)
+        self._view.activate()
 
 
 class MethodSelectorWidget(QWidget):

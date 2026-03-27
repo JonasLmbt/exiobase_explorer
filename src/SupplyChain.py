@@ -265,6 +265,37 @@ class SupplyChain:
                 f"Hierarchy levels: {self.hierarchy_levels})"
             )
 
+    def selection_payload(self) -> Dict[str, Any]:
+        """
+        Serialize the current selection so it can be reproduced on another IOSystem.
+        """
+        if getattr(self, "inputByIndices", False):
+            return {
+                "mode": "indices",
+                "indices": list(getattr(self, "indices", []) or []),
+            }
+
+        kwargs = {
+            key: value
+            for key, value in (getattr(self, "hierarchy_levels", {}) or {}).items()
+            if value is not None
+        }
+        return {
+            "mode": "kwargs",
+            "kwargs": kwargs,
+        }
+
+    @classmethod
+    def from_selection_payload(cls, iosystem: Any, payload: Dict[str, Any]) -> "SupplyChain":
+        """
+        Recreate a SupplyChain on another IOSystem from ``selection_payload()``.
+        """
+        payload = dict(payload or {})
+        mode = str(payload.get("mode") or "indices").strip().lower()
+        if mode == "kwargs":
+            return cls(iosystem=iosystem, **dict(payload.get("kwargs") or {}))
+        return cls(iosystem=iosystem, indices=list(payload.get("indices") or []))
+
     def transform_unit(self, value: float, impact: str) -> Tuple[float, str]:
         """
         Transform the given value based on the unit for the specified impact.
@@ -321,6 +352,244 @@ class SupplyChain:
                 return rounded_value, unit
 
         raise ValueError(f"Impact '{impact}' not found in unit configuration")
+
+    def _total_impact_raw(self, impact: str) -> float:
+        """
+        Return the raw total impact value for the current selection.
+        """
+        canon = self._canon_impact(str(impact))
+        if canon == "Subcontractors":
+            return float(self.iosystem.L.iloc[:, self.indices].sum(axis=1).sum())
+
+        idx = self.iosystem.index
+        impact_key = getattr(idx, "impact_key_from_label", lambda x: x)(str(canon))
+        row_label = str((getattr(idx, "impact_key_to_label", {}) or {}).get(str(impact_key), canon) or canon)
+
+        total_matrix = self.iosystem.impact.total
+        try:
+            row = total_matrix.loc[row_label]
+        except Exception:
+            row = total_matrix.loc[canon]
+
+        return float(
+            row.iloc[:, self.indices]
+            .sum()
+            .sum()
+        )
+
+    def _scale_series_values(
+        self,
+        *,
+        impact_label: str,
+        raw_values: np.ndarray,
+        language: Optional[str] = None,
+        unit_style: str = "short",
+    ) -> Tuple[np.ndarray, str, int]:
+        """
+        Scale a vector of raw source-unit values into one consistent display unit.
+        """
+        vals = np.asarray(raw_values, dtype="float64")
+        lang = str(language or self.iosystem.language)
+
+        if vals.size == 0:
+            return vals, "", 2
+
+        if self._canon_impact(str(impact_label)) == "Subcontractors":
+            return vals, "", 0
+
+        try:
+            idx = self.iosystem.index
+            uf = getattr(idx, "unit_formatter", None)
+            if uf is not None:
+                impact_key = idx.impact_key_from_label(str(impact_label))
+                max_abs = float(np.nanmax(np.abs(vals))) if np.any(np.isfinite(vals)) else 0.0
+                meta = uf.format_value(str(impact_key), max_abs, lang, style=str(unit_style))
+
+                unit_key = "unit_long" if str(unit_style).strip().lower() == "long" else "unit_short"
+                unit = str(meta.get(unit_key) or "").strip()
+                chosen_factor = float(meta.get("chosen_factor") or 1.0)
+                core = uf._cfg.core_by_key.get(str(impact_key))  # type: ignore[attr-defined]
+                source_to_base = float(getattr(core, "source_to_base", 1.0) or 1.0) if core else 1.0
+                decimals = int(getattr(core, "decimals", 2) if core else 2)
+                divisor_source = chosen_factor / source_to_base if source_to_base else chosen_factor
+                divisor_source = divisor_source or 1.0
+                return vals / float(divisor_source), unit, decimals
+        except Exception:
+            pass
+
+        try:
+            scaled = [self.transform_unit(float(v), impact_label)[0] for v in vals]
+            unit = self.transform_unit(0.0, impact_label)[1]
+            return np.asarray(scaled, dtype="float64"), str(unit or "").strip(), 2
+        except Exception:
+            return vals, "", 2
+
+    def time_series_table(
+        self,
+        impacts: List[str],
+        years: Optional[List[int]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Evaluate the current selection across multiple available years.
+        """
+        if not impacts:
+            raise ValueError("At least one impact must be specified")
+
+        requested_years = sorted(int(y) for y in list(years or self.iosystem.available_fast_db_years()))
+        if not requested_years:
+            raise ValueError("No fast databases are available for time-series analysis")
+
+        payload = self.selection_payload()
+        impact_list = [str(i) for i in impacts if str(i).strip()]
+        impact_specs = []
+        for impact in impact_list:
+            canon = self._canon_impact(impact)
+            if canon == "Subcontractors":
+                impact_specs.append({"label": impact, "key": "Subcontractors"})
+            else:
+                impact_key = getattr(self.iosystem.index, "impact_key_from_label", lambda x: x)(str(canon))
+                impact_specs.append({"label": impact, "key": str(impact_key)})
+        need_leontief = any(self._canon_impact(impact) == "Subcontractors" for impact in impact_list)
+        year_series_raw: Dict[int, Dict[str, float]] = {}
+        errors: Dict[int, str] = {}
+
+        for year in requested_years:
+            try:
+                peer_io = self.iosystem.load_peer_year(
+                    year,
+                    language=self.language,
+                    aggregation=getattr(self.iosystem, "aggregation", None),
+                    load_profile="timeseries",
+                    need_leontief=need_leontief,
+                )
+                peer_sc = SupplyChain.from_selection_payload(peer_io, payload)
+                year_series_raw[year] = {
+                    spec["label"]: peer_sc._total_impact_raw(
+                        "Subcontractors"
+                        if spec["key"] == "Subcontractors"
+                        else str((getattr(peer_io.index, "impact_key_to_label", {}) or {}).get(spec["key"], spec["key"]))
+                    )
+                    for spec in impact_specs
+                }
+            except Exception as e:
+                errors[int(year)] = str(e)
+
+        years_ok = [y for y in requested_years if y in year_series_raw]
+        if not years_ok:
+            raise RuntimeError("Failed to load any year for time-series analysis")
+
+        rows = []
+        series_meta: Dict[str, Dict[str, Any]] = {}
+        for impact in impact_list:
+            raw_vals = np.asarray([year_series_raw[y][impact] for y in years_ok], dtype="float64")
+            scaled_vals, unit, decimals = self._scale_series_values(
+                impact_label=impact,
+                raw_values=raw_vals,
+                language=self.language,
+                unit_style="short",
+            )
+            series_meta[impact] = {
+                "unit": unit,
+                "decimal_places": int(decimals),
+                "color": self.iosystem.impact.get_color(impact),
+                "values_raw": raw_vals.tolist(),
+                "values_display": np.asarray(scaled_vals, dtype="float64").tolist(),
+            }
+            for year, display_val, raw_val in zip(years_ok, scaled_vals, raw_vals):
+                rows.append({
+                    "year": int(year),
+                    "impact": impact,
+                    "value": float(display_val),
+                    "value_raw": float(raw_val),
+                })
+
+        return {
+            "kind": "time_series_v1",
+            "years": years_ok,
+            "requested_years": requested_years,
+            "errors": errors,
+            "series": series_meta,
+            "data": pd.DataFrame(rows),
+        }
+
+    def plot_time_series(
+        self,
+        impacts: List[str],
+        years: Optional[List[int]] = None,
+    ):
+        """
+        Render a line chart (small multiples) for the selected impacts across years.
+        """
+        result = self.time_series_table(impacts=impacts, years=years)
+        df = result["data"]
+        meta = result["series"]
+        years_ok = list(result["years"] or [])
+
+        n = max(1, len(impacts))
+        fig_h = min(3.1 * n + 0.8, 12.0)
+        fig, axes = plt.subplots(n, 1, figsize=(10.0, fig_h), sharex=True, squeeze=False)
+        axes_flat = axes.flatten().tolist()
+        fig.patch.set_facecolor("white")
+
+        for ax, impact in zip(axes_flat, impacts):
+            impact_df = df[df["impact"] == impact].sort_values("year")
+            series = meta.get(impact, {})
+            color = str(series.get("color") or "#2563eb")
+            unit = str(series.get("unit") or "").strip()
+            decimals = int(series.get("decimal_places") or 2)
+            vals = impact_df["value"].to_numpy(dtype="float64")
+            yrs = impact_df["year"].to_numpy(dtype="int64")
+
+            ax.set_facecolor("white")
+            ax.plot(yrs, vals, color=color, linewidth=2.4, marker="o", markersize=5.5)
+            ax.grid(axis="y", color="#e5e7eb", linewidth=0.9)
+            ax.grid(axis="x", color="#f3f4f6", linewidth=0.7)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.spines["left"].set_color("#d1d5db")
+            ax.spines["bottom"].set_color("#d1d5db")
+            ax.tick_params(axis="both", labelsize=9, colors="#6b7280")
+
+            title = str(impact)
+            if unit:
+                title = f"{title} [ {unit} ]"
+            ax.set_title(title, loc="left", fontsize=11, fontweight="bold", pad=8)
+
+            if len(yrs) > 0:
+                last_year = int(yrs[-1])
+                last_val = float(vals[-1])
+                try:
+                    label = self.iosystem.index.format_number_localized(last_val, decimals=decimals)
+                except Exception:
+                    label = f"{last_val:.{decimals}f}"
+                ax.annotate(
+                    label,
+                    xy=(last_year, last_val),
+                    xytext=(8, 0),
+                    textcoords="offset points",
+                    va="center",
+                    ha="left",
+                    fontsize=9,
+                    color=color,
+                    fontweight="bold",
+                )
+
+        for ax in axes_flat[len(impacts):]:
+            ax.axis("off")
+
+        if years_ok:
+            axes_flat[-1].set_xticks(years_ok)
+        axes_flat[-1].set_xlabel(str(self.iosystem.index.general_dict.get("Year", "Year")), fontsize=10, color="#6b7280")
+
+        fig.suptitle(
+            f"{self.iosystem.index.general_dict.get('Time Series Analysis', 'Time Series Analysis')}: {self._get_title()}",
+            fontsize=14,
+            fontweight="bold",
+            y=0.995,
+        )
+        fig.subplots_adjust(left=0.09, right=0.98, top=0.90, bottom=0.09, hspace=0.38)
+        fig._time_series_meta = result
+        return fig
 
     def total(self, impact: str) -> Tuple[float, str]:
         """
