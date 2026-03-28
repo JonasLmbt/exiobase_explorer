@@ -102,39 +102,5 @@ class BubbleDiagramMethod(StageAnalysisMethod):
         return fig
 
 
-class SankeyPlaceholderMethod(StageAnalysisMethod):
-    """Placeholder method that displays a 'coming soon' Sankey diagram."""
-    id = "sankey"
-    label = "Sankey (coming soon)"
-
-    def render(self, parent_view, impacts: List[str]) -> plt.Figure:
-        """
-        Show a placeholder figure for the future Sankey implementation.
-        """
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, "Sankey diagram – coming soon", ha="center", va="center", transform=ax.transAxes)
-        ax.axis("off")
-        fig.tight_layout()
-        return fig
-
-
-class TreemapPlaceholderMethod(StageAnalysisMethod):
-    """Placeholder method that displays a 'coming soon' Treemap."""
-    id = "treemap"
-    label = "Treemap (coming soon)"
-
-    def render(self, parent_view, impacts: List[str]) -> plt.Figure:
-        """
-        Show a placeholder figure for the future Treemap implementation.
-        """
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, "Treemap – coming soon", ha="center", va="center", transform=ax.transAxes)
-        ax.axis("off")
-        fig.tight_layout()
-        return fig
-
-
 # Register built-in methods at import time so they are available to the UI.
 StageAnalysisRegistry.register(BubbleDiagramMethod())

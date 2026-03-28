@@ -300,9 +300,6 @@ class StageAnalysisViewTab(QWidget):
         self.general_dict = self.iosystem.index.general_dict
         self.name = self._translate("Bubble diagram", "Bubble diagram")
         self.tab_widget = parent if isinstance(parent, QTabWidget) else None
-        self._use_web = QWebEngineView is not None
-        self.web = None
-        self._last_stage_fig = None
 
         # Build a UI-friendly hierarchy (prefer category -> localized impact label).
         self.impact_hierarchy: Dict = build_impact_hierarchy(self.iosystem.index)
@@ -339,13 +336,11 @@ class StageAnalysisViewTab(QWidget):
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
 
-        # Method selector
+        # Method selector (kept internally for state/persistence, but not shown in the UI)
         methods = StageAnalysisRegistry.all_methods()
         self.method_selector = MethodSelectorWidget(methods, tr=self._translate, parent=self)
         self.method_selector.methodChanged.connect(self._on_method_changed)
-        # Only show selector when there are multiple methods.
-        if len(methods) > 1:
-            toolbar.addWidget(self.method_selector)
+        self.method_selector.setVisible(False)
 
         # Multi-impact selector button
         self.impact_selector = ImpactMultiSelectorButton(self.impact_hierarchy, self._translate, parent=self)
@@ -372,14 +367,9 @@ class StageAnalysisViewTab(QWidget):
         toolbar.addStretch(1)
         layout.addLayout(toolbar)
 
-        # Plot area (web rendering when available, matplotlib fallback)
+        # Plot area (matplotlib canvas)
         self.canvas = None
         self.plot_area = QVBoxLayout()
-        self.plot_area.setContentsMargins(0, 0, 0, 0)
-        if self._use_web and QWebEngineView is not None:
-            self.web = QWebEngineView(self)
-            self.web.setContextMenuPolicy(Qt.NoContextMenu)
-            self.plot_area.addWidget(self.web, 1)
         self._create_placeholder()
         layout.addLayout(self.plot_area)
 
@@ -393,10 +383,6 @@ class StageAnalysisViewTab(QWidget):
 
     def _create_placeholder(self):
         """Show an initial placeholder figure while waiting for the first update."""
-        if self._use_web and self.web is not None:
-            safe = html.escape(self._translate("Waiting for update…", "Waiting for update…"))
-            self.web.setHtml(self._html_page(f"<div class='placeholder'>{safe}</div>"))
-            return
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.text(0.5, 0.5, self._translate("Waiting for update…", "Waiting for update…"),
@@ -404,52 +390,12 @@ class StageAnalysisViewTab(QWidget):
         ax.axis('off')
         self._set_canvas(fig)
 
-    def _html_page(self, inner: str) -> str:
-        return (
-            "<!doctype html><html><head><meta charset='utf-8'/>"
-            "<meta name='viewport' content='width=device-width, initial-scale=1'/>"
-            "<style>"
-            "html,body{height:100%;width:100%;margin:0;overflow:hidden;background:#fff;font-family:Segoe UI,Arial,sans-serif;}"
-            ".page{position:absolute;inset:0;display:flex;justify-content:center;align-items:stretch;}"
-            ".content{height:100%;width:100%;padding:8px 12px;box-sizing:border-box;}"
-            ".placeholder{height:100%;width:100%;display:flex;align-items:center;justify-content:center;"
-            "color:#6b7280;font-size:14px;padding:20px;box-sizing:border-box;text-align:center;}"
-            ".img{width:100%;height:100%;object-fit:contain;display:block;}"
-            "</style></head><body>"
-            f"<div class='page'><div class='content'>{inner}</div></div>"
-            "</body></html>"
-        )
-
     def _set_canvas(self, fig):
         """
         Replace the current canvas with a new matplotlib Figure.
 
         Applies margin optimization before attaching the canvas.
         """
-        self._last_stage_fig = fig
-
-        # Web mode: convert the Matplotlib figure to a responsive <img>.
-        if self._use_web and self.web is not None:
-            try:
-                import base64
-                import io
-
-                buf = io.BytesIO()
-                export_bg = bool(getattr(self.ui, "export_graphics_with_background", False))
-                save_kwargs = dict(dpi=220, bbox_inches="tight", edgecolor="none", pad_inches=0.06)
-                if export_bg:
-                    save_kwargs.update(facecolor="white", transparent=False)
-                else:
-                    save_kwargs.update(facecolor="none", transparent=True)
-                fig.savefig(buf, format="png", **save_kwargs)
-                b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-                self.web.setHtml(self._html_page(f"<img class='img' src='data:image/png;base64,{b64}'/>"))
-                if hasattr(self, "save_btn"):
-                    self.save_btn.setEnabled(True)
-                return
-            except Exception:
-                logging.exception("Failed to render stage figure as HTML image; falling back to matplotlib canvas.")
-
         if self.canvas:
             self._disconnect_stage_plot_interactions()
             self.plot_area.removeWidget(self.canvas)
@@ -678,10 +624,7 @@ class StageAnalysisViewTab(QWidget):
                     save_kwargs.update(facecolor='white', transparent=False)
                 else:
                     save_kwargs.update(facecolor='none', transparent=True)
-                fig = getattr(self, "_last_stage_fig", None) or (self.canvas.figure if self.canvas else None)
-                if fig is None:
-                    raise RuntimeError("No figure available to save.")
-                fig.savefig(fname, **save_kwargs)
+                self.canvas.figure.savefig(fname, **save_kwargs)
                 QMessageBox.information(
                     self,
                     self._translate("Success", "Success"),
