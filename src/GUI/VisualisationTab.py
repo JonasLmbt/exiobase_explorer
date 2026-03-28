@@ -7,6 +7,7 @@ import numpy as np
 import math
 import os
 import html
+import re
 import geopandas as gpd
 from datetime import datetime
 
@@ -2451,6 +2452,93 @@ class TimeSeriesAnalysisTab(QWidget):
             return ", ".join(map(str, years))
         return f"{years[0]}–{years[-1]}"
 
+    _TITLE_YEAR_RE = re.compile(r"\(\s*(\d{4})\s*\)\s*$")
+
+    def _compact_supplychain_title(self, full_title: str, *, max_values: int = 2, include_year: bool = True) -> str:
+        """
+        Convert `SupplyChain._get_title()` output into a compact representation.
+
+        Example:
+          "of Continent: Europe | Sector: Secondary (2022)" -> "Europe · Secondary (2022)"
+        """
+        text = str(full_title or "").strip()
+        if not text:
+            return ""
+
+        year_suffix = ""
+        m = self._TITLE_YEAR_RE.search(text)
+        if m:
+            year_suffix = f"({m.group(1)})"
+            text = text[: m.start()].rstrip()
+
+        of_word = str(self._translate("of", "of")).strip()
+        if of_word:
+            prefix = of_word + " "
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+
+        segs = [s.strip() for s in str(text).split("|") if str(s).strip()]
+        values: list[str] = []
+        for seg in segs:
+            if ":" in seg:
+                values.append(seg.split(":", 1)[1].strip())
+            else:
+                values.append(seg.strip())
+        values = [v for v in values if v]
+
+        if max_values and len(values) > int(max_values):
+            values = values[-int(max_values) :]
+
+        compact = " · ".join(values).strip()
+        if include_year and year_suffix:
+            compact = (compact + " " + year_suffix).strip()
+        return compact
+
+    def _truncate_title(self, title: str, *, max_len: int = 44) -> str:
+        t = str(title or "").strip()
+        if not t:
+            return ""
+        if len(t) <= int(max_len):
+            return t
+        return t[: max(0, int(max_len) - 3)].rstrip() + "..."
+
+    def _make_ts_titles(self, *, title_suffix: str) -> tuple[str, str]:
+        """
+        Build a plot title and a short tab title from the current mode + selection.
+        """
+        ts_label = self._translate("Time Series Analysis", "Time Series Analysis")
+        mode_label = str(self.mode_combo.currentText() or "").strip()
+        mode_key = str(self._ts_mode or "").strip()
+
+        impact = ""
+        if mode_key in ("stages", "regions"):
+            impact = str(self._ts_stage_impact or "").strip()
+        else:
+            try:
+                picked = list(self.impact_selector_multi.selected_impacts() or [])
+                if len(picked) == 1:
+                    impact = str(picked[0]).strip()
+            except Exception:
+                impact = ""
+
+        context_plot = self._compact_supplychain_title(title_suffix, max_values=3, include_year=True) or str(title_suffix or "").strip()
+        context_tab = self._compact_supplychain_title(title_suffix, max_values=2, include_year=True) or context_plot
+
+        base = " - ".join([p for p in [ts_label, mode_label] if p]).strip()
+        if impact:
+            plot_title = f"{base} ({impact}): {context_plot}".strip()
+        else:
+            plot_title = f"{base}: {context_plot}".strip()
+
+        tab_bits: list[str] = [mode_label or ts_label]
+        if impact:
+            tab_bits.append(impact)
+        if context_tab:
+            tab_bits.append(context_tab)
+        tab_title = " · ".join([b for b in tab_bits if b]).strip()
+        tab_title = self._truncate_title(tab_title, max_len=46)
+        return plot_title, tab_title
+
     def _on_year_result(self, year: int, values: dict):
         year = int(year)
         for key, val in (values or {}).items():
@@ -2486,34 +2574,25 @@ class TimeSeriesAnalysisTab(QWidget):
             except Exception:
                 title_suffix = ""
 
+            plot_title, tab_title = self._make_ts_titles(title_suffix=title_suffix)
+
             if self._use_web and self.web is not None:
                 if self._ts_mode == "stages":
-                    fig = self._plotly_stages(years_loaded, self._ts_stage_impact, title_suffix)
+                    fig = self._plotly_stages(years_loaded, self._ts_stage_impact, plot_title)
                 elif self._ts_mode == "regions":
-                    fig = self._plotly_regions(years_loaded, self._ts_stage_impact or "", title_suffix)
+                    fig = self._plotly_regions(years_loaded, self._ts_stage_impact or "", plot_title)
                 else:
-                    fig = self._plotly_impacts_axes(years_loaded, title_suffix)
+                    fig = self._plotly_impacts_axes(years_loaded, plot_title)
             else:
                 if self._ts_mode == "stages":
-                    fig = self._plot_stages(years_loaded, self._ts_stage_impact, title_suffix)
+                    fig = self._plot_stages(years_loaded, self._ts_stage_impact, plot_title)
                 elif self._ts_mode == "regions":
-                    fig = self._plot_regions(years_loaded, self._ts_stage_impact or "", title_suffix)
+                    fig = self._plot_regions(years_loaded, self._ts_stage_impact or "", plot_title)
                 else:
-                    fig = self._plot_impacts_axes(years_loaded, title_suffix)
+                    fig = self._plot_impacts_axes(years_loaded, plot_title)
 
-            # Update owning tab title (best-effort, keep it short)
             try:
-                base = self._translate("Time Series Analysis", "Time Series Analysis")
-                suffix = str(title_suffix or "").strip()
-                if suffix:
-                    # Compact: keep just the last part after "of" label if possible
-                    # but never exceed ~38 chars for tab usability.
-                    title = suffix
-                    if len(title) > 38:
-                        title = title[:35].rstrip() + "…"
-                else:
-                    title = base
-                self.titleChanged.emit(str(title))
+                self.titleChanged.emit(str(tab_title))
             except Exception:
                 pass
 
@@ -2538,7 +2617,7 @@ class TimeSeriesAnalysisTab(QWidget):
             self.status_label.setText(str(e))
             self._set_canvas(self._make_placeholder(f"{self._translate('Error', 'Error')}: {e}"))
 
-    def _plot_impacts_axes(self, years: list[int], title_suffix: str):
+    def _plot_impacts_axes(self, years: list[int], plot_title: str):
         impacts = [k for k in self._ts_series.keys()]
         if not impacts:
             return self._make_placeholder(self._translate("No data.", "No data."))
@@ -2581,7 +2660,7 @@ class TimeSeriesAnalysisTab(QWidget):
         ax0.spines["bottom"].set_color("#d1d5db")
         ax0.tick_params(axis="both", labelsize=9, colors="#6b7280")
         ax0.set_title(
-            f"{self._translate('Time Series Analysis', 'Time Series Analysis')}: {title_suffix}".strip(),
+            str(plot_title or "").strip(),
             fontsize=13,
             fontweight="bold",
             pad=12,
@@ -2590,7 +2669,7 @@ class TimeSeriesAnalysisTab(QWidget):
         fig.tight_layout()
         return fig
 
-    def _plot_stages(self, years: list[int], impact: str, title_suffix: str):
+    def _plot_stages(self, years: list[int], impact: str, plot_title: str):
         if not impact:
             return self._make_placeholder(self._translate("Please select impacts.", "Please select impacts."))
 
@@ -2626,7 +2705,7 @@ class TimeSeriesAnalysisTab(QWidget):
         ax.grid(axis="y", color="#e5e7eb", linewidth=0.9)
         ax.grid(axis="x", color="#f3f4f6", linewidth=0.7)
         ax.set_title(
-            f"{self._translate('Time Series Analysis', 'Time Series Analysis')} ({impact}): {title_suffix}".strip(),
+            str(plot_title or "").strip(),
             fontsize=13,
             fontweight="bold",
             pad=12,
@@ -2635,7 +2714,7 @@ class TimeSeriesAnalysisTab(QWidget):
         fig.tight_layout()
         return fig
 
-    def _plot_regions(self, years: list[int], impact: str, title_suffix: str):
+    def _plot_regions(self, years: list[int], impact: str, plot_title: str):
         if not impact:
             return self._make_placeholder(self._translate("Please select impacts.", "Please select impacts."))
 
@@ -2664,7 +2743,7 @@ class TimeSeriesAnalysisTab(QWidget):
         ax.grid(axis="y", color="#e5e7eb", linewidth=0.9)
         ax.grid(axis="x", color="#f3f4f6", linewidth=0.7)
         ax.set_title(
-            f"{self._translate('Time Series Analysis', 'Time Series Analysis')} ({impact}): {title_suffix}".strip(),
+            str(plot_title or "").strip(),
             fontsize=13,
             fontweight="bold",
             pad=12,
@@ -2739,7 +2818,7 @@ class TimeSeriesAnalysisTab(QWidget):
         )
         return self._html_page(inner)
 
-    def _plotly_impacts_axes(self, years: list[int], title_suffix: str) -> str:
+    def _plotly_impacts_axes(self, years: list[int], plot_title: str) -> str:
         try:
             import plotly.graph_objects as go
         except Exception as e:
@@ -2831,17 +2910,17 @@ class TimeSeriesAnalysisTab(QWidget):
             paper_bgcolor=bg,
             plot_bgcolor=bg,
             title=dict(
-                text=f"{self._translate('Time Series Analysis', 'Time Series Analysis')}: {title_suffix}".strip(),
+                text=str(plot_title or "").strip(),
                 x=0.5,
                 xanchor="center",
-                y=0.99,
+                y=0.985,
                 yanchor="top",
-                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color=fg),
+                font=dict(size=17, family="Segoe UI, Arial, sans-serif", color=fg),
                 pad=dict(b=8),
             ),
             autosize=True,
-            margin=dict(l=55, r=55 + 50 * max(0, len(impacts) - 2), t=85, b=45),
-            legend=dict(orientation="h", yanchor="top", y=0.945, xanchor="center", x=0.5),
+            margin=dict(l=55, r=55 + 50 * max(0, len(impacts) - 2), t=110, b=45),
+            legend=dict(orientation="h", yanchor="top", y=0.92, xanchor="center", x=0.5),
             hovermode="x",
             hoverlabel=dict(bgcolor=hover_bg, font=dict(size=12, family="Segoe UI, Arial, sans-serif", color=fg)),
             font=dict(family="Segoe UI, Arial, sans-serif", size=13, color=fg),
@@ -2851,7 +2930,7 @@ class TimeSeriesAnalysisTab(QWidget):
         fig.update_xaxes(showgrid=True, gridcolor=gridcolor, zeroline=False, ticks="outside", ticklen=4)
         return self._plotly_wrap(fig)
 
-    def _plotly_stages(self, years: list[int], impact: str, title_suffix: str) -> str:
+    def _plotly_stages(self, years: list[int], impact: str, plot_title: str) -> str:
         if not impact:
             return self._html_page(f"<div class='placeholder'>{html.escape(self._translate('Please select impacts.', 'Please select impacts.'))}</div>")
         try:
@@ -2921,17 +3000,17 @@ class TimeSeriesAnalysisTab(QWidget):
             paper_bgcolor=bg,
             plot_bgcolor=bg,
             title=dict(
-                text=f"{self._translate('Time Series Analysis', 'Time Series Analysis')} ({impact}): {title_suffix}".strip(),
+                text=str(plot_title or "").strip(),
                 x=0.5,
                 xanchor="center",
-                y=0.99,
+                y=0.985,
                 yanchor="top",
-                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color=fg),
+                font=dict(size=17, family="Segoe UI, Arial, sans-serif", color=fg),
                 pad=dict(b=8),
             ),
             autosize=True,
-            margin=dict(l=55, r=35, t=85, b=45),
-            legend=dict(orientation="h", yanchor="top", y=0.945, xanchor="center", x=0.5),
+            margin=dict(l=55, r=35, t=110, b=45),
+            legend=dict(orientation="h", yanchor="top", y=0.92, xanchor="center", x=0.5),
             hovermode="x",
             hoverlabel=dict(bgcolor=hover_bg, font=dict(size=12, family="Segoe UI, Arial, sans-serif", color=fg)),
             font=dict(family="Segoe UI, Arial, sans-serif", size=13, color=fg),
@@ -2942,7 +3021,7 @@ class TimeSeriesAnalysisTab(QWidget):
         fig.update_yaxes(showgrid=True, gridcolor=gridcolor, zeroline=False, ticks="outside", ticklen=4)
         return self._plotly_wrap(fig)
 
-    def _plotly_regions(self, years: list[int], impact: str, title_suffix: str) -> str:
+    def _plotly_regions(self, years: list[int], impact: str, plot_title: str) -> str:
         if not impact:
             return self._html_page(f"<div class='placeholder'>{html.escape(self._translate('Please select impacts.', 'Please select impacts.'))}</div>")
 
@@ -3006,17 +3085,17 @@ class TimeSeriesAnalysisTab(QWidget):
             paper_bgcolor=bg,
             plot_bgcolor=bg,
             title=dict(
-                text=f"{self._translate('Time Series Analysis', 'Time Series Analysis')} ({impact}): {title_suffix}".strip(),
+                text=str(plot_title or "").strip(),
                 x=0.5,
                 xanchor="center",
-                y=0.99,
+                y=0.985,
                 yanchor="top",
-                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color=fg),
+                font=dict(size=17, family="Segoe UI, Arial, sans-serif", color=fg),
                 pad=dict(b=8),
             ),
             autosize=True,
-            margin=dict(l=55, r=35, t=85, b=45),
-            legend=dict(orientation="h", yanchor="top", y=0.945, xanchor="center", x=0.5),
+            margin=dict(l=55, r=35, t=110, b=45),
+            legend=dict(orientation="h", yanchor="top", y=0.92, xanchor="center", x=0.5),
             hovermode="x",
             hoverlabel=dict(bgcolor=hover_bg, font=dict(size=12, family="Segoe UI, Arial, sans-serif", color=fg)),
             font=dict(family="Segoe UI, Arial, sans-serif", size=13, color=fg),
