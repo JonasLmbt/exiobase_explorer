@@ -23,7 +23,7 @@ try:
     from PyQt5.QtWebEngineWidgets import QWebEngineView
 except Exception:  # pragma: no cover
     QWebEngineView = None  # type: ignore[assignment]
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QPalette
 from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog, QFormLayout, QGroupBox,
     QGraphicsOpacityEffect, QLabel, QSizePolicy, QLineEdit, QStackedLayout, QFrame,
@@ -2124,21 +2124,23 @@ class TimeSeriesAnalysisTab(QWidget):
 
         fig = plt.figure(figsize=(9.5, 4.8))
         ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, text, ha="center", va="center", transform=ax.transAxes, color="#6b7280")
+        _bg, _fg, muted = self._ui_colors()
+        ax.text(0.5, 0.5, text, ha="center", va="center", transform=ax.transAxes, color=muted)
         ax.axis("off")
         fig.tight_layout()
         return fig
 
     def _html_page(self, inner: str) -> str:
+        bg, fg, muted = self._ui_colors()
         return (
             "<!doctype html><html><head><meta charset='utf-8'/>"
             "<meta name='viewport' content='width=device-width, initial-scale=1'/>"
             "<style>"
-            "html,body{height:100%;width:100%;margin:0;overflow:hidden;background:#fff;font-family:Segoe UI,Arial,sans-serif;}"
+            f"html,body{{height:100%;width:100%;margin:0;overflow:hidden;background:{bg};color:{fg};font-family:Segoe UI,Arial,sans-serif;}}"
             ".page{position:absolute;inset:0;display:flex;justify-content:center;align-items:stretch;}"
             ".content{height:100%;width:100%;max-width:none;padding:8px 12px;box-sizing:border-box;}"
             ".placeholder{height:100%;width:100%;display:flex;align-items:center;justify-content:center;"
-            "color:#6b7280;font-size:14px;padding:20px;box-sizing:border-box;text-align:center;}"
+            f"color:{muted};font-size:14px;padding:20px;box-sizing:border-box;text-align:center;}}"
             "/* Plotly: keep the chart centered and let it use available space. */"
             ".content .plotly-graph-div{height:100% !important;width:100% !important;margin:0 auto;}"
             ".content .plot-container{height:100% !important;width:100% !important;}"
@@ -2750,6 +2752,11 @@ class TimeSeriesAnalysisTab(QWidget):
         impacts = impacts[:3]
 
         fmt_num = getattr(getattr(self.iosystem, "index", None), "format_number_localized", None)
+        bg, fg, _muted = self._ui_colors()
+        is_dark = self._is_dark_mode()
+        template = "plotly_dark" if is_dark else "simple_white"
+        gridcolor = "#273244" if is_dark else "#eef2ff"
+        hover_bg = "#111827" if is_dark else "white"
 
         fig = go.Figure()
         axis_defs = {}
@@ -2798,7 +2805,7 @@ class TimeSeriesAnalysisTab(QWidget):
                     title=dict(text=axis_title, font=dict(color=color)),
                     tickfont=dict(color=color),
                     showgrid=True,
-                    gridcolor="#eef2ff",
+                    gridcolor=gridcolor,
                     zeroline=False,
                     ticks="outside",
                     ticklen=4,
@@ -2820,26 +2827,28 @@ class TimeSeriesAnalysisTab(QWidget):
                 )
 
         fig.update_layout(
-            template="simple_white",
+            template=template,
+            paper_bgcolor=bg,
+            plot_bgcolor=bg,
             title=dict(
                 text=f"{self._translate('Time Series Analysis', 'Time Series Analysis')}: {title_suffix}".strip(),
                 x=0.5,
                 xanchor="center",
                 y=0.99,
                 yanchor="top",
-                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color="#111827"),
+                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color=fg),
                 pad=dict(b=8),
             ),
             autosize=True,
             margin=dict(l=55, r=55 + 50 * max(0, len(impacts) - 2), t=85, b=45),
             legend=dict(orientation="h", yanchor="top", y=0.945, xanchor="center", x=0.5),
             hovermode="x",
-            hoverlabel=dict(bgcolor="white", font=dict(size=12, family="Segoe UI, Arial, sans-serif")),
-            font=dict(family="Segoe UI, Arial, sans-serif", size=13, color="#111827"),
+            hoverlabel=dict(bgcolor=hover_bg, font=dict(size=12, family="Segoe UI, Arial, sans-serif", color=fg)),
+            font=dict(family="Segoe UI, Arial, sans-serif", size=13, color=fg),
             xaxis=dict(title=self._translate("Year", "Year"), showspikes=False, automargin=True),
             **axis_defs,
         )
-        fig.update_xaxes(showgrid=True, gridcolor="#eef2ff", zeroline=False, ticks="outside", ticklen=4)
+        fig.update_xaxes(showgrid=True, gridcolor=gridcolor, zeroline=False, ticks="outside", ticklen=4)
         return self._plotly_wrap(fig)
 
     def _plotly_stages(self, years: list[int], impact: str, title_suffix: str) -> str:
@@ -2882,8 +2891,14 @@ class TimeSeriesAnalysisTab(QWidget):
                     pass
             return f"{float(v):.{max(0, decimals)}f}"
 
+        bg, fg, _muted = self._ui_colors()
+        is_dark = self._is_dark_mode()
+        template = "plotly_dark" if is_dark else "simple_white"
+        gridcolor = "#273244" if is_dark else "#eef2ff"
+        hover_bg = "#111827" if is_dark else "white"
+
         fig = go.Figure()
-        palette = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#111827"]
+        palette = ["#60a5fa", "#34d399", "#fbbf24", "#f87171", fg] if is_dark else ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#111827"]
         for (key, lab), col in zip(stage_order, palette):
             raw = np.asarray([self._ts_series.get(key, {}).get(int(y), np.nan) for y in years], dtype="float64")
             yvals = raw / divisor
@@ -2902,27 +2917,29 @@ class TimeSeriesAnalysisTab(QWidget):
             )
 
         fig.update_layout(
-            template="simple_white",
+            template=template,
+            paper_bgcolor=bg,
+            plot_bgcolor=bg,
             title=dict(
                 text=f"{self._translate('Time Series Analysis', 'Time Series Analysis')} ({impact}): {title_suffix}".strip(),
                 x=0.5,
                 xanchor="center",
                 y=0.99,
                 yanchor="top",
-                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color="#111827"),
+                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color=fg),
                 pad=dict(b=8),
             ),
             autosize=True,
             margin=dict(l=55, r=35, t=85, b=45),
             legend=dict(orientation="h", yanchor="top", y=0.945, xanchor="center", x=0.5),
             hovermode="x",
-            hoverlabel=dict(bgcolor="white", font=dict(size=12, family="Segoe UI, Arial, sans-serif")),
-            font=dict(family="Segoe UI, Arial, sans-serif", size=13, color="#111827"),
+            hoverlabel=dict(bgcolor=hover_bg, font=dict(size=12, family="Segoe UI, Arial, sans-serif", color=fg)),
+            font=dict(family="Segoe UI, Arial, sans-serif", size=13, color=fg),
             xaxis=dict(title=self._translate("Year", "Year"), showspikes=False, automargin=True),
             yaxis=dict(title=str(unit or "").strip()),
         )
-        fig.update_xaxes(showgrid=True, gridcolor="#eef2ff", zeroline=False, ticks="outside", ticklen=4)
-        fig.update_yaxes(showgrid=True, gridcolor="#eef2ff", zeroline=False, ticks="outside", ticklen=4)
+        fig.update_xaxes(showgrid=True, gridcolor=gridcolor, zeroline=False, ticks="outside", ticklen=4)
+        fig.update_yaxes(showgrid=True, gridcolor=gridcolor, zeroline=False, ticks="outside", ticklen=4)
         return self._plotly_wrap(fig)
 
     def _plotly_regions(self, years: list[int], impact: str, title_suffix: str) -> str:
@@ -2947,6 +2964,11 @@ class TimeSeriesAnalysisTab(QWidget):
         divisor = divisor or 1.0
         decimals = int(_dec or 0)
         fmt_num = getattr(getattr(self.iosystem, "index", None), "format_number_localized", None)
+        bg, fg, _muted = self._ui_colors()
+        is_dark = self._is_dark_mode()
+        template = "plotly_dark" if is_dark else "simple_white"
+        gridcolor = "#273244" if is_dark else "#eef2ff"
+        hover_bg = "#111827" if is_dark else "white"
 
         def _fmt(v: float) -> str:
             try:
@@ -2980,27 +3002,29 @@ class TimeSeriesAnalysisTab(QWidget):
             )
 
         fig.update_layout(
-            template="simple_white",
+            template=template,
+            paper_bgcolor=bg,
+            plot_bgcolor=bg,
             title=dict(
                 text=f"{self._translate('Time Series Analysis', 'Time Series Analysis')} ({impact}): {title_suffix}".strip(),
                 x=0.5,
                 xanchor="center",
                 y=0.99,
                 yanchor="top",
-                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color="#111827"),
+                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color=fg),
                 pad=dict(b=8),
             ),
             autosize=True,
             margin=dict(l=55, r=35, t=85, b=45),
             legend=dict(orientation="h", yanchor="top", y=0.945, xanchor="center", x=0.5),
             hovermode="x",
-            hoverlabel=dict(bgcolor="white", font=dict(size=12, family="Segoe UI, Arial, sans-serif")),
-            font=dict(family="Segoe UI, Arial, sans-serif", size=13, color="#111827"),
+            hoverlabel=dict(bgcolor=hover_bg, font=dict(size=12, family="Segoe UI, Arial, sans-serif", color=fg)),
+            font=dict(family="Segoe UI, Arial, sans-serif", size=13, color=fg),
             xaxis=dict(title=self._translate("Year", "Year"), showspikes=False, automargin=True),
             yaxis=dict(title=str(unit or "").strip()),
         )
-        fig.update_xaxes(showgrid=True, gridcolor="#eef2ff", zeroline=False, ticks="outside", ticklen=4)
-        fig.update_yaxes(showgrid=True, gridcolor="#eef2ff", zeroline=False, ticks="outside", ticklen=4)
+        fig.update_xaxes(showgrid=True, gridcolor=gridcolor, zeroline=False, ticks="outside", ticklen=4)
+        fig.update_yaxes(showgrid=True, gridcolor=gridcolor, zeroline=False, ticks="outside", ticklen=4)
         return self._plotly_wrap(fig)
 
     def _default_export_filename(self) -> str:
@@ -3112,6 +3136,33 @@ class TimeSeriesAnalysisTabContainer(QWidget):
         if val is None:
             return str(fallback)
         return str(val)
+
+    def _is_dark_mode(self) -> bool:
+        """
+        Best-effort dark-mode detection based on the active Qt palette.
+        """
+        try:
+            pal = QApplication.palette()
+            bg = pal.color(QPalette.Window)
+            lum = 0.2126 * bg.red() + 0.7152 * bg.green() + 0.0722 * bg.blue()
+            return float(lum) < 128.0
+        except Exception:
+            return False
+
+    def _ui_colors(self) -> tuple[str, str, str]:
+        """
+        Return (bg, fg, muted) colors as hex strings derived from the Qt palette.
+        """
+        try:
+            pal = QApplication.palette()
+            bg = pal.color(QPalette.Window).name()
+            fg = pal.color(QPalette.WindowText).name()
+            muted = pal.color(QPalette.PlaceholderText).name()
+            if not muted or str(muted).lower() == str(fg).lower():
+                muted = "#9ca3af" if self._is_dark_mode() else "#6b7280"
+            return str(bg), str(fg), str(muted)
+        except Exception:
+            return ("#111827", "#e5e7eb", "#9ca3af") if self._is_dark_mode() else ("#ffffff", "#111827", "#6b7280")
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
