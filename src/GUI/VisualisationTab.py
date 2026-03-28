@@ -3008,23 +3008,32 @@ class TimeSeriesAnalysisTab(QWidget):
         downloads = os.path.join(home, "Downloads")
         target_dir = downloads if os.path.isdir(downloads) else home
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        ext = "html" if (self._use_web and self.web is not None) else "png"
-        return os.path.join(target_dir, f"time_series_{ts}.{ext}")
+        return os.path.join(target_dir, f"time_series_{ts}")
 
     def _save_plot(self):
-        # Web (Plotly) export: write the currently shown HTML.
+        # Web (Plotly) export: save as PNG (screenshot) or HTML (interactive).
         if self._use_web and self.web is not None:
             fname, _ = QFileDialog.getSaveFileName(
                 self,
                 self._translate("Save plot", "Save plot"),
-                self._default_export_filename(),
-                "HTML (*.html)",
+                self._default_export_filename() + ".png",
+                "PNG (*.png);;HTML (*.html)",
             )
             if not fname:
                 return
             try:
-                with open(fname, "w", encoding="utf-8") as f:
-                    f.write(self._last_export_html or self._html_page("<div class='placeholder'>No data.</div>"))
+                lower = str(fname).lower()
+                if lower.endswith(".html"):
+                    with open(fname, "w", encoding="utf-8") as f:
+                        f.write(self._last_export_html or self._html_page("<div class='placeholder'>No data.</div>"))
+                else:
+                    if not lower.endswith(".png"):
+                        fname = str(fname) + ".png"
+                    pix = self.web.grab()
+                    if pix is None or pix.isNull():
+                        raise RuntimeError("Could not capture plot image.")
+                    if not pix.save(fname, "PNG"):
+                        raise RuntimeError("Failed to save PNG.")
             except Exception as e:
                 QMessageBox.warning(self, self._translate("Error", "Error"), str(e))
             return
@@ -3036,7 +3045,7 @@ class TimeSeriesAnalysisTab(QWidget):
         fname, _ = QFileDialog.getSaveFileName(
             self,
             self._translate("Save plot", "Save plot"),
-            self._default_export_filename(),
+            self._default_export_filename() + ".png",
             "PNG (*.png);;SVG (*.svg);;PDF (*.pdf)",
         )
         if not fname:
