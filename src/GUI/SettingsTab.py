@@ -105,29 +105,22 @@ class SettingsTab(QWidget):
             self.aggregations = [self.current_aggregation]
 
     def _get_years(self):
-        """Fetch available years from fast_databases_dir directory."""
+        """Fetch available years from available fast databases."""
         self.current_year = str(self.iosystem.year)
         self.years = []
 
-        pattern = re.compile(r"FAST_IOT_(\d{4})_pxp")
-
         try:
-            if hasattr(self.iosystem, 'fast_databases_dir') and os.path.exists(self.iosystem.fast_databases_dir):
-                for item in os.listdir(self.iosystem.fast_databases_dir):
-                    full_path = os.path.join(self.iosystem.fast_databases_dir, item)
-                    if os.path.isdir(full_path):
-                        match = pattern.match(item)
-                        if match:
-                            self.years.append(match.group(1))
-
-            self.years.sort(reverse=True)
+            years_int = []
+            if hasattr(self.iosystem, "available_fast_db_years"):
+                years_int = list(self.iosystem.available_fast_db_years() or [])
+            self.years = [str(y) for y in sorted(set(years_int), reverse=True)]
 
             if self.current_year not in self.years:
                 self.years.append(self.current_year)
                 self.years.sort(reverse=True)
 
         except Exception as e:
-            logging.warning(f"Could not read fast_databases_dir: {e}")
+            logging.warning(f"Could not determine available years: {e}")
             if self.current_year not in self.years:
                 self.years.append(self.current_year)
 

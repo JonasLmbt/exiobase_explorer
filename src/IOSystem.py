@@ -83,10 +83,38 @@ class IOSystem:
             self.databases_dir = os.path.normpath(databases_dir_env)
         else:
             self.databases_dir = os.path.join(self.project_directory, 'exiobase')
-        self.fast_databases_dir = os.path.join(self.databases_dir, 'fast_databases')
+        # Fast DB location (new standard):
+        #   exiobase/FAST_IOT_<year>_pxp/
+        # Legacy (kept for backward compatibility / migration):
+        #   exiobase/fast_databases/FAST_IOT_<year>_pxp/
+        self.fast_databases_dir = self.databases_dir
+        self.legacy_fast_databases_dir = os.path.join(self.databases_dir, 'fast_databases')
 
         self.current_exiobase_path = os.path.join(self.databases_dir, f'IOT_{self.year}_pxp.zip')
-        self.current_fast_database_path = os.path.join(self.fast_databases_dir, f'FAST_IOT_{self.year}_pxp')
+        self.current_fast_database_path = self._resolve_fast_database_path(int(self.year))
+
+    def _resolve_fast_database_path(self, year: int) -> str:
+        """
+        Resolve the fast database folder for `year`.
+
+        Prefers the new flat layout in `exiobase/` but falls back to the legacy
+        `exiobase/fast_databases/` layout if that is where the data already exists.
+        """
+        y = str(year)
+        folder = f"FAST_IOT_{y}_pxp"
+        new_path = os.path.join(self.databases_dir, folder)
+        legacy_path = os.path.join(self.legacy_fast_databases_dir, folder)
+
+        try:
+            if os.path.isdir(new_path):
+                return new_path
+            if os.path.isdir(legacy_path):
+                return legacy_path
+        except Exception:
+            pass
+
+        # Default to new layout for any future creation.
+        return new_path
 
     def switch_language(self, language: str = "Exiobase") -> None:
         """
@@ -135,9 +163,7 @@ class IOSystem:
 
             # Update file paths based on the new year
             self.current_exiobase_path = os.path.join(self.databases_dir, f'IOT_{year}_pxp.zip')
-            self.current_fast_database_path = os.path.join(
-                self.fast_databases_dir, f'FAST_IOT_{year}_pxp'
-            )
+            self.current_fast_database_path = self._resolve_fast_database_path(int(year))
 
             # Load the database for the new year
             self.load()
@@ -157,23 +183,24 @@ class IOSystem:
         pattern = "FAST_IOT_"
 
         try:
-            if not os.path.isdir(self.fast_databases_dir):
-                return years
-
-            for entry in os.listdir(self.fast_databases_dir):
-                full = os.path.join(self.fast_databases_dir, entry)
-                if not os.path.isdir(full):
+            candidates = [self.fast_databases_dir, self.legacy_fast_databases_dir]
+            for base in candidates:
+                if not base or not os.path.isdir(base):
                     continue
-                if not (entry.startswith(pattern) and entry.endswith("_pxp")):
-                    continue
+                for entry in os.listdir(base):
+                    full = os.path.join(base, entry)
+                    if not os.path.isdir(full):
+                        continue
+                    if not (entry.startswith(pattern) and entry.endswith("_pxp")):
+                        continue
 
-                year_part = entry[len(pattern):len(pattern) + 4]
-                if not year_part.isdigit():
-                    continue
+                    year_part = entry[len(pattern):len(pattern) + 4]
+                    if not year_part.isdigit():
+                        continue
 
-                l_path = os.path.join(full, "L.npy")
-                if os.path.exists(l_path):
-                    years.append(int(year_part))
+                    l_path = os.path.join(full, "L.npy")
+                    if os.path.exists(l_path):
+                        years.append(int(year_part))
         except Exception as e:
             logging.warning(f"Could not determine available fast database years: {e}")
 
