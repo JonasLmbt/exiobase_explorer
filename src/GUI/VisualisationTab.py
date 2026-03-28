@@ -2088,17 +2088,28 @@ class TimeSeriesAnalysisTab(QWidget):
         toolbar.setContentsMargins(0, 0, 0, 0)
 
         self.mode_combo = QComboBox(self)
-        self.mode_combo.addItem(self._translate("Compare impacts", "Compare impacts"), userData="impacts_axes")
-        self.mode_combo.addItem(self._translate("Stages (one impact)", "Stages (one impact)"), userData="stages")
-        self.mode_combo.addItem(self._translate("Compare regions", "Compare regions"), userData="regions")
+        self.mode_combo.addItem(self._translate("Overall comparison", "Gesamtvergleich"), userData="impacts_axes")
+        self.mode_combo.addItem(self._translate("Value chain stages", "Wertschöpfungsstufen"), userData="stages")
+        self.mode_combo.addItem(self._translate("Regions (category)", "Regionen"), userData="regions")
         self.mode_combo.setMinimumWidth(220)
         self.mode_combo.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         toolbar.addWidget(self.mode_combo)
 
-        self.impact_selector = ImpactMultiSelectorButton(self.impact_hierarchy, self._translate, parent=self)
-        self.impact_selector.impactsChanged.connect(self._on_impacts_changed)
-        toolbar.addWidget(self.impact_selector)
+        self.impact_selector_multi = ImpactMultiSelectorButton(self.impact_hierarchy, self._translate, parent=self)
+        self.impact_selector_multi.impactsChanged.connect(self._on_multi_impacts_changed)
+        toolbar.addWidget(self.impact_selector_multi)
+
+        # Single-impact selector for stages/regions modes (like world map)
+        self.impact_selector_single = ImpactSelectorWidget(
+            self.impact_hierarchy,
+            include_subcontractors=False,
+            parent=self,
+            tr=self._translate,
+        )
+        self.impact_selector_single.impactChanged.connect(self._on_single_impact_changed)
+        self.impact_selector_single.setVisible(False)
+        toolbar.addWidget(self.impact_selector_single)
 
         self.regions_btn = QToolButton(self)
         self.regions_btn.setToolTip(self._translate("Select regions", "Select regions"))
@@ -2156,7 +2167,12 @@ class TimeSeriesAnalysisTab(QWidget):
                 defaults.append(label)
         if not defaults and impacts:
             defaults = impacts[: min(3, len(impacts))]
-        self.impact_selector.set_defaults(defaults)
+        self.impact_selector_multi.set_defaults(defaults)
+        if defaults:
+            try:
+                self.impact_selector_single.set_current_impact(defaults[0])
+            except Exception:
+                pass
 
     def _make_placeholder(self, text: str):
         if self._use_web and self.web is not None:
@@ -2214,9 +2230,27 @@ class TimeSeriesAnalysisTab(QWidget):
     def _on_mode_changed(self, *_):
         self._ts_mode = str(self.mode_combo.currentData() or "impacts_axes")
         self.regions_btn.setVisible(self._ts_mode == "regions")
+        use_multi = self._ts_mode == "impacts_axes"
+        self.impact_selector_multi.setVisible(use_multi)
+        self.impact_selector_single.setVisible(not use_multi)
+        if not use_multi:
+            try:
+                current = str(self.impact_selector_single.current_impact() or "").strip()
+            except Exception:
+                current = ""
+            if not current:
+                picked = list(self.impact_selector_multi.selected_impacts() or [])
+                if picked:
+                    try:
+                        self.impact_selector_single.set_current_impact(str(picked[0]))
+                    except Exception:
+                        pass
         self._schedule_update()
 
-    def _on_impacts_changed(self, _impacts: List[str]):
+    def _on_multi_impacts_changed(self, _impacts: List[str]):
+        self._schedule_update()
+
+    def _on_single_impact_changed(self, _impact: str):
         self._schedule_update()
 
     def _schedule_update(self):
@@ -2384,14 +2418,18 @@ class TimeSeriesAnalysisTab(QWidget):
         self._schedule_update()
 
     def _update_plot(self):
-        impacts = [str(x) for x in (self.impact_selector.selected_impacts() or []) if str(x).strip()]
+        mode = str(self.mode_combo.currentData() or "impacts_axes")
+        if mode == "impacts_axes":
+            impacts = [str(x) for x in (self.impact_selector_multi.selected_impacts() or []) if str(x).strip()]
+        else:
+            impacts = [str(self.impact_selector_single.current_impact() or "").strip()]
+            impacts = [x for x in impacts if x]
         if not impacts:
             msg = self._translate("Please select impacts.", "Please select impacts.")
             self.status_label.setText(msg)
             self._set_canvas(self._make_placeholder(msg))
             return
 
-        mode = str(self.mode_combo.currentData() or "impacts_axes")
         regions = list(self._ts_regions or [])
         if mode == "regions" and not regions:
             regions = self._default_regions()
@@ -2401,9 +2439,6 @@ class TimeSeriesAnalysisTab(QWidget):
             self.status_label.setText(msg)
             self._set_canvas(self._make_placeholder(msg))
             return
-
-        if mode in ("stages", "regions") and len(impacts) > 1:
-            impacts = [impacts[0]]
 
         self._cancel_worker()
         self._reset_series_state()
