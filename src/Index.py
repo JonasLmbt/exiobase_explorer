@@ -861,24 +861,29 @@ class Index:
 
             # Build impact label <-> impact_key mapping (row-order alignment in impacts.xlsx)
             try:
-                if (
+                labels = [str(x).strip() for x in (self.impacts_df.iloc[:, 0].tolist() if self.impacts_df is not None else [])]
+
+                keys: List[str] = []
+                # Prefer canonical impact keys from the new `units.xlsx` schema, because unit formatting
+                # and UI defaults rely on those exact keys (e.g. "Water Consumption Blue - Total").
+                keys_from_units = self._read_impact_keys_from_units_xlsx()
+                if keys_from_units and len(keys_from_units) == len(labels):
+                    keys = keys_from_units
+                elif (
                     self.impacts_df is not None
                     and self.impacts_exiobase_df is not None
                     and len(self.impacts_df) == len(self.impacts_exiobase_df)
                 ):
-                    labels = [str(x).strip() for x in self.impacts_df.iloc[:, 0].tolist()]
                     key_series = (
                         self.impacts_exiobase_df["impact_key"]
                         if "impact_key" in self.impacts_exiobase_df.columns
                         else self.impacts_exiobase_df.iloc[:, 0]
                     )
                     keys = [str(x).strip() for x in key_series.tolist()]
-                    self.impact_label_to_key = {
-                        lab: key for lab, key in zip(labels, keys) if lab and key and lab.lower() != "nan"
-                    }
-                    self.impact_key_to_label = {
-                        key: lab for lab, key in zip(labels, keys) if lab and key and key.lower() != "nan"
-                    }
+
+                if labels and keys and len(labels) == len(keys):
+                    self.impact_label_to_key = {lab: key for lab, key in zip(labels, keys) if lab and key and lab.lower() != "nan"}
+                    self.impact_key_to_label = {key: lab for lab, key in zip(labels, keys) if lab and key and key.lower() != "nan"}
             except Exception:
                 self.impact_label_to_key = {}
                 self.impact_key_to_label = {}
@@ -900,6 +905,38 @@ class Index:
         except Exception as e:
             logging.error(f"Error during Excel reading and processing: {e}")
             raise
+
+    def _read_impact_keys_from_units_xlsx(self) -> Optional[List[str]]:
+        """
+        Best-effort: read canonical `impact_key` ordering from the new `units.xlsx` schema.
+
+        This is used to map localized impact labels (impacts.xlsx) to stable EXIOBASE keys
+        that are also referenced by unit formatting and UI defaults.
+        """
+        candidates: List[str] = []
+        candidates.extend(
+            [
+                os.path.join(self.iosystem.excel_config_dir, "units.xlsx"),
+                os.path.join(os.path.dirname(getattr(self.iosystem, "exiobase_regions_path", "")), "units.xlsx"),
+                os.path.join(getattr(self.iosystem, "legacy_config_dir", ""), "units.xlsx"),
+            ]
+        )
+
+        for p in candidates:
+            if not p or not os.path.exists(p):
+                continue
+            for sheet in ("exiobase", "Exiobase"):
+                try:
+                    df = pd.read_excel(p, sheet_name=sheet)
+                    if "impact_key" not in df.columns:
+                        continue
+                    keys = [str(x).strip() for x in df["impact_key"].tolist()]
+                    keys = [k for k in keys if k and k.lower() != "nan"]
+                    if keys:
+                        return keys
+                except Exception:
+                    continue
+        return None
 
     def load_unit_display_config(self, units_xlsx_path: Optional[str] = None) -> None:
         """
@@ -1331,6 +1368,71 @@ class Index:
 
         logging.debug("MultiIndices successfully updated")
 
+    def init_for_profile(self, *, profile: str = "full") -> None:
+        """
+        Initialize configs + MultiIndex structures for a given analysis profile.
+
+        For lightweight profiles (e.g. time-series partial loads) we avoid expensive
+        extras such as geo map refresh and matrix reindexing.
+        """
+        prof = str(profile or "full").strip().lower()
+
+        self.read_configs()
+        self.create_multiindices()
+
+        # Extract unique names for system-wide reference
+        self.iosystem.sectors = self.sectors_df.iloc[:, -1].unique().tolist()
+        self.iosystem.regions = self.regions_df.iloc[:, -1].unique().tolist()
+        self.iosystem.impacts = self.impacts_df.iloc[:, 0].tolist()
+        if self.units_df is not None:
+            self.iosystem.units = self.units_df.iloc[:, -1].tolist()
+
+        # Load 'regions_exiobase' data from the central config folders (best-effort)
+        regions_xlsx_candidates = [
+            getattr(self.iosystem, "exiobase_regions_path", ""),
+            os.path.join(self.iosystem.excel_config_dir, "regions.xlsx"),
+            os.path.join(getattr(self.iosystem, "legacy_config_dir", ""), "regions.xlsx"),
+        ]
+        regions_exiobase = None
+        for p in regions_xlsx_candidates:
+            if not os.path.exists(p):
+                continue
+            try:
+                if os.path.basename(p).lower() == "standards.xlsx":
+                    df = pd.read_excel(p, sheet_name="population")
+                    regions_exiobase = df.iloc[:, 0].astype(str).str.strip().tolist()
+                else:
+                    df = pd.read_excel(p, sheet_name="Exiobase")
+                    regions_exiobase = df.iloc[:, -1].astype(str).str.strip().tolist()
+                if regions_exiobase:
+                    break
+            except Exception:
+                continue
+        self.iosystem.regions_exiobase = regions_exiobase or []
+
+        # Optional population mapping for per-capita metrics (skip for lightweight profiles)
+        if prof == "full":
+            try:
+                self.iosystem.population_by_exiobase = self._population_by_exiobase()
+            except Exception:
+                self.iosystem.population_by_exiobase = {}
+        else:
+            self.iosystem.population_by_exiobase = {}
+
+        # Update impact units DataFrame
+        impact_units = list(self.iosystem.units or [])
+        if len(impact_units) != len(self.iosystem.impacts):
+            impact_units = (impact_units + [""] * len(self.iosystem.impacts))[:len(self.iosystem.impacts)]
+        self.iosystem.impact.unit = pd.DataFrame({"unit": impact_units}, index=self.iosystem.impacts)
+
+        # Store classification structures
+        self.sector_classification = self.sectors_df.columns.tolist()
+        self.region_classification = self.regions_df.columns.tolist()
+        self.impact_classification = self.impacts_df.columns.tolist()
+
+        if prof == "full":
+            self.update_map()
+
     def _update_matrix_indices(self, matrix_mappings: Dict[str, List[str]]) -> None:
         """
         Updates indices for different matrix groups.
@@ -1349,23 +1451,26 @@ class Index:
                 for matrix_name in matrices:
                     if hasattr(self.iosystem.impact, matrix_name):
                         impact_matrix = getattr(self.iosystem.impact, matrix_name)
-                        impact_matrix.index = self.impact_multiindex
-                        impact_matrix.columns = self.sector_multiindex
+                        if isinstance(impact_matrix, pd.DataFrame):
+                            impact_matrix.index = self.impact_multiindex
+                            impact_matrix.columns = self.sector_multiindex
 
             elif matrix_group == "regional_impact_matrices":
                 for matrix_name in matrices:
                     if hasattr(self.iosystem.impact, matrix_name):
                         impact_matrix = getattr(self.iosystem.impact, matrix_name)
-                        impact_matrix.index = self.impact_per_region_multiindex
-                        impact_matrix.columns = self.sector_multiindex
+                        if isinstance(impact_matrix, pd.DataFrame):
+                            impact_matrix.index = self.impact_per_region_multiindex
+                            impact_matrix.columns = self.sector_multiindex
 
             elif (matrix_group == "regional_matrices" and
                   self.iosystem.impact.region_indices is not None):
                 for matrix_name in matrices:
                     if hasattr(self.iosystem.impact, matrix_name):
                         regional_matrix = getattr(self.iosystem.impact, matrix_name)
-                        regional_matrix.index = self.impact_multiindex
-                        regional_matrix.columns = self.sector_multiindex
+                        if isinstance(regional_matrix, pd.DataFrame):
+                            regional_matrix.index = self.impact_multiindex
+                            regional_matrix.columns = self.sector_multiindex
 
     def copy_configs(self, new: bool = False, output: bool = True) -> None:
         """

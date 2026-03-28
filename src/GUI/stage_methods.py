@@ -138,5 +138,3 @@ class TreemapPlaceholderMethod(StageAnalysisMethod):
 
 # Register built-in methods at import time so they are available to the UI.
 StageAnalysisRegistry.register(BubbleDiagramMethod())
-StageAnalysisRegistry.register(SankeyPlaceholderMethod())
-StageAnalysisRegistry.register(TreemapPlaceholderMethod())

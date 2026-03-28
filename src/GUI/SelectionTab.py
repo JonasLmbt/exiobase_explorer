@@ -4,7 +4,7 @@ import pandas as pd
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QPushButton, QSplitter, QTreeWidget,
-    QTreeWidgetItem, QScrollArea, QSizePolicy
+    QTreeWidgetItem, QScrollArea, QSizePolicy, QLineEdit
 )
 from PyQt5.QtCore import Qt
 
@@ -100,6 +100,16 @@ class SelectionTab(QWidget):
         region_group = QGroupBox(self._translate("Region Selection", "Region Selection"))
         layout = QVBoxLayout(region_group)
 
+        # Search
+        self.region_search = QLineEdit(self)
+        self.region_search.setPlaceholderText(self._translate("Search regions…", "Search regions…"))
+        self.region_search.setClearButtonEnabled(True)
+        layout.addWidget(self.region_search)
+
+        self.region_search_status = QLabel("", self)
+        self.region_search_status.setStyleSheet("color: #6b7280; font-size: 11px; padding: 2px 0 4px 2px;")
+        layout.addWidget(self.region_search_status)
+
         # Region tree with scroll area for long lists
         self.region_tree = QTreeWidget()
         self.region_tree.setHeaderHidden(True)
@@ -110,6 +120,8 @@ class SelectionTab(QWidget):
 
         self._populate_tree(self.region_tree, self.region_hierarchy, collapsed=True)
         self.region_tree.itemChanged.connect(self._on_region_item_changed)
+        self.region_search.textChanged.connect(lambda t: self._filter_tree(self.region_tree, t, self.region_search_status))
+        self._filter_tree(self.region_tree, "", self.region_search_status)
         layout.addWidget(self.region_tree)
 
         # Region buttons
@@ -134,6 +146,16 @@ class SelectionTab(QWidget):
         sector_group = QGroupBox(self._translate("Sector Selection", "Sector Selection"))
         layout = QVBoxLayout(sector_group)
 
+        # Search
+        self.sector_search = QLineEdit(self)
+        self.sector_search.setPlaceholderText(self._translate("Search sectors…", "Search sectors…"))
+        self.sector_search.setClearButtonEnabled(True)
+        layout.addWidget(self.sector_search)
+
+        self.sector_search_status = QLabel("", self)
+        self.sector_search_status.setStyleSheet("color: #6b7280; font-size: 11px; padding: 2px 0 4px 2px;")
+        layout.addWidget(self.sector_search_status)
+
         # Sector tree with scroll area for long lists
         self.sector_tree = QTreeWidget()
         self.sector_tree.setHeaderHidden(True)
@@ -144,6 +166,8 @@ class SelectionTab(QWidget):
 
         self._populate_tree(self.sector_tree, self.sector_hierarchy, collapsed=True)
         self.sector_tree.itemChanged.connect(self._on_sector_item_changed)
+        self.sector_search.textChanged.connect(lambda t: self._filter_tree(self.sector_tree, t, self.sector_search_status))
+        self._filter_tree(self.sector_tree, "", self.sector_search_status)
         layout.addWidget(self.sector_tree)
 
         # Sector buttons
@@ -216,6 +240,50 @@ class SelectionTab(QWidget):
         else:
             # Expand first level by default for better UX
             tree.expandToDepth(0)
+
+    def _filter_tree(self, tree: QTreeWidget, query: str, status_label: QLabel = None) -> None:
+        """
+        Simple case-insensitive filter for a QTreeWidget.
+
+        - Empty query: show everything and collapse to default.
+        - Non-empty query: hide non-matching branches and expand visible nodes.
+        """
+        q = str(query or "").strip().lower()
+        root = tree.invisibleRootItem()
+        matches = 0
+
+        def visit(item: QTreeWidgetItem) -> bool:
+            nonlocal matches
+            text = str(item.text(0) or "")
+            is_match = (q in text.lower()) if q else True
+            any_child_visible = False
+            for i in range(item.childCount()):
+                if visit(item.child(i)):
+                    any_child_visible = True
+            visible = is_match or any_child_visible
+
+            item.setHidden(not visible)
+            if q and visible:
+                item.setExpanded(True)
+            if q and is_match:
+                matches += 1
+            return visible
+
+        tree.blockSignals(True)
+        try:
+            for i in range(root.childCount()):
+                visit(root.child(i))
+            if not q:
+                tree.collapseAll()
+        finally:
+            tree.blockSignals(False)
+
+        if status_label is not None:
+            if q:
+                word = str(self._translate("Matches", "Treffer"))
+                status_label.setText(f"{matches} {word}")
+            else:
+                status_label.setText("")
 
     def _propagate_down(self, item, state):
         """Propagate check state down to all children."""

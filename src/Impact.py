@@ -61,7 +61,7 @@ class Impact:
         self.unit_transform = None
         self.region_indices = None
 
-    def load(self, file_ids: List[str] | None = None) -> None:
+    def load(self, file_ids: List[str] | None = None, *, mmap_mode: str | None = None) -> None:
         """
         This method loads various impact matrices from `.npy` files and stores them as DataFrames in instance variables.
         It first defines the file paths for the impact matrices and then attempts to load each file in a loop.
@@ -94,10 +94,17 @@ class Impact:
                 continue
             file_path = os.path.join(self.iosystem.current_fast_database_path, "impacts", filename)
             try:
-                array = np.load(file_path).astype(np.float32)
-                if array.shape != expected_shape:
+                if mmap_mode:
+                    array = np.load(file_path, mmap_mode=mmap_mode)
+                else:
+                    array = np.load(file_path).astype(np.float32)
+
+                if getattr(array, "shape", None) != expected_shape:
                     raise ValueError(f"Unexpected shape of {filename}: {array.shape}")
-                setattr(self, file_id, pd.DataFrame(array))
+                if mmap_mode:
+                    setattr(self, file_id, array)
+                else:
+                    setattr(self, file_id, pd.DataFrame(array))
                 logging.debug(f"Impact matrix '{file_id}' successfully loaded")
             except Exception as e:
                 logging.error(f"Error while loading {filename}: {e}")

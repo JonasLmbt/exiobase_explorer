@@ -105,29 +105,43 @@ class SupplyChain:
         """
         Calculate indices based on hierarchy levels.
         """
-        df = self.iosystem.I.copy()
-        idx = pd.IndexSlice
+        mi = getattr(self.iosystem.index, "sector_multiindex", None)
+        if mi is None:
+            raise RuntimeError("Sector MultiIndex not initialized; load the IOSystem first.")
 
-        # Create slice for each classification level
-        slice_list = []
         all_classifications = (
-                self.iosystem.index.region_classification +
-                self.iosystem.index.sector_classification
+            self.iosystem.index.region_classification
+            + self.iosystem.index.sector_classification
         )
 
+        # Derive matching positions directly from the MultiIndex instead of materializing a
+        # dense identity matrix. This is dramatically faster and avoids huge allocations,
+        # especially when loading many years for time series analysis.
+        mask = np.ones(len(mi), dtype=bool)
         for level in all_classifications:
-            level_value = self.hierarchy_levels[level]
-            slice_list.append(
-                slice(None) if level_value is None else level_value
-            )
+            level_value = self.hierarchy_levels.get(level)
+            if level_value is None:
+                continue
+            try:
+                target = str(level_value).strip()
+                values = mi.get_level_values(level).astype(str)
+                mask &= (values == target)
+            except Exception:
+                # If anything goes wrong (missing level, mixed types), fall back to direct equality.
+                mask &= (mi.get_level_values(level) == level_value)
 
-        subset = df.loc[idx[*slice_list], :]
-        self.indices = df.index.get_indexer(subset.index).tolist()
+        self.indices = np.flatnonzero(mask).astype(int).tolist()
 
     def _check_regional_analysis(self) -> None:
         """
         Check if regional analysis should be performed.
         """
+        # Time-series / partial-load profiles intentionally avoid expensive regional
+        # recomputation (needs A/L/Y/S and decomposed matrices). For those profiles
+        # we only need selection indices + totals from `total.npy`.
+        if str(getattr(self.iosystem, "_loaded_profile", "full")).strip().lower() != "full":
+            return
+
         region_selected = any(
             self.hierarchy_levels[level]
             for level in self.iosystem.index.region_classification
@@ -351,7 +365,10 @@ class SupplyChain:
 
                 return rounded_value, unit
 
-        raise ValueError(f"Impact '{impact}' not found in unit configuration")
+        # As a last resort, return the raw value without a unit instead of failing hard.
+        # Missing unit metadata should not prevent impact computation/visualization.
+        logging.debug("Unit metadata missing for impact '%s'; returning raw value.", impact)
+        return float(value), ""
 
     def _total_impact_raw(self, impact: str) -> float:
         """
@@ -365,17 +382,96 @@ class SupplyChain:
         impact_key = getattr(idx, "impact_key_from_label", lambda x: x)(str(canon))
         row_label = str((getattr(idx, "impact_key_to_label", {}) or {}).get(str(impact_key), canon) or canon)
 
-        total_matrix = self.iosystem.impact.total
+        total_matrix = getattr(self.iosystem.impact, "total", None)
+        if total_matrix is None:
+            raise RuntimeError("Impact matrix 'total' is not loaded.")
+
+        # Fast path for time-series profile: total.npy may be memory-mapped as a NumPy array.
+        if isinstance(total_matrix, np.ndarray):
+            impacts = list(getattr(self.iosystem, "impacts", []) or [])
+            try:
+                impact_idx = impacts.index(row_label)
+            except Exception:
+                impact_idx = impacts.index(canon)
+
+            n_regions = int(getattr(self.iosystem.index, "amount_regions", 0) or 0)
+            if n_regions <= 0:
+                n_regions = len(list(getattr(self.iosystem, "regions", []) or []))
+            if n_regions <= 0:
+                raise RuntimeError("Could not determine number of regions for total.npy row layout.")
+
+            start = int(impact_idx) * n_regions
+            end = start + n_regions
+            cols = np.asarray(self.indices, dtype=np.int64)
+            block = total_matrix[start:end, :]
+            if cols.size == 0:
+                return float(np.sum(block, dtype=np.float64))
+            return float(np.sum(block[:, cols], dtype=np.float64))
+
+        # Default path: Pandas DataFrame indexed by MultiIndex.
         try:
             row = total_matrix.loc[row_label]
         except Exception:
             row = total_matrix.loc[canon]
 
-        return float(
-            row.iloc[:, self.indices]
-            .sum()
-            .sum()
-        )
+        return float(row.iloc[:, self.indices].sum().sum())
+
+    def _stage_impacts_raw(self, impact: str) -> Dict[str, float]:
+        """
+        Return raw impact totals split across the four value-chain stages + total.
+
+        Used by the time-series stage mode. In partial-load profiles, matrices may be
+        memory-mapped NumPy arrays.
+        """
+        canon = self._canon_impact(str(impact))
+        if canon == "Subcontractors":
+            raise ValueError("Stage time-series is not supported for 'Subcontractors'")
+
+        idx = self.iosystem.index
+        impact_key = getattr(idx, "impact_key_from_label", lambda x: x)(str(canon))
+        row_label = str((getattr(idx, "impact_key_to_label", {}) or {}).get(str(impact_key), canon) or canon)
+
+        matrices = {
+            "resource_extraction": getattr(self.iosystem.impact, "resource_extraction", None),
+            "preliminary_products": getattr(self.iosystem.impact, "preliminary_products", None),
+            "direct_suppliers": getattr(self.iosystem.impact, "direct_suppliers", None),
+            "retail": getattr(self.iosystem.impact, "retail", None),
+            "total": getattr(self.iosystem.impact, "total", None),
+        }
+        if any(v is None for v in matrices.values()):
+            missing = [k for k, v in matrices.items() if v is None]
+            raise RuntimeError(f"Missing impact matrices for stage mode: {', '.join(missing)}")
+
+        # Helper to compute sum for either memmap or DataFrame.
+        def _sum_from_matrix(m):
+            if isinstance(m, np.ndarray):
+                impacts = list(getattr(self.iosystem, "impacts", []) or [])
+                try:
+                    impact_idx = impacts.index(row_label)
+                except Exception:
+                    impact_idx = impacts.index(canon)
+
+                n_regions = int(getattr(self.iosystem.index, "amount_regions", 0) or 0)
+                if n_regions <= 0:
+                    n_regions = len(list(getattr(self.iosystem, "regions", []) or []))
+                if n_regions <= 0:
+                    raise RuntimeError("Could not determine number of regions for total.npy row layout.")
+
+                start = int(impact_idx) * n_regions
+                end = start + n_regions
+                cols = np.asarray(self.indices, dtype=np.int64)
+                block = m[start:end, :]
+                if cols.size == 0:
+                    return float(np.sum(block, dtype=np.float64))
+                return float(np.sum(block[:, cols], dtype=np.float64))
+
+            try:
+                row = m.loc[row_label]
+            except Exception:
+                row = m.loc[canon]
+            return float(row.iloc[:, self.indices].sum().sum())
+
+        return {name: _sum_from_matrix(m) for name, m in matrices.items()}
 
     def _scale_series_values(
         self,
@@ -423,6 +519,48 @@ class SupplyChain:
             return np.asarray(scaled, dtype="float64"), str(unit or "").strip(), 2
         except Exception:
             return vals, "", 2
+
+    def _unit_display_divisor(
+        self,
+        *,
+        impact_label: str,
+        reference_max_abs: float,
+        language: Optional[str] = None,
+        unit_style: str = "short",
+    ) -> Tuple[float, str, int]:
+        """
+        Return (divisor_in_source_units, unit_label, decimals) for consistent display scaling.
+
+        Unlike `_scale_series_values`, the scaling decision is based on `reference_max_abs`
+        provided by the caller (e.g., max across multiple regions/stages), so multiple series
+        can share the exact same unit/divisor.
+        """
+        lang = str(language or self.iosystem.language)
+        canon = self._canon_impact(str(impact_label))
+        if canon == "Subcontractors":
+            return 1.0, "", 0
+
+        idx = self.iosystem.index
+        uf = getattr(idx, "unit_formatter", None)
+        if uf is None:
+            try:
+                unit = self.transform_unit(0.0, str(impact_label))[1]
+            except Exception:
+                unit = ""
+            return 1.0, str(unit or "").strip(), 2
+
+        impact_key = idx.impact_key_from_label(str(impact_label))
+        meta = uf.format_value(str(impact_key), float(reference_max_abs or 0.0), lang, style=str(unit_style))
+
+        unit_key = "unit_long" if str(unit_style).strip().lower() == "long" else "unit_short"
+        unit = str(meta.get(unit_key) or "").strip()
+        chosen_factor = float(meta.get("chosen_factor") or 1.0)
+        core = uf._cfg.core_by_key.get(str(impact_key))  # type: ignore[attr-defined]
+        source_to_base = float(getattr(core, "source_to_base", 1.0) or 1.0) if core else 1.0
+        decimals = int(getattr(core, "decimals", 2) if core else 2)
+        divisor_source = chosen_factor / source_to_base if source_to_base else chosen_factor
+        divisor_source = divisor_source or 1.0
+        return float(divisor_source), unit, decimals
 
     def time_series_table(
         self,
@@ -775,10 +913,10 @@ class SupplyChain:
                 # to all stage values so the row stays comparable and sums to 100%.
                 unit = ""
                 scaled_vals = [res_raw, pre_raw, direct_raw, ret_raw, total_raw]
-                try:
-                    idx = self.iosystem.index
-                    uf = getattr(idx, "unit_formatter", None)
-                    if uf is not None:
+                idx = self.iosystem.index
+                uf = getattr(idx, "unit_formatter", None)
+                if uf is not None:
+                    try:
                         impact_key = idx.impact_key_from_label(str(impact))
                         meta = uf.format_value(str(impact_key), total_raw, self.iosystem.language, style=style)
                         unit_key = "unit_long" if style == "long" else "unit_short"
@@ -791,20 +929,21 @@ class SupplyChain:
                         divisor_source = chosen_factor / source_to_base if source_to_base else chosen_factor
                         divisor_source = divisor_source or 1.0
                         scaled_vals = [v / float(divisor_source) for v in scaled_vals]
-                    else:
+                    except Exception:
+                        # Fall back to raw values and best-effort units below.
+                        unit = ""
+
+                if not unit:
+                    try:
                         res_val, unit = self.transform_unit(res_raw, impact)
                         pre_val, _ = self.transform_unit(pre_raw, impact)
                         direct_val, _ = self.transform_unit(direct_raw, impact)
                         ret_val, _ = self.transform_unit(ret_raw, impact)
                         total_val, _ = self.transform_unit(total_raw, impact)
                         scaled_vals = [res_val, pre_val, direct_val, ret_val, total_val]
-                except Exception:
-                    res_val, unit = self.transform_unit(res_raw, impact)
-                    pre_val, _ = self.transform_unit(pre_raw, impact)
-                    direct_val, _ = self.transform_unit(direct_raw, impact)
-                    ret_val, _ = self.transform_unit(ret_raw, impact)
-                    total_val, _ = self.transform_unit(total_raw, impact)
-                    scaled_vals = [res_val, pre_val, direct_val, ret_val, total_val]
+                    except Exception:
+                        # Keep raw values, leave unit empty.
+                        unit = ""
 
                 if getattr(self.iosystem.index, "units_df", None) is not None:
                     try:
@@ -1392,17 +1531,24 @@ class SupplyChain:
 
         # Data columns:
         # - absolute values: world["value"]
-        # - percentage share: world["percentage"]
-        # For continuous we force absolute; for binned we honor `relative`.
+        # - per-capita values: world["per_capita"] (if population available)
+        # - percentage share: world["percentage"] (sum = 100)
+        #
+        # We support three value modes:
+        # - "value"      -> absolute values (default)
+        # - "per_capita" -> per-capita values (requires population metadata)
+        # - "relative"   -> percentage share (sum = 100%)
         value_mode_norm = str(value_mode or "value").strip().lower()
-        base_col = "per_capita" if value_mode_norm in {"per_capita", "percapita", "pc"} else "value"
+        is_rel_mode = value_mode_norm in {"relative", "rel", "percentage", "percent", "%"}
+        base_col = "percentage" if is_rel_mode else ("per_capita" if value_mode_norm in {"per_capita", "percapita", "pc"} else "value")
         if base_col not in world.columns:
             base_col = "value"
 
         if mode == "continuous":
-            world["data"] = world[base_col].astype(float)       # force absolute/per-capita
+            world["data"] = world[base_col].astype(float)
         else:
-            world["data"] = (world["percentage"] if relative else world[base_col]).astype(float)
+            # If the user explicitly selected relative mode, always bin on percentages.
+            world["data"] = (world["percentage"] if (is_rel_mode or relative) else world[base_col]).astype(float)
 
         data = world["data"].astype(float)
         fig, ax = plt.subplots(1, 1, figsize=(15, 10))
@@ -1455,7 +1601,10 @@ class SupplyChain:
 
                 gd = getattr(self.iosystem.index, "general_dict", {}) or {}
                 column_label = column
-                if base_col == "per_capita":
+                if base_col == "percentage":
+                    column_label = f"{column} ({gd.get('Relative (%)', 'Relative (%)')})"
+                    unit = "%"
+                elif base_col == "per_capita":
                     column_label = f"{column} ({gd.get('Per capita', 'Per capita')})"
                     # Prefer the per-capita-specific unit if available.
                     try:
@@ -1526,12 +1675,15 @@ class SupplyChain:
                 # If we have a single unit, display it in the label
                 gd = getattr(self.iosystem.index, "general_dict", {}) or {}
                 label = column
-                if base_col == "per_capita":
+                if base_col == "percentage":
+                    label = f"{label} ({gd.get('Relative (%)', 'Relative (%)')}) [%]"
+                elif base_col == "per_capita":
                     label = f"{label} ({gd.get('Per capita', 'Per capita')})"
-                if isinstance(units, str):
-                    label = f"{label} [{units}]"
-                elif hasattr(units, "__len__") and len(set(units)) == 1:
-                    label = f"{label} [{list(set(units))[0]}]"
+                if base_col != "percentage":
+                    if isinstance(units, str):
+                        label = f"{label} [{units}]"
+                    elif hasattr(units, "__len__") and len(set(units)) == 1:
+                        label = f"{label} [{list(set(units))[0]}]"
                 cbar.set_label(f"{label}")
 
         else:

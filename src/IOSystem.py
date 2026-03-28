@@ -227,6 +227,17 @@ class IOSystem:
             if need_leontief:
                 files.append(os.path.join(self.current_fast_database_path, "L.npy"))
             return files
+        if profile == "timeseries_stages":
+            files = [
+                os.path.join(self.current_fast_database_path, "impacts", "total.npy"),
+                os.path.join(self.current_fast_database_path, "impacts", "retail.npy"),
+                os.path.join(self.current_fast_database_path, "impacts", "direct_suppliers.npy"),
+                os.path.join(self.current_fast_database_path, "impacts", "resource_extraction.npy"),
+                os.path.join(self.current_fast_database_path, "impacts", "preliminary_products.npy"),
+            ]
+            if need_leontief:
+                files.append(os.path.join(self.current_fast_database_path, "L.npy"))
+            return files
         return [os.path.join(self.current_fast_database_path, "L.npy")]
 
     def calc_all(self) -> None:
@@ -821,15 +832,26 @@ class IOSystem:
             file_path = os.path.join(self.current_fast_database_path, matrix_file)
             setattr(self, matrix_name, pd.DataFrame(np.load(file_path).astype(np.float32)))
 
-        # Create identity matrix
-        self.I = pd.DataFrame(np.identity(9800, dtype=np.float32))
+        # The identity matrix was previously used only to derive selection indices.
+        # Building a dense 9800x9800 DataFrame is expensive and unnecessary; selection
+        # now derives indices directly from the MultiIndex in SupplyChain.
+        self.I = None
 
         # Load impact matrices via the Impact class
-        impact_ids = None if profile == "full" else ["total"]
-        self.impact.load(file_ids=impact_ids)
+        impact_ids = None
+        if profile != "full":
+            if profile == "timeseries_stages":
+                impact_ids = ["total", "retail", "direct_suppliers", "resource_extraction", "preliminary_products"]
+            else:
+                impact_ids = ["total"]
+        self.impact.load(file_ids=impact_ids, mmap_mode=("r" if profile in ("timeseries", "timeseries_stages") else None))
 
-        # Add multi-indices
-        self.index.update_multiindices()
+        # Add multi-indices / labels
+        if profile == "full":
+            self.index.update_multiindices()
+        else:
+            # Lightweight: avoid expensive map refresh + matrix reindexing.
+            self.index.init_for_profile(profile=profile)
         self._loaded_profile = profile
         self._loaded_need_leontief = bool(need_leontief)
 

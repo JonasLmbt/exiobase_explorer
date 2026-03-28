@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import math
 import os
+import html
 import geopandas as gpd
 from datetime import datetime
 
@@ -17,7 +18,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backend_bases import MouseButton
 from shapely.geometry import Point
 
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QThread
+try:
+    from PyQt5.QtWebEngineWidgets import QWebEngineView
+except Exception:  # pragma: no cover
+    QWebEngineView = None  # type: ignore[assignment]
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QMenu, QFileDialog, QFormLayout, QGroupBox,
@@ -295,6 +300,9 @@ class StageAnalysisViewTab(QWidget):
         self.general_dict = self.iosystem.index.general_dict
         self.name = self._translate("Bubble diagram", "Bubble diagram")
         self.tab_widget = parent if isinstance(parent, QTabWidget) else None
+        self._use_web = QWebEngineView is not None
+        self.web = None
+        self._last_stage_fig = None
 
         # Build a UI-friendly hierarchy (prefer category -> localized impact label).
         self.impact_hierarchy: Dict = build_impact_hierarchy(self.iosystem.index)
@@ -335,7 +343,9 @@ class StageAnalysisViewTab(QWidget):
         methods = StageAnalysisRegistry.all_methods()
         self.method_selector = MethodSelectorWidget(methods, tr=self._translate, parent=self)
         self.method_selector.methodChanged.connect(self._on_method_changed)
-        toolbar.addWidget(self.method_selector)
+        # Only show selector when there are multiple methods.
+        if len(methods) > 1:
+            toolbar.addWidget(self.method_selector)
 
         # Multi-impact selector button
         self.impact_selector = ImpactMultiSelectorButton(self.impact_hierarchy, self._translate, parent=self)
@@ -362,9 +372,14 @@ class StageAnalysisViewTab(QWidget):
         toolbar.addStretch(1)
         layout.addLayout(toolbar)
 
-        # Plot area (matplotlib canvas)
+        # Plot area (web rendering when available, matplotlib fallback)
         self.canvas = None
         self.plot_area = QVBoxLayout()
+        self.plot_area.setContentsMargins(0, 0, 0, 0)
+        if self._use_web and QWebEngineView is not None:
+            self.web = QWebEngineView(self)
+            self.web.setContextMenuPolicy(Qt.NoContextMenu)
+            self.plot_area.addWidget(self.web, 1)
         self._create_placeholder()
         layout.addLayout(self.plot_area)
 
@@ -378,6 +393,10 @@ class StageAnalysisViewTab(QWidget):
 
     def _create_placeholder(self):
         """Show an initial placeholder figure while waiting for the first update."""
+        if self._use_web and self.web is not None:
+            safe = html.escape(self._translate("Waiting for update…", "Waiting for update…"))
+            self.web.setHtml(self._html_page(f"<div class='placeholder'>{safe}</div>"))
+            return
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.text(0.5, 0.5, self._translate("Waiting for update…", "Waiting for update…"),
@@ -385,12 +404,52 @@ class StageAnalysisViewTab(QWidget):
         ax.axis('off')
         self._set_canvas(fig)
 
+    def _html_page(self, inner: str) -> str:
+        return (
+            "<!doctype html><html><head><meta charset='utf-8'/>"
+            "<meta name='viewport' content='width=device-width, initial-scale=1'/>"
+            "<style>"
+            "html,body{height:100%;width:100%;margin:0;overflow:hidden;background:#fff;font-family:Segoe UI,Arial,sans-serif;}"
+            ".page{position:absolute;inset:0;display:flex;justify-content:center;align-items:stretch;}"
+            ".content{height:100%;width:100%;padding:8px 12px;box-sizing:border-box;}"
+            ".placeholder{height:100%;width:100%;display:flex;align-items:center;justify-content:center;"
+            "color:#6b7280;font-size:14px;padding:20px;box-sizing:border-box;text-align:center;}"
+            ".img{width:100%;height:100%;object-fit:contain;display:block;}"
+            "</style></head><body>"
+            f"<div class='page'><div class='content'>{inner}</div></div>"
+            "</body></html>"
+        )
+
     def _set_canvas(self, fig):
         """
         Replace the current canvas with a new matplotlib Figure.
 
         Applies margin optimization before attaching the canvas.
         """
+        self._last_stage_fig = fig
+
+        # Web mode: convert the Matplotlib figure to a responsive <img>.
+        if self._use_web and self.web is not None:
+            try:
+                import base64
+                import io
+
+                buf = io.BytesIO()
+                export_bg = bool(getattr(self.ui, "export_graphics_with_background", False))
+                save_kwargs = dict(dpi=220, bbox_inches="tight", edgecolor="none", pad_inches=0.06)
+                if export_bg:
+                    save_kwargs.update(facecolor="white", transparent=False)
+                else:
+                    save_kwargs.update(facecolor="none", transparent=True)
+                fig.savefig(buf, format="png", **save_kwargs)
+                b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                self.web.setHtml(self._html_page(f"<img class='img' src='data:image/png;base64,{b64}'/>"))
+                if hasattr(self, "save_btn"):
+                    self.save_btn.setEnabled(True)
+                return
+            except Exception:
+                logging.exception("Failed to render stage figure as HTML image; falling back to matplotlib canvas.")
+
         if self.canvas:
             self._disconnect_stage_plot_interactions()
             self.plot_area.removeWidget(self.canvas)
@@ -619,7 +678,10 @@ class StageAnalysisViewTab(QWidget):
                     save_kwargs.update(facecolor='white', transparent=False)
                 else:
                     save_kwargs.update(facecolor='none', transparent=True)
-                self.canvas.figure.savefig(fname, **save_kwargs)
+                fig = getattr(self, "_last_stage_fig", None) or (self.canvas.figure if self.canvas else None)
+                if fig is None:
+                    raise RuntimeError("No figure available to save.")
+                fig.savefig(fname, **save_kwargs)
                 QMessageBox.information(
                     self,
                     self._translate("Success", "Success"),
@@ -1881,10 +1943,104 @@ class RegionAnalysisViewTab(QWidget):
             QMessageBox.warning(self, self._translate("Error", "Error"), str(e))
 
 
+class _TimeSeriesWorker(QThread):
+    identified = pyqtSignal(list)
+    yearResult = pyqtSignal(int, dict)
+    yearError = pyqtSignal(int, str)
+
+    def __init__(
+        self,
+        *,
+        iosystem,
+        supplychain_cls,
+        selection_payload: dict,
+        impacts: list[str],
+        mode: str,
+        regions: list[str] | None = None,
+        years: list[int] | None = None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._iosystem = iosystem
+        self._supplychain_cls = supplychain_cls
+        self._payload = dict(selection_payload or {})
+        self._impacts = [str(x) for x in (impacts or []) if str(x).strip()]
+        self._mode = str(mode or "impacts_axes").strip().lower()
+        self._regions = [str(x) for x in (regions or []) if str(x).strip()]
+        self._years = [int(y) for y in (years or [])] if years else None
+
+    def run(self):
+        try:
+            if self._years is not None and len(self._years) > 0:
+                requested_years = sorted(set(int(y) for y in self._years))
+            else:
+                requested_years = sorted(int(y) for y in self._iosystem.available_fast_db_years())
+        except Exception:
+            requested_years = []
+
+        self.identified.emit(requested_years)
+        if not requested_years:
+            return
+
+        profile = "timeseries"
+        if self._mode == "stages":
+            profile = "timeseries_stages"
+
+        for year in requested_years:
+            if self.isInterruptionRequested():
+                return
+            try:
+                peer_io = self._iosystem.load_peer_year(
+                    int(year),
+                    language=getattr(self._iosystem, "language", None),
+                    aggregation=getattr(self._iosystem, "aggregation", None),
+                    load_profile=profile,
+                    need_leontief=False,
+                )
+
+                if self._mode == "regions":
+                    if not self._impacts:
+                        raise ValueError("No impact selected.")
+                    impact = self._impacts[0]
+                    num_sectors = int(getattr(peer_io.index, "amount_sectors", 0) or 0)
+                    if num_sectors <= 0:
+                        num_sectors = len(list(getattr(peer_io, "sectors", []) or []))
+                    if num_sectors <= 0:
+                        raise RuntimeError("Could not determine number of sectors for region slicing.")
+
+                    values = {}
+                    for region in self._regions:
+                        try:
+                            region_idx = list(getattr(peer_io, "regions", []) or []).index(region)
+                        except Exception:
+                            raise ValueError(f"Region '{region}' not found in this aggregation.")
+                        start = int(region_idx) * num_sectors
+                        indices = list(range(start, start + num_sectors))
+                        sc = self._supplychain_cls(peer_io, indices=indices)
+                        values[str(region)] = float(sc._total_impact_raw(impact))
+                    self.yearResult.emit(int(year), values)
+                    continue
+
+                peer_sc = self._supplychain_cls.from_selection_payload(peer_io, self._payload)
+
+                if self._mode == "stages":
+                    if not self._impacts:
+                        raise ValueError("No impact selected.")
+                    impact = self._impacts[0]
+                    self.yearResult.emit(int(year), peer_sc._stage_impacts_raw(impact))
+                else:
+                    values = {imp: float(peer_sc._total_impact_raw(imp)) for imp in self._impacts}
+                    self.yearResult.emit(int(year), values)
+
+            except Exception as e:
+                self.yearError.emit(int(year), str(e))
+
+
 class TimeSeriesAnalysisTab(QWidget):
     """
     Time-series analysis tab with hierarchical multi-impact selection and a line chart.
     """
+    titleChanged = pyqtSignal(str)
 
     def __init__(self, ui, parent=None):
         super().__init__(parent)
@@ -1892,12 +2048,28 @@ class TimeSeriesAnalysisTab(QWidget):
         self.iosystem = self.ui.iosystem
         self.general_dict = self.iosystem.index.general_dict
         self.impact_hierarchy: Dict = build_impact_hierarchy(self.iosystem.index)
+        self._use_web = QWebEngineView is not None
         self.canvas = None
+        self.web = None
+        self._last_export_html: str = ""
 
         self._debounce = QTimer(self)
         self._debounce.setInterval(180)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._update_plot)
+
+        self._worker: Optional[_TimeSeriesWorker] = None
+        self._render_timer = QTimer(self)
+        self._render_timer.setInterval(140)
+        self._render_timer.setSingleShot(True)
+        self._render_timer.timeout.connect(self._render_partial)
+
+        self._ts_mode = "impacts_axes"
+        self._ts_years_all: list[int] = []
+        self._ts_errors: Dict[int, str] = {}
+        self._ts_series: Dict[str, Dict[int, float]] = {}
+        self._ts_regions: list[str] = []
+        self._ts_stage_impact: str = ""
 
         self._did_initial_load = False
         self._init_ui()
@@ -1915,9 +2087,25 @@ class TimeSeriesAnalysisTab(QWidget):
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
 
+        self.mode_combo = QComboBox(self)
+        self.mode_combo.addItem(self._translate("Compare impacts", "Compare impacts"), userData="impacts_axes")
+        self.mode_combo.addItem(self._translate("Stages (one impact)", "Stages (one impact)"), userData="stages")
+        self.mode_combo.addItem(self._translate("Compare regions", "Compare regions"), userData="regions")
+        self.mode_combo.setMinimumWidth(220)
+        self.mode_combo.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        toolbar.addWidget(self.mode_combo)
+
         self.impact_selector = ImpactMultiSelectorButton(self.impact_hierarchy, self._translate, parent=self)
         self.impact_selector.impactsChanged.connect(self._on_impacts_changed)
         toolbar.addWidget(self.impact_selector)
+
+        self.regions_btn = QToolButton(self)
+        self.regions_btn.setToolTip(self._translate("Select regions", "Select regions"))
+        self.regions_btn.setText(self._translate("Regions", "Regions"))
+        self.regions_btn.clicked.connect(self._open_region_dialog)
+        self.regions_btn.setVisible(False)
+        toolbar.addWidget(self.regions_btn)
 
         self.refresh_btn = QToolButton(self)
         self.refresh_btn.setToolTip(self._translate("Refresh", "Refresh"))
@@ -1945,6 +2133,10 @@ class TimeSeriesAnalysisTab(QWidget):
 
         self.plot_area = QVBoxLayout()
         self.plot_area.setContentsMargins(0, 0, 0, 0)
+        if self._use_web and QWebEngineView is not None:
+            self.web = QWebEngineView(self)
+            self.web.setContextMenuPolicy(Qt.NoContextMenu)
+            self.plot_area.addWidget(self.web, 1)
         layout.addLayout(self.plot_area, 1)
 
         self._set_canvas(self._make_placeholder(self._translate("Loading time series…", "Loading time series…")))
@@ -1967,6 +2159,10 @@ class TimeSeriesAnalysisTab(QWidget):
         self.impact_selector.set_defaults(defaults)
 
     def _make_placeholder(self, text: str):
+        if self._use_web and self.web is not None:
+            safe = html.escape(str(text or ""))
+            return self._html_page(f"<div class='placeholder'>{safe}</div>")
+
         fig = plt.figure(figsize=(9.5, 4.8))
         ax = fig.add_subplot(111)
         ax.text(0.5, 0.5, text, ha="center", va="center", transform=ax.transAxes, color="#6b7280")
@@ -1974,7 +2170,35 @@ class TimeSeriesAnalysisTab(QWidget):
         fig.tight_layout()
         return fig
 
+    def _html_page(self, inner: str) -> str:
+        return (
+            "<!doctype html><html><head><meta charset='utf-8'/>"
+            "<meta name='viewport' content='width=device-width, initial-scale=1'/>"
+            "<style>"
+            "html,body{height:100%;width:100%;margin:0;overflow:hidden;background:#fff;font-family:Segoe UI,Arial,sans-serif;}"
+            ".page{position:absolute;inset:0;display:flex;justify-content:center;align-items:stretch;}"
+            ".content{height:100%;width:100%;max-width:none;padding:8px 12px;box-sizing:border-box;}"
+            ".placeholder{height:100%;width:100%;display:flex;align-items:center;justify-content:center;"
+            "color:#6b7280;font-size:14px;padding:20px;box-sizing:border-box;text-align:center;}"
+            "/* Plotly: keep the chart centered and let it use available space. */"
+            ".content .plotly-graph-div{height:100% !important;width:100% !important;margin:0 auto;}"
+            ".content .plot-container{height:100% !important;width:100% !important;}"
+            ".content .svg-container{height:100% !important;width:100% !important;}"
+            "</style></head><body>"
+            f"<div class='page'><div class='content'>{inner}</div></div>"
+            "</body></html>"
+        )
+
     def _set_canvas(self, fig):
+        # Web mode (Plotly): `fig` is HTML.
+        if self._use_web and self.web is not None:
+            html_str = fig if isinstance(fig, str) else self._html_page("<div class='placeholder'>No data.</div>")
+            self._last_export_html = html_str
+            self.web.setHtml(html_str)
+            self.save_btn.setEnabled(True)
+            return
+
+        # Matplotlib fallback mode.
         if self.canvas:
             self.plot_area.removeWidget(self.canvas)
             self.canvas.setParent(None)
@@ -1987,11 +2211,171 @@ class TimeSeriesAnalysisTab(QWidget):
         self.canvas.draw()
         self.save_btn.setEnabled(True)
 
+    def _on_mode_changed(self, *_):
+        self._ts_mode = str(self.mode_combo.currentData() or "impacts_axes")
+        self.regions_btn.setVisible(self._ts_mode == "regions")
+        self._schedule_update()
+
     def _on_impacts_changed(self, _impacts: List[str]):
         self._schedule_update()
 
     def _schedule_update(self):
         self._debounce.start()
+
+    def _cancel_worker(self):
+        w = getattr(self, "_worker", None)
+        if w is None:
+            return
+        try:
+            w.requestInterruption()
+            w.wait(250)
+        except Exception:
+            pass
+        self._worker = None
+
+    def _reset_series_state(self):
+        self._ts_years_all = []
+        self._ts_errors = {}
+        self._ts_series = {}
+        self._ts_stage_impact = ""
+
+    def _default_regions(self) -> list[str]:
+        # Default to the currently selected finest-level region if available;
+        # otherwise pick the first few regions.
+        try:
+            levels = list(getattr(self.ui.supplychain, "hierarchy_levels", {}) or {})
+            region_levels = list(getattr(self.iosystem.index, "region_classification", []) or [])
+            for lvl in reversed(region_levels):
+                val = (getattr(self.ui.supplychain, "hierarchy_levels", {}) or {}).get(lvl)
+                if val:
+                    return [str(val)]
+        except Exception:
+            pass
+        try:
+            regs = list(getattr(self.iosystem, "regions", []) or [])
+            return [str(r) for r in regs[: min(3, len(regs))]]
+        except Exception:
+            return []
+
+    def _open_region_dialog(self):
+        # Hierarchical, searchable region picker (similar UX to SelectionTab).
+        regions = [str(r) for r in (getattr(self.iosystem, "regions", []) or [])]
+        if not regions:
+            QMessageBox.warning(self, self._translate("Error", "Error"), "No regions available.")
+            return
+
+        try:
+            hierarchy = multiindex_to_nested_dict(self.iosystem.index.region_multiindex)
+        except Exception:
+            # Fallback to flat list.
+            hierarchy = {r: {} for r in regions}
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(self._translate("Select regions", "Select regions"))
+        dlg.resize(520, 620)
+        layout = QVBoxLayout(dlg)
+
+        search = QLineEdit(dlg)
+        search.setPlaceholderText(self._translate("Search regions…", "Search regions…"))
+        search.setClearButtonEnabled(True)
+        layout.addWidget(search)
+
+        status = QLabel("", dlg)
+        status.setStyleSheet("color: #6b7280; font-size: 11px; padding: 2px 0 4px 2px;")
+        layout.addWidget(status)
+
+        tree = QTreeWidget(dlg)
+        tree.setHeaderHidden(True)
+        tree.setSelectionMode(QTreeWidget.NoSelection)
+        layout.addWidget(tree, 1)
+
+        selected = set(self._ts_regions or self._default_regions())
+        regions_set = set(regions)
+
+        def add_items(parent, data_dict):
+            for key, val in (data_dict or {}).items():
+                item = QTreeWidgetItem(parent)
+                item.setText(0, str(key))
+                # Make all nodes checkable, parent nodes tristate so they control children.
+                flags = item.flags() | Qt.ItemIsUserCheckable
+                if isinstance(val, dict) and val:
+                    flags |= Qt.ItemIsTristate
+                item.setFlags(flags)
+                item.setCheckState(0, Qt.Checked if str(key) in selected else Qt.Unchecked)
+                if isinstance(val, dict) and val:
+                    add_items(item, val)
+
+        tree.blockSignals(True)
+        try:
+            add_items(tree, hierarchy)
+            tree.collapseAll()
+        finally:
+            tree.blockSignals(False)
+
+        def filter_tree(query: str) -> None:
+            q = str(query or "").strip().lower()
+            root = tree.invisibleRootItem()
+            matches = 0
+
+            def visit(it: QTreeWidgetItem) -> bool:
+                nonlocal matches
+                text = str(it.text(0) or "")
+                is_match = (q in text.lower()) if q else True
+                any_child_visible = False
+                for j in range(it.childCount()):
+                    if visit(it.child(j)):
+                        any_child_visible = True
+                visible = is_match or any_child_visible
+                it.setHidden(not visible)
+                if q and visible:
+                    it.setExpanded(True)
+                if q and is_match:
+                    matches += 1
+                return visible
+
+            tree.blockSignals(True)
+            try:
+                for j in range(root.childCount()):
+                    visit(root.child(j))
+                if not q:
+                    tree.collapseAll()
+            finally:
+                tree.blockSignals(False)
+
+            if q:
+                word = str(self._translate("Matches", "Matches"))
+                status.setText(f"{matches} {word}")
+            else:
+                status.setText("")
+
+        search.textChanged.connect(filter_tree)
+        filter_tree("")
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        layout.addWidget(btns)
+
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        picked: list[str] = []
+
+        def collect_leaves(it: QTreeWidgetItem):
+            if it.childCount() == 0:
+                name = str(it.text(0) or "")
+                if it.checkState(0) == Qt.Checked and name in regions_set:
+                    picked.append(name)
+                return
+            for j in range(it.childCount()):
+                collect_leaves(it.child(j))
+
+        root = tree.invisibleRootItem()
+        for j in range(root.childCount()):
+            collect_leaves(root.child(j))
+
+        self._ts_regions = picked
+        self._schedule_update()
 
     def activate(self):
         if self._did_initial_load:
@@ -2000,45 +2384,674 @@ class TimeSeriesAnalysisTab(QWidget):
         self._schedule_update()
 
     def _update_plot(self):
-        impacts = self.impact_selector.selected_impacts()
+        impacts = [str(x) for x in (self.impact_selector.selected_impacts() or []) if str(x).strip()]
         if not impacts:
             msg = self._translate("Please select impacts.", "Please select impacts.")
             self.status_label.setText(msg)
             self._set_canvas(self._make_placeholder(msg))
             return
 
+        mode = str(self.mode_combo.currentData() or "impacts_axes")
+        regions = list(self._ts_regions or [])
+        if mode == "regions" and not regions:
+            regions = self._default_regions()
+            self._ts_regions = regions
+        if mode == "regions" and not regions:
+            msg = self._translate("Please select regions.", "Please select regions.")
+            self.status_label.setText(msg)
+            self._set_canvas(self._make_placeholder(msg))
+            return
+
+        if mode in ("stages", "regions") and len(impacts) > 1:
+            impacts = [impacts[0]]
+
+        self._cancel_worker()
+        self._reset_series_state()
+        self._ts_mode = mode
+        if mode in ("stages", "regions"):
+            self._ts_stage_impact = impacts[0]
+
+        self.status_label.setText(self._translate("Identifying years…", "Identifying years…"))
+        self._set_canvas(self._make_placeholder(self._translate("Loading time series…", "Loading time series…")))
+
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            fig = self.ui.supplychain.plot_time_series(impacts=impacts)
-            meta = getattr(fig, "_time_series_meta", {}) or {}
-            years_ok = list(meta.get("years") or [])
-            errors = dict(meta.get("errors") or {})
-
-            if errors:
-                self.status_label.setText(
-                    f"{self._translate('Loaded years', 'Loaded years')}: {', '.join(map(str, years_ok))}  |  "
-                    f"{self._translate('Skipped years', 'Skipped years')}: {', '.join(map(str, sorted(errors.keys())))}"
-                )
-            else:
-                self.status_label.setText(
-                    f"{self._translate('Loaded years', 'Loaded years')}: {', '.join(map(str, years_ok))}"
-                )
-
-            self._set_canvas(fig)
+            payload = self.ui.supplychain.selection_payload()
+            self._worker = _TimeSeriesWorker(
+                iosystem=self.iosystem,
+                supplychain_cls=self.ui.supplychain.__class__,
+                selection_payload=payload,
+                impacts=impacts,
+                mode=mode,
+                regions=regions,
+                parent=self,
+            )
+            self._worker.identified.connect(self._on_years_identified)
+            self._worker.yearResult.connect(self._on_year_result)
+            self._worker.yearError.connect(self._on_year_error)
+            self._worker.finished.connect(self._on_worker_finished)
+            self._worker.start()
         except Exception as e:
+            QApplication.restoreOverrideCursor()
             self.status_label.setText(str(e))
             self._set_canvas(self._make_placeholder(f"{self._translate('Error', 'Error')}: {e}"))
+
+    def _on_years_identified(self, years: list):
+        self._ts_years_all = [int(y) for y in (years or [])]
+        if not self._ts_years_all:
+            self.status_label.setText(self._translate("No fast databases available.", "No fast databases available."))
+            self._set_canvas(self._make_placeholder(self._translate("No data.", "No data.")))
+            return
+        self.status_label.setToolTip(", ".join(map(str, self._ts_years_all)))
+        self.status_label.setText(f"{self._translate('Available years', 'Available years')}: {self._years_brief(self._ts_years_all)}")
+
+    def _years_brief(self, years: list[int]) -> str:
+        years = [int(y) for y in (years or [])]
+        if not years:
+            return ""
+        years = sorted(set(years))
+        if len(years) >= 3 and all((years[i] + 1) == years[i + 1] for i in range(len(years) - 1)):
+            return f"{years[0]}–{years[-1]} ({len(years)})"
+        if len(years) <= 6:
+            return ", ".join(map(str, years))
+        return f"{years[0]}–{years[-1]} ({len(years)})"
+
+    def _years_range(self, years: list[int]) -> str:
+        """
+        Like `_years_brief`, but without the extra "(n)" counter.
+        Useful when we already show an explicit loaded/skipped counter elsewhere.
+        """
+        years = [int(y) for y in (years or [])]
+        if not years:
+            return ""
+        years = sorted(set(years))
+        if len(years) >= 3 and all((years[i] + 1) == years[i + 1] for i in range(len(years) - 1)):
+            return f"{years[0]}–{years[-1]}"
+        if len(years) <= 6:
+            return ", ".join(map(str, years))
+        return f"{years[0]}–{years[-1]}"
+
+    def _on_year_result(self, year: int, values: dict):
+        year = int(year)
+        for key, val in (values or {}).items():
+            k = str(key)
+            self._ts_series.setdefault(k, {})[year] = float(val)
+        if not self._render_timer.isActive():
+            self._render_timer.start()
+
+    def _on_year_error(self, year: int, msg: str):
+        self._ts_errors[int(year)] = str(msg)
+        if not self._render_timer.isActive():
+            self._render_timer.start()
+
+    def _on_worker_finished(self):
+        try:
+            self._render_partial(final=True)
         finally:
             QApplication.restoreOverrideCursor()
+
+    def _render_partial(self, final: bool = False):
+        years_loaded = sorted({y for s in self._ts_series.values() for y in s.keys()})
+        if not years_loaded:
+            if self._ts_errors and self._ts_years_all:
+                skipped = sorted(self._ts_errors.keys())
+                self.status_label.setToolTip("\n".join(f"{y}: {self._ts_errors[y]}" for y in skipped[:30]))
+                self.status_label.setText(f"{self._translate('Skipped years', 'Skipped years')}: {self._years_brief(skipped)}")
+            return
+
+        try:
+            title_suffix = ""
+            try:
+                title_suffix = str(self.ui.supplychain._get_title())
+            except Exception:
+                title_suffix = ""
+
+            if self._use_web and self.web is not None:
+                if self._ts_mode == "stages":
+                    fig = self._plotly_stages(years_loaded, self._ts_stage_impact, title_suffix)
+                elif self._ts_mode == "regions":
+                    fig = self._plotly_regions(years_loaded, self._ts_stage_impact or "", title_suffix)
+                else:
+                    fig = self._plotly_impacts_axes(years_loaded, title_suffix)
+            else:
+                if self._ts_mode == "stages":
+                    fig = self._plot_stages(years_loaded, self._ts_stage_impact, title_suffix)
+                elif self._ts_mode == "regions":
+                    fig = self._plot_regions(years_loaded, self._ts_stage_impact or "", title_suffix)
+                else:
+                    fig = self._plot_impacts_axes(years_loaded, title_suffix)
+
+            # Update owning tab title (best-effort, keep it short)
+            try:
+                base = self._translate("Time Series Analysis", "Time Series Analysis")
+                suffix = str(title_suffix or "").strip()
+                if suffix:
+                    # Compact: keep just the last part after "of" label if possible
+                    # but never exceed ~38 chars for tab usability.
+                    title = suffix
+                    if len(title) > 38:
+                        title = title[:35].rstrip() + "…"
+                else:
+                    title = base
+                self.titleChanged.emit(str(title))
+            except Exception:
+                pass
+
+            skipped = sorted(self._ts_errors.keys())
+            total = len(self._ts_years_all) if self._ts_years_all else None
+            loaded_part = f"{len(years_loaded)}" + (f"/{total}" if total is not None else "")
+            if skipped:
+                self.status_label.setToolTip(
+                    f"Loaded: {', '.join(map(str, years_loaded))}\n\nSkipped:\n"
+                    + "\n".join(f"{y}: {self._ts_errors[y]}" for y in skipped[:60])
+                )
+                self.status_label.setText(
+                    f"{self._translate('Loaded years', 'Loaded years')}: {self._years_range(years_loaded)} ({loaded_part})  |  "
+                    f"{self._translate('Skipped years', 'Skipped years')}: {self._years_range(skipped)} ({len(skipped)})"
+                )
+            else:
+                self.status_label.setToolTip(", ".join(map(str, years_loaded)))
+                self.status_label.setText(f"{self._translate('Loaded years', 'Loaded years')}: {self._years_range(years_loaded)} ({loaded_part})")
+            self._set_canvas(fig)
+        except Exception as e:
+            logging.exception("Time series render failed")
+            self.status_label.setText(str(e))
+            self._set_canvas(self._make_placeholder(f"{self._translate('Error', 'Error')}: {e}"))
+
+    def _plot_impacts_axes(self, years: list[int], title_suffix: str):
+        impacts = [k for k in self._ts_series.keys()]
+        if not impacts:
+            return self._make_placeholder(self._translate("No data.", "No data."))
+
+        max_axes = 4
+        impacts = impacts[:max_axes]
+
+        fig, ax0 = plt.subplots(figsize=(10.8, 4.9))
+        fig.patch.set_facecolor("white")
+        ax0.set_facecolor("white")
+        axes = [ax0]
+        for i in range(1, len(impacts)):
+            ax = ax0.twinx()
+            ax.spines["right"].set_position(("axes", 1.0 + 0.12 * (i - 1)))
+            ax.spines["right"].set_color("#d1d5db")
+            ax.tick_params(axis="y", colors="#6b7280")
+            axes.append(ax)
+
+        lines = []
+        labels = []
+        for ax, impact in zip(axes, impacts):
+            raw = np.asarray([self._ts_series.get(impact, {}).get(int(y), np.nan) for y in years], dtype="float64")
+            scaled, unit, _dec = self.ui.supplychain._scale_series_values(
+                impact_label=impact, raw_values=raw, language=self.iosystem.language, unit_style="short"
+            )
+            color = str(self.iosystem.impact.get_color(impact) or "#2563eb")
+            (ln,) = ax.plot(years, scaled, color=color, linewidth=2.2, marker="o", markersize=4.8)
+            # Keep axes readable: show only unit on axis; put full label in legend.
+            ax.set_ylabel(str(unit or "").strip(), color=color, fontsize=9)
+            ax.tick_params(axis="y", labelcolor=color, labelsize=8)
+            lines.append(ln)
+            labels.append(f"{impact}{(' [ ' + unit + ' ]') if unit else ''}")
+
+        ax0.set_xlabel(self._translate("Year", "Year"))
+        ax0.grid(axis="y", color="#e5e7eb", linewidth=0.9)
+        ax0.grid(axis="x", color="#f3f4f6", linewidth=0.7)
+        for sp in ("top", "right"):
+            ax0.spines[sp].set_visible(False)
+        ax0.spines["left"].set_color("#d1d5db")
+        ax0.spines["bottom"].set_color("#d1d5db")
+        ax0.tick_params(axis="both", labelsize=9, colors="#6b7280")
+        ax0.set_title(
+            f"{self._translate('Time Series Analysis', 'Time Series Analysis')}: {title_suffix}".strip(),
+            fontsize=13,
+            fontweight="bold",
+            pad=12,
+        )
+        ax0.legend(lines, labels, loc="upper left", fontsize=8, frameon=False)
+        fig.tight_layout()
+        return fig
+
+    def _plot_stages(self, years: list[int], impact: str, title_suffix: str):
+        if not impact:
+            return self._make_placeholder(self._translate("Please select impacts.", "Please select impacts."))
+
+        stage_order = [
+            ("resource_extraction", self._translate("Resource Extraction", "Resource Extraction")),
+            ("preliminary_products", self._translate("Preliminary Products", "Preliminary Products")),
+            ("direct_suppliers", self._translate("Direct Suppliers", "Direct Suppliers")),
+            ("retail", self._translate("Retail", "Retail")),
+        ]
+        total_key = ("total", self._translate("Total", "Total"))
+
+        all_raw = []
+        for key, _lab in stage_order + [total_key]:
+            all_raw.extend([self._ts_series.get(key, {}).get(int(y), np.nan) for y in years])
+        ref = float(np.nanmax(np.abs(np.asarray(all_raw, dtype="float64")))) if all_raw else 0.0
+        divisor, unit, _dec = self.ui.supplychain._unit_display_divisor(
+            impact_label=impact, reference_max_abs=ref, language=self.iosystem.language, unit_style="short"
+        )
+        divisor = divisor or 1.0
+
+        fig, ax = plt.subplots(figsize=(10.5, 4.8))
+        ax.set_facecolor("white")
+
+        for key, lab in stage_order:
+            raw = np.asarray([self._ts_series.get(key, {}).get(int(y), np.nan) for y in years], dtype="float64")
+            ax.plot(years, raw / divisor, linewidth=2.0, marker="o", markersize=4.2, label=lab)
+
+        raw_total = np.asarray([self._ts_series.get(total_key[0], {}).get(int(y), np.nan) for y in years], dtype="float64")
+        ax.plot(years, raw_total / divisor, linewidth=2.6, marker="o", markersize=4.8, color="#111827", label=total_key[1])
+
+        ax.set_xlabel(self._translate("Year", "Year"))
+        ax.set_ylabel(unit)
+        ax.grid(axis="y", color="#e5e7eb", linewidth=0.9)
+        ax.grid(axis="x", color="#f3f4f6", linewidth=0.7)
+        ax.set_title(
+            f"{self._translate('Time Series Analysis', 'Time Series Analysis')} ({impact}): {title_suffix}".strip(),
+            fontsize=13,
+            fontweight="bold",
+            pad=12,
+        )
+        ax.legend(loc="upper left", fontsize=8, frameon=False, ncol=2)
+        fig.tight_layout()
+        return fig
+
+    def _plot_regions(self, years: list[int], impact: str, title_suffix: str):
+        if not impact:
+            return self._make_placeholder(self._translate("Please select impacts.", "Please select impacts."))
+
+        regions = list(self._ts_regions or [])
+        if not regions:
+            return self._make_placeholder(self._translate("Please select regions.", "Please select regions."))
+
+        all_raw = []
+        for r in regions:
+            all_raw.extend([self._ts_series.get(r, {}).get(int(y), np.nan) for y in years])
+        ref = float(np.nanmax(np.abs(np.asarray(all_raw, dtype="float64")))) if all_raw else 0.0
+        divisor, unit, _dec = self.ui.supplychain._unit_display_divisor(
+            impact_label=impact, reference_max_abs=ref, language=self.iosystem.language, unit_style="short"
+        )
+        divisor = divisor or 1.0
+
+        fig, ax = plt.subplots(figsize=(10.5, 4.8))
+        ax.set_facecolor("white")
+
+        for r in regions:
+            raw = np.asarray([self._ts_series.get(r, {}).get(int(y), np.nan) for y in years], dtype="float64")
+            ax.plot(years, raw / divisor, linewidth=2.1, marker="o", markersize=4.4, label=r)
+
+        ax.set_xlabel(self._translate("Year", "Year"))
+        ax.set_ylabel(unit)
+        ax.grid(axis="y", color="#e5e7eb", linewidth=0.9)
+        ax.grid(axis="x", color="#f3f4f6", linewidth=0.7)
+        ax.set_title(
+            f"{self._translate('Time Series Analysis', 'Time Series Analysis')} ({impact}): {title_suffix}".strip(),
+            fontsize=13,
+            fontweight="bold",
+            pad=12,
+        )
+        ax.legend(loc="upper left", fontsize=8, frameon=False, ncol=2)
+        fig.tight_layout()
+        return fig
+
+    def _plotly_wrap(self, fig) -> str:
+        try:
+            import plotly.io as pio
+        except Exception as e:
+            return self._html_page(f"<div class='placeholder'>Plotly missing: {html.escape(str(e))}</div>")
+
+        # Force a real resize inside QWebEngine: Plotly sometimes sticks to its default (700x450)
+        # without an explicit resize trigger.
+        # NOTE: `post_script` must be raw JS (no <script> wrapper). QWebEngine will otherwise
+        # try to execute the "<" and throw `Unexpected token '<'`.
+        post_script = (
+            "(function(){"
+            "var gd=document.getElementById('plotly_ts');"
+            "if(!gd) return;"
+            "function resize(){"
+            " try{"
+            "  var container=document.querySelector('.content')||gd.parentElement||document.body;"
+            "  var r=container.getBoundingClientRect();"
+            "  var w=Math.max(10,Math.floor(r.width));"
+            "  var h=Math.max(10,Math.floor(r.height));"
+            "  if(w<320||h<220){"
+            "    w=Math.max(320,(document.documentElement&&document.documentElement.clientWidth)||w);"
+            "    h=Math.max(220,(document.documentElement&&document.documentElement.clientHeight)||h);"
+            "  }"
+            "  if(w<320||h<220){return;}"
+            "  gd.style.width=w+'px'; gd.style.height=h+'px';"
+            "  if(window.Plotly){"
+            "    try{Plotly.relayout(gd,{width:w,height:h});}catch(e){}"
+            "    try{if(Plotly.Plots) Plotly.Plots.resize(gd);}catch(e){}"
+            "  }"
+            " }catch(e){}"
+            "}"
+            "if(window.ResizeObserver){"
+            " try{var ro=new ResizeObserver(function(){resize();}); ro.observe(document.querySelector('.content')||gd.parentElement||document.body);}catch(e){}"
+            "}"
+            "window.addEventListener('resize', resize);"
+            "setTimeout(resize,50); setTimeout(resize,250); setTimeout(resize,800);"
+            "resize();"
+            "})();"
+        )
+
+        inner = pio.to_html(
+            fig,
+            include_plotlyjs="cdn",
+            full_html=False,
+            default_width="100%",
+            default_height="100%",
+            div_id="plotly_ts",
+            post_script=post_script,
+            config={
+                "displaylogo": False,
+                "responsive": True,
+                "displayModeBar": "hover",
+                "modeBarButtonsToRemove": [
+                    "lasso2d",
+                    "select2d",
+                    "autoScale2d",
+                    "toggleSpikelines",
+                ],
+            },
+            # Plotly >= 6 dropped legacy axis props like `titlefont`. In practice Plotly.js can
+            # still render many figures even when Python-side validation complains, so keep this permissive.
+            validate=False,
+        )
+        return self._html_page(inner)
+
+    def _plotly_impacts_axes(self, years: list[int], title_suffix: str) -> str:
+        try:
+            import plotly.graph_objects as go
+        except Exception as e:
+            return self._html_page(f"<div class='placeholder'>Plotly missing: {html.escape(str(e))}</div>")
+
+        impacts = [k for k in self._ts_series.keys()]
+        if not impacts:
+            return self._html_page("<div class='placeholder'>No data.</div>")
+        # Multiple overlaying y-axes get crowded quickly; keep this conservative.
+        impacts = impacts[:3]
+
+        fmt_num = getattr(getattr(self.iosystem, "index", None), "format_number_localized", None)
+
+        fig = go.Figure()
+        axis_defs = {}
+
+        for i, impact in enumerate(impacts):
+            raw = np.asarray([self._ts_series.get(impact, {}).get(int(y), np.nan) for y in years], dtype="float64")
+            scaled, unit, _dec = self.ui.supplychain._scale_series_values(
+                impact_label=impact, raw_values=raw, language=self.iosystem.language, unit_style="short"
+            )
+            color = str(self.iosystem.impact.get_color(impact) or "#2563eb")
+            decimals = int(_dec or 0)
+
+            def _fmt(v: float) -> str:
+                try:
+                    if not np.isfinite(float(v)):
+                        return "—"
+                except Exception:
+                    return "—"
+                if callable(fmt_num):
+                    try:
+                        return str(fmt_num(float(v), decimals=decimals, lang=self.iosystem.language))
+                    except Exception:
+                        pass
+                return f"{float(v):.{max(0, decimals)}f}"
+
+            custom = [f"{_fmt(v)}{(' ' + unit) if unit else ''}".strip() for v in np.asarray(scaled, dtype="float64")]
+
+            yref = "y" if i == 0 else f"y{i+1}"
+            fig.add_trace(
+                go.Scatter(
+                    x=years,
+                    y=np.asarray(scaled, dtype="float64"),
+                    mode="lines+markers",
+                    line={"color": color, "width": 2.6, "shape": "spline", "smoothing": 1.05},
+                    marker={"size": 6, "color": color},
+                    name=f"{impact}{(' [ ' + unit + ' ]') if unit else ''}",
+                    yaxis=yref,
+                    customdata=custom,
+                    hovertemplate="%{x}: %{customdata}<extra></extra>",
+                )
+            )
+
+            axis_title = str(unit or "").strip()
+            if i == 0:
+                axis_defs["yaxis"] = dict(
+                    title=dict(text=axis_title, font=dict(color=color)),
+                    tickfont=dict(color=color),
+                    showgrid=True,
+                    gridcolor="#eef2ff",
+                    zeroline=False,
+                    ticks="outside",
+                    ticklen=4,
+                    automargin=True,
+                )
+            else:
+                axis_defs[f"yaxis{i+1}"] = dict(
+                    title=dict(text=axis_title, font=dict(color=color)),
+                    tickfont=dict(color=color),
+                    overlaying="y",
+                    side="right",
+                    anchor="free",
+                    position=min(0.98, 0.90 + 0.08 * (i - 1)),
+                    showgrid=False,
+                    zeroline=False,
+                    ticks="outside",
+                    ticklen=4,
+                    automargin=True,
+                )
+
+        fig.update_layout(
+            template="simple_white",
+            title=dict(
+                text=f"{self._translate('Time Series Analysis', 'Time Series Analysis')}: {title_suffix}".strip(),
+                x=0.5,
+                xanchor="center",
+                y=1.12,
+                yanchor="top",
+                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color="#111827"),
+                pad=dict(b=8),
+            ),
+            autosize=True,
+            margin=dict(l=55, r=55 + 50 * max(0, len(impacts) - 2), t=85, b=45),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+            hovermode="x",
+            hoverlabel=dict(bgcolor="white", font=dict(size=12, family="Segoe UI, Arial, sans-serif")),
+            font=dict(family="Segoe UI, Arial, sans-serif", size=13, color="#111827"),
+            xaxis=dict(title=self._translate("Year", "Year"), showspikes=False, automargin=True),
+            **axis_defs,
+        )
+        fig.update_xaxes(showgrid=True, gridcolor="#eef2ff", zeroline=False, ticks="outside", ticklen=4)
+        return self._plotly_wrap(fig)
+
+    def _plotly_stages(self, years: list[int], impact: str, title_suffix: str) -> str:
+        if not impact:
+            return self._html_page(f"<div class='placeholder'>{html.escape(self._translate('Please select impacts.', 'Please select impacts.'))}</div>")
+        try:
+            import plotly.graph_objects as go
+        except Exception as e:
+            return self._html_page(f"<div class='placeholder'>Plotly missing: {html.escape(str(e))}</div>")
+
+        stage_order = [
+            ("resource_extraction", self._translate("Resource Extraction", "Resource Extraction")),
+            ("preliminary_products", self._translate("Preliminary Products", "Preliminary Products")),
+            ("direct_suppliers", self._translate("Direct Suppliers", "Direct Suppliers")),
+            ("retail", self._translate("Retail", "Retail")),
+            ("total", self._translate("Total", "Total")),
+        ]
+
+        all_raw = []
+        for key, _lab in stage_order:
+            all_raw.extend([self._ts_series.get(key, {}).get(int(y), np.nan) for y in years])
+        ref = float(np.nanmax(np.abs(np.asarray(all_raw, dtype="float64")))) if all_raw else 0.0
+        divisor, unit, _dec = self.ui.supplychain._unit_display_divisor(
+            impact_label=impact, reference_max_abs=ref, language=self.iosystem.language, unit_style="short"
+        )
+        divisor = divisor or 1.0
+        decimals = int(_dec or 0)
+        fmt_num = getattr(getattr(self.iosystem, "index", None), "format_number_localized", None)
+
+        def _fmt(v: float) -> str:
+            try:
+                if not np.isfinite(float(v)):
+                    return "—"
+            except Exception:
+                return "—"
+            if callable(fmt_num):
+                try:
+                    return str(fmt_num(float(v), decimals=decimals, lang=self.iosystem.language))
+                except Exception:
+                    pass
+            return f"{float(v):.{max(0, decimals)}f}"
+
+        fig = go.Figure()
+        palette = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#111827"]
+        for (key, lab), col in zip(stage_order, palette):
+            raw = np.asarray([self._ts_series.get(key, {}).get(int(y), np.nan) for y in years], dtype="float64")
+            yvals = raw / divisor
+            custom = [f"{_fmt(v)}{(' ' + unit) if unit else ''}".strip() for v in np.asarray(yvals, dtype="float64")]
+            fig.add_trace(
+                go.Scatter(
+                    x=years,
+                    y=yvals,
+                    mode="lines+markers",
+                    name=str(lab),
+                    line={"width": 2.6 if key == "total" else 2.2, "color": col, "shape": "spline", "smoothing": 1.05},
+                    marker={"size": 6, "color": col},
+                    customdata=custom,
+                    hovertemplate="%{x}: %{customdata}<extra></extra>",
+                )
+            )
+
+        fig.update_layout(
+            template="simple_white",
+            title=dict(
+                text=f"{self._translate('Time Series Analysis', 'Time Series Analysis')} ({impact}): {title_suffix}".strip(),
+                x=0.5,
+                xanchor="center",
+                y=1.12,
+                yanchor="top",
+                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color="#111827"),
+                pad=dict(b=8),
+            ),
+            autosize=True,
+            margin=dict(l=55, r=35, t=85, b=45),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+            hovermode="x",
+            hoverlabel=dict(bgcolor="white", font=dict(size=12, family="Segoe UI, Arial, sans-serif")),
+            font=dict(family="Segoe UI, Arial, sans-serif", size=13, color="#111827"),
+            xaxis=dict(title=self._translate("Year", "Year"), showspikes=False, automargin=True),
+            yaxis=dict(title=str(unit or "").strip()),
+        )
+        fig.update_xaxes(showgrid=True, gridcolor="#eef2ff", zeroline=False, ticks="outside", ticklen=4)
+        fig.update_yaxes(showgrid=True, gridcolor="#eef2ff", zeroline=False, ticks="outside", ticklen=4)
+        return self._plotly_wrap(fig)
+
+    def _plotly_regions(self, years: list[int], impact: str, title_suffix: str) -> str:
+        if not impact:
+            return self._html_page(f"<div class='placeholder'>{html.escape(self._translate('Please select impacts.', 'Please select impacts.'))}</div>")
+
+        regions = list(self._ts_regions or [])
+        if not regions:
+            return self._html_page(f"<div class='placeholder'>{html.escape(self._translate('Please select regions.', 'Please select regions.'))}</div>")
+        try:
+            import plotly.graph_objects as go
+        except Exception as e:
+            return self._html_page(f"<div class='placeholder'>Plotly missing: {html.escape(str(e))}</div>")
+
+        all_raw = []
+        for r in regions:
+            all_raw.extend([self._ts_series.get(r, {}).get(int(y), np.nan) for y in years])
+        ref = float(np.nanmax(np.abs(np.asarray(all_raw, dtype="float64")))) if all_raw else 0.0
+        divisor, unit, _dec = self.ui.supplychain._unit_display_divisor(
+            impact_label=impact, reference_max_abs=ref, language=self.iosystem.language, unit_style="short"
+        )
+        divisor = divisor or 1.0
+        decimals = int(_dec or 0)
+        fmt_num = getattr(getattr(self.iosystem, "index", None), "format_number_localized", None)
+
+        def _fmt(v: float) -> str:
+            try:
+                if not np.isfinite(float(v)):
+                    return "—"
+            except Exception:
+                return "—"
+            if callable(fmt_num):
+                try:
+                    return str(fmt_num(float(v), decimals=decimals, lang=self.iosystem.language))
+                except Exception:
+                    pass
+            return f"{float(v):.{max(0, decimals)}f}"
+
+        fig = go.Figure()
+        for r in regions:
+            raw = np.asarray([self._ts_series.get(r, {}).get(int(y), np.nan) for y in years], dtype="float64")
+            yvals = raw / divisor
+            custom = [f"{_fmt(v)}{(' ' + unit) if unit else ''}".strip() for v in np.asarray(yvals, dtype="float64")]
+            fig.add_trace(
+                go.Scatter(
+                    x=years,
+                    y=yvals,
+                    mode="lines+markers",
+                    name=str(r),
+                    line={"width": 2.3, "shape": "spline", "smoothing": 1.05},
+                    marker={"size": 6},
+                    customdata=custom,
+                    hovertemplate="%{x}: %{customdata}<extra></extra>",
+                )
+            )
+
+        fig.update_layout(
+            template="simple_white",
+            title=dict(
+                text=f"{self._translate('Time Series Analysis', 'Time Series Analysis')} ({impact}): {title_suffix}".strip(),
+                x=0.5,
+                xanchor="center",
+                y=1.12,
+                yanchor="top",
+                font=dict(size=18, family="Segoe UI, Arial, sans-serif", color="#111827"),
+                pad=dict(b=8),
+            ),
+            autosize=True,
+            margin=dict(l=55, r=35, t=85, b=45),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+            hovermode="x",
+            hoverlabel=dict(bgcolor="white", font=dict(size=12, family="Segoe UI, Arial, sans-serif")),
+            font=dict(family="Segoe UI, Arial, sans-serif", size=13, color="#111827"),
+            xaxis=dict(title=self._translate("Year", "Year"), showspikes=False, automargin=True),
+            yaxis=dict(title=str(unit or "").strip()),
+        )
+        fig.update_xaxes(showgrid=True, gridcolor="#eef2ff", zeroline=False, ticks="outside", ticklen=4)
+        fig.update_yaxes(showgrid=True, gridcolor="#eef2ff", zeroline=False, ticks="outside", ticklen=4)
+        return self._plotly_wrap(fig)
 
     def _default_export_filename(self) -> str:
         home = os.path.expanduser("~")
         downloads = os.path.join(home, "Downloads")
         target_dir = downloads if os.path.isdir(downloads) else home
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return os.path.join(target_dir, f"time_series_{ts}.png")
+        ext = "html" if (self._use_web and self.web is not None) else "png"
+        return os.path.join(target_dir, f"time_series_{ts}.{ext}")
 
     def _save_plot(self):
+        # Web (Plotly) export: write the currently shown HTML.
+        if self._use_web and self.web is not None:
+            fname, _ = QFileDialog.getSaveFileName(
+                self,
+                self._translate("Save plot", "Save plot"),
+                self._default_export_filename(),
+                "HTML (*.html)",
+            )
+            if not fname:
+                return
+            try:
+                with open(fname, "w", encoding="utf-8") as f:
+                    f.write(self._last_export_html or self._html_page("<div class='placeholder'>No data.</div>"))
+            except Exception as e:
+                QMessageBox.warning(self, self._translate("Error", "Error"), str(e))
+            return
+
+        # Matplotlib fallback export.
         if not self.canvas or not getattr(self.canvas, "figure", None):
             return
 
@@ -2088,9 +3101,100 @@ class LazyTimeSeriesAnalysisHost(QWidget):
             self._layout.removeWidget(self._placeholder)
             self._placeholder.deleteLater()
             self._placeholder = None
-            self._view = TimeSeriesAnalysisTab(ui=self.ui, parent=self)
+            self._view = TimeSeriesAnalysisTabContainer(ui=self.ui, parent=self)
             self._layout.addWidget(self._view)
         self._view.activate()
+
+
+class TimeSeriesAnalysisTabContainer(QWidget):
+    """
+    Container managing multiple TimeSeriesAnalysisTab instances.
+    Includes a '+' tab that allows users to add multiple time-series views.
+    """
+
+    def __init__(self, ui, parent=None):
+        super().__init__(parent)
+        self.ui = ui
+        self.iosystem = self.ui.iosystem
+        self.general_dict = self.iosystem.index.general_dict
+        self._adding_tab = False
+        self._init_ui()
+
+    def _translate(self, key: str, fallback: str) -> str:
+        val = self.general_dict.get(key, fallback)
+        if val is None:
+            return str(fallback)
+        return str(val)
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        self.tabs.setTabsClosable(True)
+        self.tabs.tabCloseRequested.connect(self._on_tab_close_requested)
+        self.tabs.tabBarClicked.connect(self._on_tab_clicked)
+
+        self._add_view_tab()
+        self._add_plus_tab()
+
+        layout.addWidget(self.tabs)
+
+    def activate(self):
+        # Ensure the current view (first tab by default) runs its initial render.
+        try:
+            w = self.tabs.currentWidget()
+            if hasattr(w, "activate"):
+                w.activate()
+        except Exception:
+            pass
+
+    def _add_plus_tab(self):
+        plus_widget = QWidget()
+        idx = self.tabs.addTab(plus_widget, "+")
+        self.tabs.tabBar().setTabButton(idx, QTabBar.RightSide, None)
+        self.tabs.tabBar().setTabButton(idx, QTabBar.LeftSide, None)
+
+    def _on_tab_clicked(self, index):
+        if self._adding_tab:
+            return
+        if index == self.tabs.count() - 1:
+            self._adding_tab = True
+            try:
+                self._add_view_tab()
+            finally:
+                self._adding_tab = False
+
+    def _on_tab_close_requested(self, index):
+        content = self.tabs.count() - 1
+        if content <= 1:
+            return
+        if index == self.tabs.count() - 1:
+            return
+        self.tabs.removeTab(index)
+
+    def _add_view_tab(self):
+        new_tab = TimeSeriesAnalysisTab(ui=self.ui, parent=self.tabs)
+        # Set a sane initial name; the tab will update via titleChanged after render.
+        base = self._translate("Time Series Analysis", "Time Series Analysis")
+        insert_at = max(0, self.tabs.count() - 1)
+        idx = self.tabs.insertTab(insert_at, new_tab, base)
+        self.tabs.setCurrentIndex(idx)
+
+        new_tab.titleChanged.connect(lambda t, w=new_tab: self._set_tab_title(w, t))
+
+        try:
+            new_tab.activate()
+        except Exception:
+            pass
+
+        plus_idx = self.tabs.count() - 1
+        if plus_idx >= 0 and self.tabs.tabText(plus_idx) == "+":
+            self.tabs.tabBar().setTabButton(plus_idx, QTabBar.RightSide, None)
+            self.tabs.tabBar().setTabButton(plus_idx, QTabBar.LeftSide, None)
+
+    def _set_tab_title(self, widget: QWidget, title: str):
+        idx = self.tabs.indexOf(widget)
+        if idx != -1:
+            self.tabs.setTabText(idx, str(title))
 
 
 class MethodSelectorWidget(QWidget):
@@ -2686,15 +3790,25 @@ class WorldMapSettingsDialog(QDialog):
         fl_class = QFormLayout(gb_class)
         fl_class.setLabelAlignment(Qt.AlignRight)
 
-        # Value mode: absolute vs per-capita (applies to both binned and continuous)
+        # Value mode: absolute vs relative vs per-capita (applies to both binned and continuous)
         self.value_mode = QComboBox(self)
         self.value_mode.addItem(self._t("Absolute", "Absolute"), userData="value")
+        self.value_mode.addItem(self._t("Relative (sum = 100%)", "Relative (sum = 100%)"), userData="relative")
         self.value_mode.addItem(self._t("Per capita", "Per capita"), userData="per_capita")
         saved_vm = str(self._settings.get("value_mode", "value") or "value").strip().lower()
-        idx_vm = self.value_mode.findData("per_capita" if saved_vm in {"per_capita", "percapita", "pc"} else "value")
+        # Backward-compat: older states used ("value","per_capita") plus separate `relative` flag.
+        if saved_vm in {"value"} and bool(self._settings.get("relative", False)):
+            saved_vm = "relative"
+        if saved_vm in {"relative", "rel", "percentage", "percent", "%"}:
+            wanted = "relative"
+        elif saved_vm in {"per_capita", "percapita", "pc"}:
+            wanted = "per_capita"
+        else:
+            wanted = "value"
+        idx_vm = self.value_mode.findData(wanted)
         if idx_vm != -1:
             self.value_mode.setCurrentIndex(idx_vm)
-        self.value_mode.setToolTip(self._t("Choose whether to show absolute values or values per capita (requires population data)."))
+        self.value_mode.setToolTip(self._t("Choose whether to show absolute values, relative shares (sum = 100%), or values per capita (requires population data)."))
         fl_class.addRow(self._t("Values"), self.value_mode)
 
         # Mode: binned vs continuous (controls which section is active)
@@ -2809,8 +3923,11 @@ class WorldMapSettingsDialog(QDialog):
         """Ensure incompatible controls are disabled when per-capita mode is selected."""
         vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
         is_pc = vm in {"per_capita", "percapita", "pc"}
+        is_rel = vm in {"relative", "rel", "percentage", "percent", "%"}
         if is_pc and self.relative.isChecked():
             self.relative.setChecked(False)
+        if is_rel:
+            self.relative.setChecked(True)
         self._refresh_visibility()
 
     def _refresh_visibility(self):
@@ -2826,9 +3943,11 @@ class WorldMapSettingsDialog(QDialog):
         is_power = self.norm_mode.currentText() == "power" if is_cont else False
         vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
         is_pc = vm in {"per_capita", "percapita", "pc"}
+        is_rel = vm in {"relative", "rel", "percentage", "percent", "%"}
 
         # Binned controls
-        self.relative.setEnabled(is_binned and not is_pc)
+        self.relative.setEnabled(is_binned and (not is_pc) and (not is_rel))
+        self.relative.setVisible(not is_rel)
         self.k.setEnabled(is_binned)
         self.custom_bins.setEnabled(is_binned)
         self.gb_binned.setEnabled(is_binned)
@@ -2849,8 +3968,13 @@ class WorldMapSettingsDialog(QDialog):
         mode = self.mode.currentText()
         vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
         is_pc = vm in {"per_capita", "percapita", "pc"}
+        is_rel = vm in {"relative", "rel", "percentage", "percent", "%"}
         if mode == "continuous":
-            if is_pc:
+            if is_rel:
+                self.explain_mode.setText(self._t(
+                    "Continuous: Colors and legend use relative shares (sum = 100%). Use Norm + Robust clipping + Gamma to control contrast."
+                ))
+            elif is_pc:
                 self.explain_mode.setText(self._t(
                     "Continuous: Colors and legend use per-capita values (requires population data). Use Norm + Robust clipping + Gamma to control contrast."
                 ))
@@ -2859,7 +3983,11 @@ class WorldMapSettingsDialog(QDialog):
                     "Continuous: Colors and legend use absolute values. Use Norm + Robust clipping + Gamma to control contrast."
                 ))
         else:
-            if is_pc:
+            if is_rel:
+                self.explain_mode.setText(self._t(
+                    "Binned: Discrete classes based on percentage shares (sum = 100%)."
+                ))
+            elif is_pc:
                 self.explain_mode.setText(self._t(
                     "Binned: Discrete classes based on per-capita values (requires population data)."
                 ))
@@ -2894,13 +4022,18 @@ class WorldMapSettingsDialog(QDialog):
         if self.reverse_cb.isChecked() and not str(cmap_internal).endswith("_r"):
             cmap_internal = f"{cmap_internal}_r"
         vm = str(self.value_mode.currentData() or self.value_mode.currentText() or "value").strip().lower()
-        vm_norm = "per_capita" if vm in {"per_capita", "percapita", "pc"} else "value"
+        if vm in {"relative", "rel", "percentage", "percent", "%"}:
+            vm_norm = "relative"
+        elif vm in {"per_capita", "percapita", "pc"}:
+            vm_norm = "per_capita"
+        else:
+            vm_norm = "value"
         return {
             "color": cmap_internal,
             "show_legend": bool(self.legend.isChecked()),
             "title": self.title.currentText().strip() or "",
             "mode": self.mode.currentText(),
-            "relative": bool(self.relative.isChecked()) if vm_norm == "value" else False,
+            "relative": True if vm_norm == "relative" else (bool(self.relative.isChecked()) if vm_norm == "value" else False),
             "value_mode": vm_norm,
             "k": int(self.k.value()),
             "custom_bins": self._parse_bins(),

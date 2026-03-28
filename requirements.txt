@@ -6,6 +6,7 @@ shapely
 mapclassify
 openpyxl
 PyQt5 
+PyQtWebEngine
 plotly 
 networkx
 pyqtdarktheme
