@@ -743,7 +743,7 @@ class Index:
                 "exiobase_to_map_df": ("standards.xlsx", "map", None),
                 "impacts_df": ("impacts.xlsx", self.iosystem.language, None),
                 # Canonical EXIOBASE impact keys, used to map translated labels -> impact_key
-                "impacts_exiobase_df": ("impacts.xlsx", "Exiobase", None),
+                "impacts_exiobase_df": ("impacts.xlsx", "English", None),
                 "impact_color_df": ("standards.xlsx", "impact_color", None),
                 # NOTE: `units.xlsx` was redesigned to hold display scaling + i18n labels (new schema).
                 # The legacy UI parts (SupplyChain.transform_unit, etc.) still expect the old per-language
@@ -925,7 +925,7 @@ class Index:
         for p in candidates:
             if not p or not os.path.exists(p):
                 continue
-            for sheet in ("exiobase", "Exiobase"):
+            for sheet in ("exiobase", "English"):
                 try:
                     df = pd.read_excel(p, sheet_name=sheet)
                     if "impact_key" not in df.columns:
@@ -1325,7 +1325,7 @@ class Index:
                     df = pd.read_excel(p, sheet_name="population")
                     regions_exiobase = df.iloc[:, 0].astype(str).str.strip().tolist()
                 else:
-                    df = pd.read_excel(p, sheet_name="Exiobase")
+                    df = pd.read_excel(p, sheet_name="English")
                     regions_exiobase = df.iloc[:, -1].astype(str).str.strip().tolist()
                 if regions_exiobase:
                     break
@@ -1402,7 +1402,7 @@ class Index:
                     df = pd.read_excel(p, sheet_name="population")
                     regions_exiobase = df.iloc[:, 0].astype(str).str.strip().tolist()
                 else:
-                    df = pd.read_excel(p, sheet_name="Exiobase")
+                    df = pd.read_excel(p, sheet_name="English")
                     regions_exiobase = df.iloc[:, -1].astype(str).str.strip().tolist()
                 if regions_exiobase:
                     break

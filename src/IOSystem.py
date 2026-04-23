@@ -34,7 +34,7 @@ class IOSystem:
     language, year, and coordinating data loading and calculations.
     """
 
-    def __init__(self, year: int = 2022, language: str = "Exiobase", aggregation: str = "exiobase"):
+    def __init__(self, year: int = 2022, language: str = "English", aggregation: str = "exiobase"):
         """
         Initializes the IOSystem with paths and parameters for the database.
 
